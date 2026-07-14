@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Order Chit</title>
+<meta name="theme-color" content="#EDF0E1">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Order Chit">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<style>
+:root{--paper:#EDF0E1;--paper-dark:#E1E5D2;--ink:#24261F;--ink-soft:#4A4C3F;--muted:#6B6B5D;--stamp:#8B2E2E;--stamp-dark:#6E2222;--mustard:#C98A2C;--line:#c9cdb9;--card:#F7F8EF;}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+html,body{margin:0;padding:0;height:100%;}
+body{background:var(--paper);background-image:repeating-linear-gradient(0deg,rgba(0,0,0,0.02) 0px,rgba(0,0,0,0.02) 1px,transparent 1px,transparent 3px);font-family:ui-monospace,"Cascadia Code","SF Mono",Consolas,monospace;color:var(--ink);min-height:100vh;display:flex;justify-content:center;}
+#app{width:100%;max-width:460px;min-height:100vh;padding:18px 16px 40px;position:relative;}
+.brand{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:14px;padding-bottom:10px;border-bottom:2px solid var(--ink);}
+.brand h1{font-size:15px;letter-spacing:3px;text-transform:uppercase;margin:0;font-weight:700;}
+.brand .tag{font-size:10px;color:var(--muted);letter-spacing:1px;}
+.crumb{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:14px;flex-wrap:wrap;}
+.crumb button{background:none;border:none;color:var(--ink-soft);cursor:pointer;font-family:inherit;font-size:11px;letter-spacing:1px;text-transform:uppercase;padding:2px 0;text-decoration:underline;}
+.card{background:var(--card);border:1px solid var(--line);border-radius:3px;padding:14px 14px;margin-bottom:10px;box-shadow:0 1px 0 rgba(0,0,0,0.04);}
+.supplier-row{display:flex;align-items:center;justify-content:space-between;cursor:pointer;}
+.supplier-row:active{background:var(--paper-dark);}
+.supplier-name{font-size:14px;font-weight:700;letter-spacing:0.5px;}
+.supplier-meta{font-size:11px;color:var(--muted);margin-top:3px;}
+.chev{color:var(--muted);font-size:14px;}
+.badge{display:inline-block;font-size:9px;letter-spacing:1px;text-transform:uppercase;padding:2px 6px;border:1px solid var(--line);border-radius:10px;color:var(--muted);margin-left:6px;vertical-align:middle;}
+.badge.sms{border-color:var(--mustard);color:var(--mustard);}
+.badge.email{border-color:var(--ink-soft);color:var(--ink-soft);}
+.btn{font-family:inherit;border:1.5px solid var(--ink);background:transparent;color:var(--ink);padding:9px 14px;font-size:11px;letter-spacing:1.5px;text-transform:uppercase;border-radius:2px;cursor:pointer;}
+.btn:active{background:var(--ink);color:var(--paper);}
+.btn-block{width:100%;}
+.btn-ghost{border-color:var(--line);color:var(--muted);}
+.btn-danger{border-color:var(--stamp);color:var(--stamp);}
+.btn-danger:active{background:var(--stamp);color:#fff;}
+.add-row{display:flex;justify-content:center;margin-top:14px;}
+.product-line{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px dashed var(--line);}
+.product-line:last-child{border-bottom:none;}
+.product-info{flex:1;min-width:0;}
+.product-name{font-size:13px;font-weight:600;}
+.product-unit{font-size:10px;color:var(--muted);letter-spacing:0.5px;}
+.stepper{display:flex;align-items:center;gap:0;}
+.stepper button{width:28px;height:28px;border:1px solid var(--ink);background:var(--card);font-size:15px;cursor:pointer;display:flex;align-items:center;justify-content:center;font-family:inherit;}
+.stepper button:first-child{border-radius:2px 0 0 2px;}
+.stepper button:last-child{border-radius:0 2px 2px 0;}
+.stepper button:active{background:var(--ink);color:var(--paper);}
+.stepper .qty-input{width:38px;text-align:center;font-size:14px;font-weight:700;border:none;border-top:1px solid var(--ink);border-bottom:1px solid var(--ink);height:28px;background:#fff;font-family:inherit;padding:0;-webkit-appearance:none;appearance:none;border-radius:0;}
+.del-x{background:none;border:none;color:var(--muted);font-size:15px;cursor:pointer;padding:2px 4px;font-family:inherit;margin-left:4px;}
+.ticket{background:var(--card);border:1px solid var(--line);padding:0;position:relative;margin-bottom:16px;clip-path:polygon(0% 0%,3% 2%,6% 0%,9% 2%,12% 0%,15% 2%,18% 0%,21% 2%,24% 0%,27% 2%,30% 0%,33% 2%,36% 0%,39% 2%,42% 0%,45% 2%,48% 0%,51% 2%,54% 0%,57% 2%,60% 0%,63% 2%,66% 0%,69% 2%,72% 0%,75% 2%,78% 0%,81% 2%,84% 0%,87% 2%,90% 0%,93% 2%,96% 0%,100% 0%,100% 100%,0% 100%);padding-top:14px;}
+.ticket-inner{padding:0 16px 16px;}
+.ticket-head{text-align:center;padding-bottom:10px;border-bottom:1px solid var(--ink);margin-bottom:10px;}
+.ticket-head .who{font-size:14px;font-weight:800;letter-spacing:2px;text-transform:uppercase;}
+.ticket-head .when{font-size:10px;color:var(--muted);margin-top:4px;letter-spacing:1px;}
+.ticket-line{display:flex;align-items:baseline;gap:6px;font-size:12.5px;padding:4px 0;}
+.ticket-line .name{white-space:nowrap;}
+.ticket-line .leader{flex:1;border-bottom:1px dotted var(--muted);margin:0 4px;transform:translateY(-3px);}
+.ticket-line .qty{font-weight:700;white-space:nowrap;}
+.ticket-total{display:flex;justify-content:space-between;margin-top:10px;padding-top:8px;border-top:1px solid var(--ink);font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);}
+.date-row{display:flex;align-items:center;gap:8px;margin:4px 0 14px;font-size:12px;}
+.date-row label{white-space:nowrap;color:var(--muted);letter-spacing:0.5px;text-transform:uppercase;font-size:10.5px;}
+.date-row input{flex:1;font-family:inherit;font-size:13px;padding:7px 8px;border:1px solid var(--ink);border-radius:2px;background:#fff;}
+.preview-box{background:#fff;border:1px solid var(--line);border-radius:2px;padding:10px;margin-bottom:14px;font-size:11.5px;white-space:pre-wrap;color:var(--ink-soft);max-height:180px;overflow-y:auto;}
+.stamp-wrap{display:flex;justify-content:center;margin:10px 0 6px;}
+.stamp{width:120px;height:120px;border:3px double var(--stamp);border-radius:50%;color:var(--stamp);display:flex;align-items:center;justify-content:center;text-align:center;font-weight:800;font-size:13px;letter-spacing:2px;text-transform:uppercase;transform:rotate(-8deg);background:transparent;cursor:pointer;transition:transform 0.15s ease;line-height:1.3;text-decoration:none;}
+.stamp:active{transform:rotate(-8deg) scale(0.92);}
+.stamp.sent{border-color:var(--stamp-dark);color:var(--stamp-dark);animation:thump 0.35s ease;}
+@keyframes thump{0%{transform:rotate(-8deg) scale(1);}40%{transform:rotate(-8deg) scale(1.15);opacity:0.6;}100%{transform:rotate(-8deg) scale(1);}}
+.fallback-note{font-size:10.5px;color:var(--muted);text-align:center;margin-top:8px;letter-spacing:0.5px;}
+.form-card{background:var(--card);border:1.5px dashed var(--ink);padding:14px;margin-bottom:10px;border-radius:3px;}
+.form-card label{font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);display:block;margin-bottom:3px;margin-top:8px;}
+.form-card input,.form-card textarea{width:100%;font-family:inherit;font-size:13px;padding:8px;border:1px solid var(--ink);border-radius:2px;background:#fff;resize:vertical;}
+.hint{text-transform:none;letter-spacing:0;font-weight:400;color:var(--muted);}
+.toggle-row{display:flex;gap:8px;margin-top:4px;}
+.toggle-btn{flex:1;font-family:inherit;font-size:11px;letter-spacing:1px;text-transform:uppercase;padding:8px;border:1px solid var(--ink);background:var(--card);color:var(--muted);border-radius:2px;cursor:pointer;}
+.toggle-btn.active{background:var(--ink);color:var(--paper);}
+.chip-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+.chip{font-family:inherit;font-size:10.5px;padding:5px 10px;border:1px solid var(--line);border-radius:12px;background:#fff;color:var(--ink-soft);cursor:pointer;}
+.settings-section{margin-top:18px;padding-top:14px;border-top:1px dashed var(--ink);}
+.settings-section .sec-title{font-size:11px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);margin-bottom:4px;}
+.form-actions{display:flex;gap:8px;margin-top:12px;}
+.form-actions .btn{flex:1;}
+.empty{text-align:center;padding:30px 10px;color:var(--muted);font-size:12px;letter-spacing:0.5px;}
+textarea.copybox{width:100%;font-family:inherit;font-size:11px;padding:8px;border:1px solid var(--line);border-radius:2px;margin-top:8px;background:#fff;height:90px;}
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:8px 16px;border-radius:3px;font-size:11px;letter-spacing:1px;text-transform:uppercase;z-index:50;opacity:0;pointer-events:none;transition:opacity 0.2s ease;}
+.toast.show{opacity:1;}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div class="toast" id="toast"></div>
+<script>
+const STORAGE_KEY = "order-chit-suppliers";
+const VERSION_KEY = "order-chit-seedver";
+const SEED_VERSION = "2026-07-14d";
+let state = { suppliers: [], view: {name:"list"} };
+
+function defaultTemplate(contactType){
+  return {
+    mode:"list",
+    greeting: contactType==='sms' ? "Hey bro," : "Hi,\nIts Rabindra from Almo.",
+    orderLine: contactType==='sms' ? "Orders for {date}:" : "Order for {date}:",
+    dateDefault: contactType==='sms' ? 'tomorrow' : 'Tuesday',
+    signoff:"Thank you",
+    subject: contactType==='email' ? "Order for {date}" : "",
+    body:""
+  };
+}
+
+const seed = [
+  { id:"s1", name:"Highland Poultry", contactType:"sms", contact:"0406316174", address:"",
+    products:[
+      {id:"p1", name:"Chicken Thigh", unit:"kg", qty:0, inc:5}
+    ],
+    template: defaultTemplate("sms")
+  },
+  { id:"s2", name:"Southern Fresh", contactType:"email", contact:"Orders@southernfresh.com.au", address:"",
+    products:[
+      {id:"p2", name:"Raw Frozen Prawns", unit:"pkt", qty:0, inc:1},
+      {id:"p3", name:"Lolli Squid", unit:"box", qty:0, inc:1}
+    ],
+    template: defaultTemplate("email")
+  },
+  { id:"s3", name:"Dick Stone", contactType:"email", contact:"orders@dickstone.com.au", address:"",
+    products:[
+      {id:"p4", name:"Speck", unit:"pkt", qty:0, inc:1},
+      {id:"p5", name:"Beef Mince", unit:"kg", qty:0, inc:1},
+      {id:"p6", name:"Beef Cheeks", unit:"kg", qty:0, inc:1},
+      {id:"p7", name:"Kransky Sausage", unit:"pkt", qty:0, inc:1},
+      {id:"p8", name:"Pork Mince", unit:"kg", qty:0, inc:1},
+      {id:"p9", name:"Italian Style Thick Sausages Mix", unit:"kg", qty:0, inc:1},
+      {id:"p10", name:"Mortadella", unit:"kg", qty:0, inc:1},
+      {id:"p11", name:"Pork Belly (no bone)", unit:"kg", qty:0, inc:1}
+    ],
+    template: defaultTemplate("email")
+  },
+  { id:"s4", name:"Michael's Fresh", contactType:"sms", contact:"0426606439", address:"",
+    products:[
+      {id:"p12", name:"Sliced Button Mushroom", unit:"kg", qty:0, inc:1},
+      {id:"p13", name:"Flat White Mushrooms", unit:"kg", qty:0, inc:1},
+      {id:"p14", name:"Green Capsicum", unit:"kg", qty:0, inc:1},
+      {id:"p15", name:"Pineapple", unit:"each", qty:0, inc:1},
+      {id:"p16", name:"Peeled Garlic", unit:"kg", qty:0, inc:1},
+      {id:"p17", name:"Royal Blue Potatoes", unit:"kg", qty:0, inc:1},
+      {id:"p18", name:"Peeled White Onions", unit:"kg", qty:0, inc:1},
+      {id:"p19", name:"Lemon", unit:"kg", qty:0, inc:1},
+      {id:"p20", name:"Black Garlic", unit:"pkt", qty:0, inc:1},
+      {id:"p21", name:"Chives", unit:"market bunch", qty:0, inc:1},
+      {id:"p22", name:"Red Cherry Tomatoes", unit:"punnet", qty:0, inc:1},
+      {id:"p23", name:"Vine Tomatoes", unit:"kg", qty:0, inc:1},
+      {id:"p24", name:"Rocket", unit:"kg", qty:0, inc:0.5},
+      {id:"p25", name:"Leb. Cucumber", unit:"kg", qty:0, inc:1},
+      {id:"p26", name:"Parsley", unit:"market bunch", qty:0, inc:1},
+      {id:"p27", name:"Salad Burnette", unit:"punnet", qty:0, inc:1},
+      {id:"p28", name:"Spanish Onions", unit:"kg", qty:0, inc:1},
+      {id:"p29", name:"Brown Onions", unit:"kg", qty:0, inc:1},
+      {id:"p30", name:"Celery", unit:"each", qty:0, inc:1},
+      {id:"p31", name:"Carrots", unit:"kg", qty:0, inc:1},
+      {id:"p32", name:"Rosemary", unit:"bunch", qty:0, inc:1},
+      {id:"p33", name:"Whole Garlic", unit:"kg", qty:0, inc:0.5},
+      {id:"p34", name:"Fennel Bulb", unit:"each", qty:0, inc:1}
+    ],
+    template: defaultTemplate("sms")
+  },
+  { id:"s5", name:"Deni Foods", contactType:"email", contact:"orders@denifoods.com.au", address:"",
+    products:[
+      {id:"p35", name:"Fior di Latte", unit:"kg", qty:0, inc:2},
+      {id:"p36", name:"Fresh Lasagna Sheets", unit:"kg", qty:0, inc:1},
+      {id:"p37", name:"Gastronomi Gnocchi", unit:"kg", qty:0, inc:1},
+      {id:"p38", name:"Squid Ink Spaghetti", unit:"kg", qty:0, inc:1},
+      {id:"p39", name:"Calamarata Pasta", unit:"kg", qty:0, inc:1}
+    ],
+    template: defaultTemplate("email")
+  },
+  { id:"s6", name:"Pino's", contactType:"sms", contact:"+61415742587", address:"",
+    products:[
+      {id:"p40", name:"Pepperoni", unit:"box", qty:0, inc:1}
+    ],
+    template: { mode:"freeform", greeting:"", orderLine:"", signoff:"", subject:"", dateDefault:"Wednesday",
+      body:"Hi Michael,\n\nCould we please get {qty} {unit} of pepperoni on {date} please?\n\nThank you" }
+  }
+];
+
+function uid(){ return Math.random().toString(36).slice(2,9); }
+function formatQty(q){ return String(Math.round(q*100)/100); }
+
+function loadData(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    const ver = localStorage.getItem(VERSION_KEY);
+    if(!raw || ver !== SEED_VERSION){
+      state.suppliers = seed;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(seed));
+    } else {
+      state.suppliers = JSON.parse(raw);
+    }
+    localStorage.setItem(VERSION_KEY, SEED_VERSION);
+  }catch(e){
+    state.suppliers = seed;
+  }
+  render();
+}
+
+function saveData(){
+  try{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.suppliers));
+  }catch(e){ showToast('Not saved - storage unavailable'); }
+}
+
+function lastOrderKey(id){ return 'order-chit-lastorder-'+id; }
+function getLastOrder(id){
+  try{ const r = localStorage.getItem(lastOrderKey(id)); return r ? JSON.parse(r) : null; }
+  catch(e){ return null; }
+}
+function saveLastOrder(supplier){
+  const map = {};
+  supplier.products.forEach(p=>{ if(p.qty>0) map[p.id] = p.qty; });
+  try{ localStorage.setItem(lastOrderKey(supplier.id), JSON.stringify(map)); }catch(e){}
+}
+
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 1800);
+}
+
+function goto(view){ state.view = view; render(); }
+function findSupplier(id){ return state.suppliers.find(s=>s.id===id); }
+
+function escapeHtml(str){
+  return String(str||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function buildMessage(supplier, items, dateWord){
+  const t = supplier.template;
+  if(t.mode === 'freeform'){
+    const first = items[0] || {name:'', qty:0, unit:''};
+    const itemLines = items.map(p=>`${p.name}: ${formatQty(p.qty)} ${p.unit}`).join('\n');
+    return (t.body||'')
+      .replaceAll('{date}', dateWord)
+      .replaceAll('{items}', itemLines)
+      .replaceAll('{qty}', formatQty(first.qty))
+      .replaceAll('{unit}', first.unit)
+      .replaceAll('{product}', first.name);
+  }
+  const lines = [];
+  if(t.greeting) lines.push(t.greeting);
+  if(t.orderLine) lines.push(t.orderLine.replaceAll('{date}', dateWord));
+  lines.push('');
+  items.forEach(p=> lines.push(`${p.name}: ${formatQty(p.qty)} ${p.unit}`));
+  lines.push('');
+  if(t.signoff) lines.push(t.signoff);
+  return lines.join('\n');
+}
+
+function buildSendLink(supplier, message, subject){
+  if(supplier.contactType === 'email'){
+    return `mailto:${supplier.contact}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(message)}`;
+  } else {
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+    const sep = isIOS ? '&' : '?';
+    return `sms:${supplier.contact}${sep}body=${encodeURIComponent(message)}`;
+  }
+}
+
+function render(){
+  const app = document.getElementById('app');
+  const v = state.view;
+  let html = `<div class="brand"><h1>Order Chit</h1><span class="tag">v0.4 local</span></div>`;
+  if(v.name === "list") html += renderList();
+  else if(v.name === "supplier") html += renderSupplier(v.id);
+  else if(v.name === "ticket") html += renderTicket(v.id);
+  else if(v.name === "addSupplier") html += renderAddSupplier();
+  else if(v.name === "addProduct") html += renderAddProduct(v.id);
+  else if(v.name === "supplierSettings") html += renderSupplierSettings(v.id);
+  app.innerHTML = html;
+  attachHandlers();
+}
+
+function renderList(){
+  let rows = state.suppliers.map(s => `
+    <div class="card supplier-row" data-open-supplier="${s.id}">
+      <div>
+        <div class="supplier-name">${escapeHtml(s.name)} <span class="badge ${s.contactType}">${s.contactType==='sms'?'SMS':'EMAIL'}</span></div>
+        <div class="supplier-meta">${s.products.length} item${s.products.length===1?'':'s'} on file${s.address ? ' &middot; '+escapeHtml(s.address) : ''}</div>
+      </div>
+      <div class="chev">&rsaquo;</div>
+    </div>
+  `).join('');
+  if(state.suppliers.length===0) rows = `<div class="empty">No suppliers yet.<br>Add your first one below.</div>`;
+  return `
+    <div class="crumb">SUPPLIERS</div>
+    ${rows}
+    <div class="add-row"><button class="btn" data-goto="addSupplier">+ Add Supplier</button></div>
+  `;
+}
+
+function renderSupplier(id){
+  const s = findSupplier(id);
+  if(!s) return `<div class="empty">Supplier not found.</div>`;
+  let lines = s.products.map(p => `
+    <div class="product-line">
+      <div class="product-info">
+        <div class="product-name">${escapeHtml(p.name)}</div>
+        <div class="product-unit">${escapeHtml(p.unit)}${(p.inc && p.inc!==1) ? ' &middot; +'+formatQty(p.inc)+'/tap' : ''}</div>
+      </div>
+      <div class="stepper">
+        <button data-qty-dec="${p.id}">&minus;</button>
+        <input class="qty-input" data-qty-input="${p.id}" value="${formatQty(p.qty)}" inputmode="decimal" type="text">
+        <button data-qty-inc="${p.id}">+</button>
+      </div>
+      <button class="del-x" data-del-product="${p.id}" title="remove item">&times;</button>
+    </div>
+  `).join('');
+  if(s.products.length===0) lines = `<div class="empty">No products yet for this supplier.</div>`;
+  const hasQty = s.products.some(p=>p.qty>0);
+  const last = getLastOrder(s.id);
+  const hasLast = last && Object.keys(last).length>0;
+  return `
+    <div class="crumb"><button data-goto="list">&larr; Suppliers</button> / ${escapeHtml(s.name)}</div>
+    <div class="card">${lines}</div>
+    ${hasLast ? `<div style="margin-top:10px;"><button class="btn btn-block" data-repeat="${s.id}">&#8635; Repeat Last Order</button></div>` : ''}
+    <div class="add-row"><button class="btn btn-ghost" data-goto="addProduct" data-supplier="${s.id}">+ Add Product</button></div>
+    <div style="margin-top:10px;"><button class="btn btn-ghost btn-block" data-goto="supplierSettings" data-supplier="${s.id}">Settings</button></div>
+    <div style="margin-top:10px;"><button class="btn btn-block" data-goto="ticket" data-supplier="${s.id}" ${hasQty?'':'disabled style="opacity:0.4"'}>Review Order &rarr;</button></div>
+  `;
+}
+
+function renderAddSupplier(){
+  return `
+    <div class="crumb"><button data-goto="list">&larr; Back</button></div>
+    <div class="form-card">
+      <div style="font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;">New Supplier</div>
+      <label>Supplier name</label>
+      <input id="ns-name" placeholder="e.g. Ocean Fresh Seafood">
+      <label>Contact method</label>
+      <div class="toggle-row">
+        <button type="button" class="toggle-btn active" data-contact-toggle="sms">Text / SMS</button>
+        <button type="button" class="toggle-btn" data-contact-toggle="email">Email</button>
+      </div>
+      <label id="contact-label">Phone number</label>
+      <input id="ns-contact" placeholder="+61412345678" inputmode="tel">
+      <label>Address (optional)</label>
+      <input id="ns-address" placeholder="street, suburb">
+      <div class="form-actions">
+        <button class="btn" data-goto="list">Cancel</button>
+        <button class="btn" data-save-supplier="1">Save</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderSupplierSettings(id){
+  const s = findSupplier(id);
+  if(!s) return `<div class="empty">Supplier not found.</div>`;
+  return `
+    <div class="crumb"><button data-goto="supplier" data-supplier="${s.id}">&larr; Back</button></div>
+    <div class="form-card">
+      <div style="font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;">Supplier Settings</div>
+      <label>Supplier name</label>
+      <input id="es-name" value="${escapeHtml(s.name)}">
+      <label>Contact method</label>
+      <div class="toggle-row">
+        <button type="button" class="toggle-btn ${s.contactType==='sms'?'active':''}" data-contact-toggle="sms">Text / SMS</button>
+        <button type="button" class="toggle-btn ${s.contactType==='email'?'active':''}" data-contact-toggle="email">Email</button>
+      </div>
+      <label id="contact-label">${s.contactType==='sms'?'Phone number':'Order email'}</label>
+      <input id="es-contact" value="${escapeHtml(s.contact)}" inputmode="${s.contactType==='sms'?'tel':'email'}">
+      <label>Address (optional)</label>
+      <input id="es-address" value="${escapeHtml(s.address||'')}">
+      <div class="settings-section">
+        <div class="sec-title">Message Template</div>
+        <label>Greeting</label>
+        <textarea id="es-greeting" rows="2">${escapeHtml(s.template.greeting)}</textarea>
+        <label>Order line <span class="hint">(use {date} for the day word)</span></label>
+        <input id="es-orderline" value="${escapeHtml(s.template.orderLine)}">
+        <label>Default day word</label>
+        <input id="es-dateDefault" value="${escapeHtml(s.template.dateDefault)}" placeholder="tomorrow, Tuesday...">
+        <label>Sign-off</label>
+        <textarea id="es-signoff" rows="2">${escapeHtml(s.template.signoff)}</textarea>
+        <div id="subject-wrap" style="${s.contactType==='email'?'':'display:none;'}">
+          <label>Email subject <span class="hint">(use {date} too)</span></label>
+          <input id="es-subject" value="${escapeHtml(s.template.subject||'')}">
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="btn" data-goto="supplier" data-supplier="${s.id}">Cancel</button>
+        <button class="btn" data-save-settings="${s.id}">Save</button>
+      </div>
+      <div style="margin-top:14px;">
+        <button class="btn btn-block btn-danger" data-del-supplier="${s.id}">Delete Supplier</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderAddProduct(supplierId){
+  return `
+    <div class="crumb"><button data-goto="supplier" data-supplier="${supplierId}">&larr; Back</button></div>
+    <div class="form-card">
+      <div style="font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;">New Product</div>
+      <label>Product name</label>
+      <input id="np-name" placeholder="e.g. Buffalo Mozzarella">
+      <label>Unit</label>
+      <input id="np-unit" value="kg">
+      <div class="chip-row">
+        ${['kg','pkt','each','box','punnet','bunch','L'].map(u=>`<button type="button" class="chip" data-unit-chip="${u}">${u}</button>`).join('')}
+      </div>
+      <label>Increment per tap</label>
+      <input id="np-inc" value="1" inputmode="decimal">
+      <div class="form-actions">
+        <button class="btn" data-goto="supplier" data-supplier="${supplierId}">Cancel</button>
+        <button class="btn" data-save-product="${supplierId}">Save</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderTicket(supplierId){
+  const s = findSupplier(supplierId);
+  if(!s) return `<div class="empty">Supplier not found.</div>`;
+  const items = s.products.filter(p=>p.qty>0);
+  const dateWord = s.template.dateDefault;
+  let lines = items.map(p => `
+    <div class="ticket-line">
+      <span class="name">${escapeHtml(p.name)}</span>
+      <span class="leader"></span>
+      <span class="qty">${formatQty(p.qty)} ${escapeHtml(p.unit)}</span>
+    </div>
+  `).join('');
+  const channel = s.contactType==='sms' ? 'Messages' : 'your mail app';
+  const initMsg = buildMessage(s, items, dateWord);
+  const initSubject = (s.template.subject||'').replaceAll('{date}', dateWord);
+  const initLink = buildSendLink(s, initMsg, initSubject);
+  return `
+    <div class="crumb"><button data-goto="supplier" data-supplier="${s.id}">&larr; Back to items</button></div>
+    <div class="ticket">
+      <div class="ticket-inner">
+        <div class="ticket-head">
+          <div class="who">${escapeHtml(s.name)}</div>
+          <div class="when">${s.address ? escapeHtml(s.address)+' &middot; ' : ''}${s.contactType==='sms'?'via text':'via email'}</div>
+        </div>
+        ${lines || '<div class="empty">Nothing selected.</div>'}
+        <div class="ticket-total"><span>${items.length} line item${items.length===1?'':'s'}</span><span>chef's copy</span></div>
+      </div>
+    </div>
+    <div class="date-row">
+      <label>Order for</label>
+      <input id="date-word" value="${escapeHtml(dateWord)}">
+    </div>
+    <div class="preview-box" id="msg-preview">${escapeHtml(initMsg)}</div>
+    <div class="stamp-wrap">
+      <a class="stamp" id="send-stamp" data-supplier="${s.id}" href="${initLink}">Send<br>Order</a>
+    </div>
+    <div class="fallback-note">Tap opens ${channel} with the order filled in.<br>If nothing opens, use Copy below.</div>
+    <div style="margin-top:14px;">
+      <button class="btn btn-block btn-ghost" id="copy-btn" data-supplier="${s.id}">Copy Order Text</button>
+      <textarea class="copybox" id="copy-area" style="display:none;" readonly></textarea>
+    </div>
+  `;
+}
+
+function bindContactToggle(){
+  document.querySelectorAll('[data-contact-toggle]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      document.querySelectorAll('[data-contact-toggle]').forEach(b=>b.classList.remove('active'));
+      el.classList.add('active');
+      const type = el.dataset.contactToggle;
+      const label = document.getElementById('contact-label');
+      const input = document.getElementById('ns-contact') || document.getElementById('es-contact');
+      if(label && input){
+        if(type==='sms'){ label.textContent='Phone number'; input.placeholder='+61412345678'; input.setAttribute('inputmode','tel'); }
+        else { label.textContent='Order email'; input.placeholder='orders@supplier.com.au'; input.setAttribute('inputmode','email'); }
+      }
+      const subjWrap = document.getElementById('subject-wrap');
+      if(subjWrap) subjWrap.style.display = type==='email' ? 'block' : 'none';
+    });
+  });
+}
+
+function attachHandlers(){
+  document.querySelectorAll('[data-open-supplier]').forEach(el=>{
+    el.addEventListener('click', ()=> goto({name:"supplier", id:el.dataset.openSupplier}));
+  });
+  document.querySelectorAll('[data-goto]').forEach(el=>{
+    el.addEventListener('click', ()=>{ goto({name:el.dataset.goto, id:el.dataset.supplier}); });
+  });
+  document.querySelectorAll('[data-qty-inc]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const s = state.suppliers.find(s=>s.products.some(p=>p.id===el.dataset.qtyInc));
+      const p = s.products.find(p=>p.id===el.dataset.qtyInc);
+      p.qty = Math.round((p.qty+(p.inc||1))*100)/100; saveData(); render();
+    });
+  });
+  document.querySelectorAll('[data-qty-dec]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const s = state.suppliers.find(s=>s.products.some(p=>p.id===el.dataset.qtyDec));
+      const p = s.products.find(p=>p.id===el.dataset.qtyDec);
+      p.qty = Math.max(0, Math.round((p.qty-(p.inc||1))*100)/100); saveData(); render();
+    });
+  });
+  document.querySelectorAll('[data-qty-input]').forEach(el=>{
+    el.addEventListener('change', ()=>{
+      const s = state.suppliers.find(s=>s.products.some(p=>p.id===el.dataset.qtyInput));
+      const p = s.products.find(p=>p.id===el.dataset.qtyInput);
+      let v = parseFloat(el.value);
+      if(isNaN(v)||v<0) v = 0;
+      p.qty = Math.round(v*100)/100;
+      saveData(); render();
+    });
+  });
+  document.querySelectorAll('[data-del-product]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const s = state.suppliers.find(s=>s.products.some(p=>p.id===el.dataset.delProduct));
+      s.products = s.products.filter(p=>p.id!==el.dataset.delProduct);
+      saveData(); render();
+    });
+  });
+  document.querySelectorAll('[data-repeat]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const s = findSupplier(el.dataset.repeat);
+      const last = getLastOrder(s.id) || {};
+      s.products.forEach(p=>{ p.qty = last[p.id] ? last[p.id] : 0; });
+      saveData(); render(); showToast('Last order loaded');
+    });
+  });
+  document.querySelectorAll('[data-unit-chip]').forEach(el=>{
+    el.addEventListener('click', ()=>{ document.getElementById('np-unit').value = el.dataset.unitChip; });
+  });
+  bindContactToggle();
+
+  const saveSupBtn = document.querySelector('[data-save-supplier]');
+  if(saveSupBtn){
+    saveSupBtn.addEventListener('click', ()=>{
+      const name = document.getElementById('ns-name').value.trim();
+      const contact = document.getElementById('ns-contact').value.trim();
+      const address = document.getElementById('ns-address').value.trim();
+      const activeToggle = document.querySelector('[data-contact-toggle].active');
+      const contactType = activeToggle ? activeToggle.dataset.contactToggle : 'sms';
+      if(!name || !contact){ showToast('Name and contact required'); return; }
+      state.suppliers.push({ id: uid(), name, contactType, contact, address, products: [], template: defaultTemplate(contactType) });
+      saveData();
+      goto({name:"list"});
+    });
+  }
+
+  const saveProdBtn = document.querySelector('[data-save-product]');
+  if(saveProdBtn){
+    saveProdBtn.addEventListener('click', ()=>{
+      const supplierId = saveProdBtn.dataset.saveProduct;
+      const s = findSupplier(supplierId);
+      const name = document.getElementById('np-name').value.trim();
+      const unit = document.getElementById('np-unit').value.trim() || 'kg';
+      let inc = parseFloat(document.getElementById('np-inc').value); if(isNaN(inc)||inc<=0) inc = 1;
+      if(!name){ showToast('Product name required'); return; }
+      s.products.push({ id: uid(), name, unit, qty:0, inc: Math.round(inc*100)/100 });
+      saveData();
+      goto({name:"supplier", id:supplierId});
+    });
+  }
+
+  const saveSettingsBtn = document.querySelector('[data-save-settings]');
+  if(saveSettingsBtn){
+    saveSettingsBtn.addEventListener('click', ()=>{
+      const id = saveSettingsBtn.dataset.saveSettings;
+      const s = findSupplier(id);
+      const name = document.getElementById('es-name').value.trim();
+      const contact = document.getElementById('es-contact').value.trim();
+      const address = document.getElementById('es-address').value.trim();
+      const activeToggle = document.querySelector('[data-contact-toggle].active');
+      const contactType = activeToggle ? activeToggle.dataset.contactToggle : s.contactType;
+      if(!name || !contact){ showToast('Name and contact required'); return; }
+      s.name=name; s.contact=contact; s.address=address; s.contactType=contactType;
+      s.template.greeting = document.getElementById('es-greeting').value;
+      s.template.orderLine = document.getElementById('es-orderline').value.trim();
+      s.template.dateDefault = document.getElementById('es-dateDefault').value.trim();
+      s.template.signoff = document.getElementById('es-signoff').value;
+      const subjEl = document.getElementById('es-subject');
+      s.template.subject = subjEl ? subjEl.value.trim() : '';
+      saveData();
+      showToast('Saved');
+      goto({name:"supplier", id});
+    });
+  }
+
+  const delSupBtn = document.querySelector('[data-del-supplier]');
+  if(delSupBtn){
+    delSupBtn.addEventListener('click', ()=>{
+      if(confirm('Delete this supplier and all its products?')){
+        state.suppliers = state.suppliers.filter(s=>s.id!==delSupBtn.dataset.delSupplier);
+        saveData();
+        goto({name:"list"});
+      }
+    });
+  }
+
+  const dateWordInput = document.getElementById('date-word');
+  if(dateWordInput){
+    dateWordInput.addEventListener('input', ()=>{
+      const s = findSupplier(state.view.id);
+      const items = s.products.filter(p=>p.qty>0);
+      const msg = buildMessage(s, items, dateWordInput.value);
+      document.getElementById('msg-preview').textContent = msg;
+      const stamp = document.getElementById('send-stamp');
+      if(stamp){
+        const subject = (s.template.subject||'').replaceAll('{date}', dateWordInput.value);
+        stamp.setAttribute('href', buildSendLink(s, msg, subject));
+      }
+    });
+  }
+
+  const stampBtn = document.getElementById('send-stamp');
+  if(stampBtn){
+    stampBtn.addEventListener('click', ()=>{
+      const s = findSupplier(stampBtn.dataset.supplier);
+      saveLastOrder(s);
+      stampBtn.classList.add('sent');
+      showToast(s.contactType==='email' ? 'Opening mail...' : 'Opening Messages...');
+    });
+  }
+
+  const copyBtn = document.getElementById('copy-btn');
+  if(copyBtn){
+    copyBtn.addEventListener('click', async ()=>{
+      const s = findSupplier(copyBtn.dataset.supplier);
+      const items = s.products.filter(p=>p.qty>0);
+      const dateWord = document.getElementById('date-word').value;
+      const text = buildMessage(s, items, dateWord);
+      try{
+        await navigator.clipboard.writeText(text);
+        showToast('Copied to clipboard');
+      }catch(e){
+        const area = document.getElementById('copy-area');
+        area.style.display = 'block';
+        area.value = text;
+        area.select();
+        showToast('Select & copy manually');
+      }
+    });
+  }
+}
+
+loadData();
+
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('service-worker.js').catch(()=>{});
+  });
+}
+</script>
+</body>
+</html>
