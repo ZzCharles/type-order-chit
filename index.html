@@ -105,6 +105,15 @@ textarea.copybox{width:100%;font-family:inherit;font-size:11px;padding:8px;borde
 .hist-item{display:flex;justify-content:space-between;font-size:12.5px;padding:3px 0;border-bottom:1px dashed var(--line);}
 .hist-item:last-child{border-bottom:none;}
 .hist-item span:last-child{font-weight:700;white-space:nowrap;padding-left:8px;}
+a.btn-block{display:block;text-decoration:none;text-align:center;box-sizing:border-box;}
+.cart-note{font-size:11px;color:var(--ink-soft);background:#fff;border:1px solid var(--line);border-left:3px solid var(--mustard);border-radius:2px;padding:9px 10px;margin-bottom:12px;line-height:1.45;}
+.cart-sup-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;margin-bottom:4px;padding-bottom:8px;border-bottom:1px solid var(--ink);}
+.pill-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px;}
+.pill{font-size:10px;letter-spacing:0.5px;padding:5px 9px;border:1px solid var(--line);border-radius:12px;color:var(--muted);background:#fff;}
+.pill-done{border-color:var(--stamp);color:var(--stamp);cursor:pointer;}
+.pill-current{border-color:var(--ink);color:var(--ink);background:var(--paper-dark);font-weight:700;}
+.sendseq-count{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:8px;}
+.sendseq-done{font-size:15px;font-weight:800;text-align:center;color:var(--stamp);padding:18px 0;letter-spacing:1px;text-transform:uppercase;}
 </style>
 </head>
 <body>
@@ -117,6 +126,23 @@ const SEED_VERSION = "2026-07-14d";
 let state = { suppliers: [], view: {name:"list"} };
 let ticketDateWord = 'tomorrow';
 let ticketDateMode = 'tomorrow';
+let cartDateWord = 'tomorrow';
+let cartDateMode = 'tomorrow';
+const SENDSEQ_KEY = 'order-chit-sendseq';
+function getSendSeq(){
+  try{ const r = localStorage.getItem(SENDSEQ_KEY); return r ? JSON.parse(r) : null; }
+  catch(e){ return null; }
+}
+function setSendSeq(v){
+  try{ if(v) localStorage.setItem(SENDSEQ_KEY, JSON.stringify(v)); else localStorage.removeItem(SENDSEQ_KEY); }
+  catch(e){}
+}
+function buildCartQueue(){
+  const withItems = state.suppliers.filter(s=>s.products.some(p=>p.qty>0));
+  const emails = withItems.filter(s=>s.contactType==='email').map(s=>s.id);
+  const smss = withItems.filter(s=>s.contactType==='sms').map(s=>s.id);
+  return emails.concat(smss);
+}
 
 function defaultTemplate(contactType){
   return {
@@ -328,7 +354,7 @@ function render(){
   const app = document.getElementById('app');
   const v = state.view;
   const homeBtn = `<button class="home-btn" data-goto="list" aria-label="Home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/></svg></button>`;
-  let html = `<div class="brand"><h1>Order Chit</h1><div class="brand-right">${homeBtn}<span class="tag">v0.5 local</span></div></div>`;
+  let html = `<div class="brand"><h1>Order Chit</h1><div class="brand-right">${homeBtn}<span class="tag">v0.6 local</span></div></div>`;
   if(v.name === "list") html += renderList();
   else if(v.name === "supplier") html += renderSupplier(v.id);
   else if(v.name === "ticket") html += renderTicket(v.id);
@@ -336,6 +362,8 @@ function render(){
   else if(v.name === "addProduct") html += renderAddProduct(v.id);
   else if(v.name === "supplierSettings") html += renderSupplierSettings(v.id);
   else if(v.name === "history") html += renderHistory();
+  else if(v.name === "cart") html += renderCart();
+  else if(v.name === "sendseq") html += renderSendSeq();
   app.innerHTML = html;
   attachHandlers();
 }
@@ -351,8 +379,13 @@ function renderList(){
     </div>
   `).join('');
   if(state.suppliers.length===0) rows = `<div class="empty">No suppliers yet.<br>Add your first one below.</div>`;
+  const cartCount = state.suppliers.filter(s=>s.products.some(p=>p.qty>0)).length;
+  const seq = getSendSeq();
+  const seqActive = seq && seq.ids && seq.index < seq.ids.length;
   return `
     <div class="crumb">SUPPLIERS</div>
+    ${seqActive ? `<div style="margin-bottom:10px;"><button class="btn btn-block" data-goto="sendseq">Resume Send All &middot; ${seq.ids.length-seq.index} left &rarr;</button></div>` : ''}
+    ${cartCount>0 ? `<div style="margin-bottom:10px;"><button class="btn btn-block" data-goto="cart">View Cart &middot; ${cartCount} supplier${cartCount===1?'':'s'} &rarr;</button></div>` : ''}
     ${rows}
     <div class="add-row"><button class="btn" data-goto="addSupplier">+ Add Supplier</button></div>
     <div class="add-row" style="margin-top:10px;"><button class="btn btn-ghost" data-goto="history">&#8635; Order History</button></div>
@@ -382,6 +415,110 @@ function renderHistory(){
   return `
     <div class="crumb"><button data-goto="list">&larr; Suppliers</button> / History</div>
     ${rows}
+  `;
+}
+
+function renderCart(){
+  const withItems = state.suppliers.filter(s=>s.products.some(p=>p.qty>0));
+  if(withItems.length===0){
+    return `
+      <div class="crumb"><button data-goto="list">&larr; Suppliers</button> / Cart</div>
+      <div class="empty">Cart is empty.<br>Set quantities on any supplier, then come back here.</div>
+    `;
+  }
+  const blocks = withItems.map(s=>{
+    const items = s.products.filter(p=>p.qty>0);
+    const lines = items.map(p=>`
+      <div class="product-line">
+        <div class="product-info">
+          <div class="product-name">${escapeHtml(p.name)}</div>
+          <div class="product-unit">${escapeHtml(p.unit)}${(p.inc && p.inc!==1) ? ' &middot; +'+formatQty(p.inc)+'/tap' : ''}</div>
+        </div>
+        <div class="stepper">
+          <button data-qty-dec="${p.id}">&minus;</button>
+          <input class="qty-input" data-qty-input="${p.id}" value="${formatQty(p.qty)}" inputmode="decimal" type="text">
+          <button data-qty-inc="${p.id}">+</button>
+        </div>
+        <button class="del-x" data-cart-remove="${p.id}" title="remove from order">&times;</button>
+      </div>
+    `).join('');
+    return `
+      <div class="card">
+        <div class="cart-sup-head">
+          <div class="supplier-name">${escapeHtml(s.name)} <span class="badge ${s.contactType}">${s.contactType==='sms'?'SMS':'EMAIL'}</span></div>
+          <div class="supplier-meta">${items.length} item${items.length===1?'':'s'}</div>
+        </div>
+        ${lines}
+      </div>
+    `;
+  }).join('');
+  return `
+    <div class="crumb"><button data-goto="list">&larr; Suppliers</button> / Cart</div>
+    <div class="cart-note">Each supplier gets its own message. You'll tap send once per supplier &mdash; ${withItems.length} in total. It isn't fully automatic; the app queues them and tells you who's next.</div>
+    <div class="date-pick">
+      <div class="date-current">All orders for <span id="cart-date-display">${escapeHtml(cartDateWord)}</span></div>
+      <div class="date-btns">
+        <button class="date-btn ${cartDateMode==='tomorrow'?'active':''}" data-cart-date="tomorrow">Tomorrow</button>
+        <label class="date-btn date-btn-cal ${cartDateMode==='calendar'?'active':''}" data-cart-date="calendar">Select date<input type="date" id="cart-date-input"></label>
+      </div>
+    </div>
+    ${blocks}
+    <div style="margin-top:16px;"><button class="btn btn-block" id="send-all-btn">Send All &middot; ${withItems.length} order${withItems.length===1?'':'s'} &rarr;</button></div>
+  `;
+}
+
+function renderSendSeq(){
+  const seq = getSendSeq();
+  if(!seq || !seq.ids || !seq.ids.length){
+    return `
+      <div class="crumb"><button data-goto="cart">&larr; Cart</button> / Send All</div>
+      <div class="empty">Nothing to send.</div>
+    `;
+  }
+  const total = seq.ids.length;
+  const pills = seq.ids.map((id, i)=>{
+    const sp = findSupplier(id);
+    const nm = sp ? sp.name : '?';
+    let cls = 'pill';
+    let jump = '';
+    if(i < seq.index){ cls += ' pill-done'; jump = `data-seq-jump="${i}"`; }
+    else if(i === seq.index){ cls += ' pill-current'; }
+    return `<span class="${cls}" ${jump}>${escapeHtml(nm)}${i<seq.index?' &check;':''}</span>`;
+  }).join('');
+
+  if(seq.index >= total){
+    return `
+      <div class="crumb"><button data-goto="list">&larr; Suppliers</button> / Send All</div>
+      <div class="pill-row">${pills}</div>
+      <div class="sendseq-done">All ${total} order${total===1?'':'s'} handed off</div>
+      <div style="margin-top:14px;"><button class="btn btn-block btn-danger" data-clear-cart="1">Clear Cart</button></div>
+      <div style="margin-top:10px;"><button class="btn btn-ghost btn-block" data-goto="list">Keep Items</button></div>
+    `;
+  }
+
+  const s = findSupplier(seq.ids[seq.index]);
+  if(!s){
+    return `
+      <div class="crumb"><button data-goto="list">&larr; Suppliers</button> / Send All</div>
+      <div class="pill-row">${pills}</div>
+      <div class="empty">That supplier is gone.</div>
+      <div style="margin-top:10px;"><button class="btn btn-block" id="sendseq-skip">Skip &rarr;</button></div>
+    `;
+  }
+  const items = s.products.filter(p=>p.qty>0);
+  const msg = buildMessage(s, items, seq.dateWord);
+  const subject = (s.template.subject||'').replaceAll('{date}', seq.dateWord);
+  const link = buildSendLink(s, msg, subject);
+  const verb = s.contactType==='email' ? 'Open email to' : 'Text';
+  return `
+    <div class="crumb"><button data-goto="list">&larr; Suppliers</button> / Send All</div>
+    <div class="pill-row">${pills}</div>
+    <div class="sendseq-count">Order ${seq.index+1} of ${total} &middot; ${escapeHtml(s.name)}</div>
+    <div class="preview-box">${escapeHtml(msg)}</div>
+    <a class="btn btn-block" id="sendseq-send" href="${link}" data-supplier="${s.id}">${verb} ${escapeHtml(s.name)} &rarr;</a>
+    <div class="fallback-note">Send it, then come back &mdash; the next order loads automatically.</div>
+    <div style="margin-top:10px;"><button class="btn btn-ghost btn-block" id="sendseq-skip">Skip This One</button></div>
+    <div style="margin-top:10px;"><button class="btn btn-ghost btn-block" data-cancel-seq="1">Cancel Send All</button></div>
   `;
 }
 
@@ -646,6 +783,60 @@ function attachHandlers(){
       showToast('Added to order');
     });
   });
+  document.querySelectorAll('[data-cart-remove]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const s = state.suppliers.find(s=>s.products.some(p=>p.id===el.dataset.cartRemove));
+      const p = s.products.find(p=>p.id===el.dataset.cartRemove);
+      p.qty = 0; saveData(); render();
+    });
+  });
+  const cartTom = document.querySelector('[data-cart-date="tomorrow"]');
+  if(cartTom) cartTom.addEventListener('click', ()=>{ cartDateWord='tomorrow'; cartDateMode='tomorrow'; render(); });
+  const cartDateInput = document.getElementById('cart-date-input');
+  if(cartDateInput) cartDateInput.addEventListener('change', (e)=>{
+    if(!e.target.value) return;
+    const d = new Date(e.target.value+'T00:00:00');
+    cartDateWord = formatDate(d); cartDateMode = 'calendar'; render();
+  });
+  const sendAllBtn = document.getElementById('send-all-btn');
+  if(sendAllBtn) sendAllBtn.addEventListener('click', ()=>{
+    const ids = buildCartQueue();
+    if(!ids.length){ showToast('Cart is empty'); return; }
+    setSendSeq({ ids, index:0, dateWord: cartDateWord });
+    goto({name:'sendseq'});
+  });
+  const seqSend = document.getElementById('sendseq-send');
+  if(seqSend) seqSend.addEventListener('click', ()=>{
+    const seq = getSendSeq(); if(!seq) return;
+    const s = findSupplier(seqSend.dataset.supplier);
+    if(s){
+      const items = s.products.filter(p=>p.qty>0);
+      saveLastOrder(s);
+      addHistory(s, items, seq.dateWord);
+    }
+    seq.index += 1;
+    setSendSeq(seq);
+    // navigation to mail/SMS proceeds; UI advances when the app regains focus
+  });
+  const seqSkip = document.getElementById('sendseq-skip');
+  if(seqSkip) seqSkip.addEventListener('click', ()=>{
+    const seq = getSendSeq(); if(!seq) return;
+    seq.index += 1; setSendSeq(seq); render();
+  });
+  document.querySelectorAll('[data-seq-jump]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const seq = getSendSeq(); if(!seq) return;
+      const i = parseInt(el.dataset.seqJump, 10);
+      if(i < seq.index){ seq.index = i; setSendSeq(seq); render(); }
+    });
+  });
+  const cancelSeq = document.querySelector('[data-cancel-seq]');
+  if(cancelSeq) cancelSeq.addEventListener('click', ()=>{ setSendSeq(null); goto({name:'cart'}); });
+  const clearCart = document.querySelector('[data-clear-cart]');
+  if(clearCart) clearCart.addEventListener('click', ()=>{
+    state.suppliers.forEach(s=>s.products.forEach(p=>{ p.qty=0; }));
+    setSendSeq(null); saveData(); goto({name:'list'}); showToast('Cart cleared');
+  });
   document.querySelectorAll('[data-unit-chip]').forEach(el=>{
     el.addEventListener('click', ()=>{ document.getElementById('np-unit').value = el.dataset.unitChip; });
   });
@@ -785,6 +976,12 @@ function attachHandlers(){
 }
 
 loadData();
+
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState === 'visible' && state.view.name === 'sendseq'){
+    render();
+  }
+});
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{
