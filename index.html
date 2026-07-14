@@ -87,6 +87,24 @@ body{background:var(--paper);background-image:repeating-linear-gradient(0deg,rgb
 textarea.copybox{width:100%;font-family:inherit;font-size:11px;padding:8px;border:1px solid var(--line);border-radius:2px;margin-top:8px;background:#fff;height:90px;}
 .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:8px 16px;border-radius:3px;font-size:11px;letter-spacing:1px;text-transform:uppercase;z-index:50;opacity:0;pointer-events:none;transition:opacity 0.2s ease;}
 .toast.show{opacity:1;}
+.brand-right{display:flex;align-items:center;gap:12px;}
+.home-btn{background:none;border:none;color:var(--ink);cursor:pointer;padding:0;display:flex;align-items:center;font-family:inherit;}
+.home-btn svg{width:20px;height:20px;display:block;}
+.home-btn:active{opacity:0.5;}
+.clear-btn{background:none;border:1px solid var(--stamp);color:var(--stamp);cursor:pointer;font-family:inherit;font-size:10px;letter-spacing:1px;text-transform:uppercase;padding:5px 11px;border-radius:2px;white-space:nowrap;}
+.clear-btn:active{background:var(--stamp);color:#fff;}
+.supplier-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;}
+.date-pick{margin:6px 0 14px;}
+.date-current{font-size:10.5px;color:var(--muted);letter-spacing:0.5px;text-transform:uppercase;margin-bottom:8px;}
+.date-current span{color:var(--ink);font-weight:700;text-transform:none;font-size:13px;letter-spacing:0;}
+.date-btns{display:flex;gap:8px;}
+.date-btn{flex:1;font-family:inherit;font-size:10.5px;letter-spacing:0.5px;text-transform:uppercase;padding:9px 4px;border:1px solid var(--ink);background:var(--card);color:var(--ink-soft);border-radius:2px;cursor:pointer;text-align:center;position:relative;overflow:hidden;}
+.date-btn.active{background:var(--ink);color:var(--paper);}
+.date-btn-cal input[type=date]{position:absolute;inset:0;opacity:0;width:100%;height:100%;border:none;cursor:pointer;}
+.hist-items{margin-top:6px;}
+.hist-item{display:flex;justify-content:space-between;font-size:12.5px;padding:3px 0;border-bottom:1px dashed var(--line);}
+.hist-item:last-child{border-bottom:none;}
+.hist-item span:last-child{font-weight:700;white-space:nowrap;padding-left:8px;}
 </style>
 </head>
 <body>
@@ -97,6 +115,8 @@ const STORAGE_KEY = "order-chit-suppliers";
 const VERSION_KEY = "order-chit-seedver";
 const SEED_VERSION = "2026-07-14d";
 let state = { suppliers: [], view: {name:"list"} };
+let ticketDateWord = 'tomorrow';
+let ticketDateMode = 'tomorrow';
 
 function defaultTemplate(contactType){
   return {
@@ -104,6 +124,7 @@ function defaultTemplate(contactType){
     greeting: contactType==='sms' ? "Hey bro," : "Hi,\nIts Rabindra from Almo.",
     orderLine: contactType==='sms' ? "Orders for {date}:" : "Order for {date}:",
     dateDefault: contactType==='sms' ? 'tomorrow' : 'Tuesday',
+    usualDay: 'Tuesday',
     signoff:"Thank you",
     subject: contactType==='email' ? "Order for {date}" : "",
     body:""
@@ -187,6 +208,25 @@ const seed = [
 function uid(){ return Math.random().toString(36).slice(2,9); }
 function formatQty(q){ return String(Math.round(q*100)/100); }
 
+function ordinal(day){
+  const suf = (day>3 && day<21) ? 'th' : ['th','st','nd','rd'][day%10 > 3 ? 0 : day%10];
+  return day + suf;
+}
+function formatDate(d){
+  return ordinal(d.getDate()) + ' ' + d.toLocaleString('en-AU', {month:'long'});
+}
+function nextWeekday(name){
+  const names = ['sunday','monday','tuesday','wednesday','thursday','friday','saturday'];
+  const target = names.indexOf(String(name||'').toLowerCase());
+  if(target < 0) return null;
+  const now = new Date();
+  let diff = (target - now.getDay() + 7) % 7;
+  if(diff === 0) diff = 7;
+  const d = new Date(now);
+  d.setDate(now.getDate() + diff);
+  return d;
+}
+
 function loadData(){
   try{
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -219,6 +259,23 @@ function saveLastOrder(supplier){
   const map = {};
   supplier.products.forEach(p=>{ if(p.qty>0) map[p.id] = p.qty; });
   try{ localStorage.setItem(lastOrderKey(supplier.id), JSON.stringify(map)); }catch(e){}
+}
+
+const HISTORY_KEY = 'order-chit-history';
+function getHistory(){
+  try{ const r = localStorage.getItem(HISTORY_KEY); return r ? JSON.parse(r) : []; }
+  catch(e){ return []; }
+}
+function addHistory(supplier, items, dateWord){
+  if(!items.length) return;
+  const hist = getHistory();
+  hist.unshift({
+    id: uid(), supplierId: supplier.id, supplierName: supplier.name,
+    dateWord: dateWord, ts: Date.now(),
+    items: items.map(p=>({ pid:p.id, name:p.name, qty:p.qty, unit:p.unit }))
+  });
+  if(hist.length > 100) hist.length = 100;
+  try{ localStorage.setItem(HISTORY_KEY, JSON.stringify(hist)); }catch(e){}
 }
 
 function showToast(msg){
@@ -270,13 +327,15 @@ function buildSendLink(supplier, message, subject){
 function render(){
   const app = document.getElementById('app');
   const v = state.view;
-  let html = `<div class="brand"><h1>Order Chit</h1><span class="tag">v0.4 local</span></div>`;
+  const homeBtn = `<button class="home-btn" data-goto="list" aria-label="Home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/></svg></button>`;
+  let html = `<div class="brand"><h1>Order Chit</h1><div class="brand-right">${homeBtn}<span class="tag">v0.5 local</span></div></div>`;
   if(v.name === "list") html += renderList();
   else if(v.name === "supplier") html += renderSupplier(v.id);
   else if(v.name === "ticket") html += renderTicket(v.id);
   else if(v.name === "addSupplier") html += renderAddSupplier();
   else if(v.name === "addProduct") html += renderAddProduct(v.id);
   else if(v.name === "supplierSettings") html += renderSupplierSettings(v.id);
+  else if(v.name === "history") html += renderHistory();
   app.innerHTML = html;
   attachHandlers();
 }
@@ -296,6 +355,33 @@ function renderList(){
     <div class="crumb">SUPPLIERS</div>
     ${rows}
     <div class="add-row"><button class="btn" data-goto="addSupplier">+ Add Supplier</button></div>
+    <div class="add-row" style="margin-top:10px;"><button class="btn btn-ghost" data-goto="history">&#8635; Order History</button></div>
+  `;
+}
+
+function renderHistory(){
+  const hist = getHistory();
+  let rows;
+  if(hist.length === 0){
+    rows = `<div class="empty">No orders sent yet.<br>Your sent orders show up here.</div>`;
+  } else {
+    rows = hist.map(h => {
+      const d = new Date(h.ts);
+      const when = d.toLocaleDateString('en-AU',{day:'2-digit',month:'short'}) + ' ' + d.toLocaleTimeString('en-AU',{hour:'2-digit',minute:'2-digit'});
+      const itemsHtml = h.items.map(it=>`<div class="hist-item"><span>${escapeHtml(it.name)}</span><span>${formatQty(it.qty)} ${escapeHtml(it.unit)}</span></div>`).join('');
+      return `
+        <div class="card">
+          <div class="supplier-name">${escapeHtml(h.supplierName)}</div>
+          <div class="supplier-meta">${when}${h.dateWord ? ' &middot; for '+escapeHtml(h.dateWord) : ''}</div>
+          <div class="hist-items">${itemsHtml}</div>
+          <div style="margin-top:10px;"><button class="btn btn-block" data-reorder="${h.id}">&#8635; Reorder</button></div>
+        </div>
+      `;
+    }).join('');
+  }
+  return `
+    <div class="crumb"><button data-goto="list">&larr; Suppliers</button> / History</div>
+    ${rows}
   `;
 }
 
@@ -321,7 +407,10 @@ function renderSupplier(id){
   const last = getLastOrder(s.id);
   const hasLast = last && Object.keys(last).length>0;
   return `
-    <div class="crumb"><button data-goto="list">&larr; Suppliers</button> / ${escapeHtml(s.name)}</div>
+    <div class="supplier-head">
+      <div class="crumb"><button data-goto="list">&larr; Suppliers</button> / ${escapeHtml(s.name)}</div>
+      ${hasQty ? `<button class="clear-btn" data-clear="${s.id}">Clear</button>` : ''}
+    </div>
     <div class="card">${lines}</div>
     ${hasLast ? `<div style="margin-top:10px;"><button class="btn btn-block" data-repeat="${s.id}">&#8635; Repeat Last Order</button></div>` : ''}
     <div class="add-row"><button class="btn btn-ghost" data-goto="addProduct" data-supplier="${s.id}">+ Add Product</button></div>
@@ -378,8 +467,8 @@ function renderSupplierSettings(id){
         <textarea id="es-greeting" rows="2">${escapeHtml(s.template.greeting)}</textarea>
         <label>Order line <span class="hint">(use {date} for the day word)</span></label>
         <input id="es-orderline" value="${escapeHtml(s.template.orderLine)}">
-        <label>Default day word</label>
-        <input id="es-dateDefault" value="${escapeHtml(s.template.dateDefault)}" placeholder="tomorrow, Tuesday...">
+        <label>Usual day <span class="hint">(the "Next ___" button)</span></label>
+        <input id="es-usualDay" value="${escapeHtml(s.template.usualDay || 'Tuesday')}" placeholder="Tuesday, Thursday...">
         <label>Sign-off</label>
         <textarea id="es-signoff" rows="2">${escapeHtml(s.template.signoff)}</textarea>
         <div id="subject-wrap" style="${s.contactType==='email'?'':'display:none;'}">
@@ -424,7 +513,10 @@ function renderTicket(supplierId){
   const s = findSupplier(supplierId);
   if(!s) return `<div class="empty">Supplier not found.</div>`;
   const items = s.products.filter(p=>p.qty>0);
-  const dateWord = s.template.dateDefault;
+  ticketDateWord = 'tomorrow';
+  ticketDateMode = 'tomorrow';
+  const dateWord = ticketDateWord;
+  const usualDay = (s.template.usualDay || 'Tuesday');
   let lines = items.map(p => `
     <div class="ticket-line">
       <span class="name">${escapeHtml(p.name)}</span>
@@ -448,9 +540,13 @@ function renderTicket(supplierId){
         <div class="ticket-total"><span>${items.length} line item${items.length===1?'':'s'}</span><span>chef's copy</span></div>
       </div>
     </div>
-    <div class="date-row">
-      <label>Order for</label>
-      <input id="date-word" value="${escapeHtml(dateWord)}">
+    <div class="date-pick">
+      <div class="date-current">Order for <span id="date-word-display">${escapeHtml(dateWord)}</span></div>
+      <div class="date-btns">
+        <button class="date-btn active" data-date-mode="tomorrow">Tomorrow</button>
+        <button class="date-btn" data-date-mode="nextday">Next ${escapeHtml(usualDay)}</button>
+        <label class="date-btn date-btn-cal" data-date-mode="calendar">Select date<input type="date" id="date-input"></label>
+      </div>
     </div>
     <div class="preview-box" id="msg-preview">${escapeHtml(initMsg)}</div>
     <div class="stamp-wrap">
@@ -528,6 +624,28 @@ function attachHandlers(){
       saveData(); render(); showToast('Last order loaded');
     });
   });
+  document.querySelectorAll('[data-clear]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const s = findSupplier(el.dataset.clear);
+      s.products.forEach(p=>{ p.qty = 0; });
+      saveData(); render(); showToast('Order cleared');
+    });
+  });
+  document.querySelectorAll('[data-reorder]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const h = getHistory().find(x=>x.id===el.dataset.reorder);
+      if(!h) return;
+      const s = findSupplier(h.supplierId);
+      if(!s){ showToast('Supplier no longer exists'); return; }
+      h.items.forEach(it=>{
+        const p = s.products.find(pp=>pp.id===it.pid) || s.products.find(pp=>pp.name===it.name);
+        if(p){ p.qty = Math.round((p.qty + it.qty)*100)/100; }
+      });
+      saveData();
+      goto({name:"supplier", id:s.id});
+      showToast('Added to order');
+    });
+  });
   document.querySelectorAll('[data-unit-chip]').forEach(el=>{
     el.addEventListener('click', ()=>{ document.getElementById('np-unit').value = el.dataset.unitChip; });
   });
@@ -577,7 +695,8 @@ function attachHandlers(){
       s.name=name; s.contact=contact; s.address=address; s.contactType=contactType;
       s.template.greeting = document.getElementById('es-greeting').value;
       s.template.orderLine = document.getElementById('es-orderline').value.trim();
-      s.template.dateDefault = document.getElementById('es-dateDefault').value.trim();
+      const udEl = document.getElementById('es-usualDay');
+      if(udEl) s.template.usualDay = udEl.value.trim() || 'Tuesday';
       s.template.signoff = document.getElementById('es-signoff').value;
       const subjEl = document.getElementById('es-subject');
       s.template.subject = subjEl ? subjEl.value.trim() : '';
@@ -598,26 +717,48 @@ function attachHandlers(){
     });
   }
 
-  const dateWordInput = document.getElementById('date-word');
-  if(dateWordInput){
-    dateWordInput.addEventListener('input', ()=>{
-      const s = findSupplier(state.view.id);
-      const items = s.products.filter(p=>p.qty>0);
-      const msg = buildMessage(s, items, dateWordInput.value);
-      document.getElementById('msg-preview').textContent = msg;
-      const stamp = document.getElementById('send-stamp');
-      if(stamp){
-        const subject = (s.template.subject||'').replaceAll('{date}', dateWordInput.value);
-        stamp.setAttribute('href', buildSendLink(s, msg, subject));
-      }
+  function refreshTicket(){
+    const s = findSupplier(state.view.id);
+    if(!s) return;
+    const items = s.products.filter(p=>p.qty>0);
+    const msg = buildMessage(s, items, ticketDateWord);
+    const disp = document.getElementById('date-word-display');
+    if(disp) disp.textContent = ticketDateWord;
+    const prev = document.getElementById('msg-preview');
+    if(prev) prev.textContent = msg;
+    const stamp = document.getElementById('send-stamp');
+    if(stamp){
+      const subject = (s.template.subject||'').replaceAll('{date}', ticketDateWord);
+      stamp.setAttribute('href', buildSendLink(s, msg, subject));
+    }
+    document.querySelectorAll('[data-date-mode]').forEach(b=>{
+      b.classList.toggle('active', b.dataset.dateMode===ticketDateMode);
     });
   }
+  const tomBtn = document.querySelector('[data-date-mode="tomorrow"]');
+  if(tomBtn) tomBtn.addEventListener('click', ()=>{
+    ticketDateWord = 'tomorrow'; ticketDateMode = 'tomorrow'; refreshTicket();
+  });
+  const nextBtn = document.querySelector('[data-date-mode="nextday"]');
+  if(nextBtn) nextBtn.addEventListener('click', ()=>{
+    const s = findSupplier(state.view.id);
+    const d = nextWeekday(s.template.usualDay || 'Tuesday');
+    if(d){ ticketDateWord = formatDate(d); ticketDateMode = 'nextday'; refreshTicket(); }
+  });
+  const dateInput = document.getElementById('date-input');
+  if(dateInput) dateInput.addEventListener('change', (e)=>{
+    if(!e.target.value) return;
+    const d = new Date(e.target.value+'T00:00:00');
+    ticketDateWord = formatDate(d); ticketDateMode = 'calendar'; refreshTicket();
+  });
 
   const stampBtn = document.getElementById('send-stamp');
   if(stampBtn){
     stampBtn.addEventListener('click', ()=>{
       const s = findSupplier(stampBtn.dataset.supplier);
+      const items = s.products.filter(p=>p.qty>0);
       saveLastOrder(s);
+      addHistory(s, items, ticketDateWord);
       stampBtn.classList.add('sent');
       showToast(s.contactType==='email' ? 'Opening mail...' : 'Opening Messages...');
     });
@@ -628,8 +769,7 @@ function attachHandlers(){
     copyBtn.addEventListener('click', async ()=>{
       const s = findSupplier(copyBtn.dataset.supplier);
       const items = s.products.filter(p=>p.qty>0);
-      const dateWord = document.getElementById('date-word').value;
-      const text = buildMessage(s, items, dateWord);
+      const text = buildMessage(s, items, ticketDateWord);
       try{
         await navigator.clipboard.writeText(text);
         showToast('Copied to clipboard');
