@@ -1,4 +1,4 @@
-const CACHE = 'order-chit-v1';
+const CACHE = 'the-pass-v2';
 const ASSETS = [
   './',
   './index.html',
