@@ -197,6 +197,33 @@ a.btn-block{display:block;}
 .add-row .btn{}
 </style>
 
+
+<style>
+/* ===== v2.1 refinements ===== */
+/* strip helper text / descriptions for a cleaner interface */
+.tab-sub,.supplier-meta,.staff-legend,.fallback-note{display:none;}
+/* modern, airy product row + circular stepper (de-box) */
+.product-line{padding:15px 2px;border-bottom:1px solid #F1EFE4;gap:6px;align-items:center;}
+.product-line:last-child{border-bottom:none;}
+.product-name{font-size:14px;font-weight:600;}
+.product-unit{font-size:11px;color:var(--muted);margin-top:2px;}
+.stepper{gap:5px;align-items:center;}
+.stepper button,.stepper button:first-child,.stepper button:last-child{width:34px;height:34px;border-radius:50%;border:1px solid var(--line);background:#F6F5EE;color:var(--ink);font-size:17px;line-height:1;}
+.stepper button:active{background:var(--ink);color:#fff;border-color:var(--ink);}
+.stepper .qty-input{width:32px;height:34px;border:none;background:transparent;font-size:16px;font-weight:700;}
+.del-x{color:var(--muted);font-size:16px;padding:6px 5px;margin-left:2px;}
+.del-x:active{color:var(--ink);}
+</style>
+
+
+<style>
+/* ===== v2.2: 12h time fields ===== */
+.tf{position:relative;}
+.tf-val{display:block;font-size:14px;font-weight:600;padding:9px 8px;border:1px solid var(--line);border-radius:11px;background:#fff;color:var(--ink);text-align:center;}
+.tf-empty{color:var(--muted);font-weight:400;}
+.tf input[type=time]{position:absolute;inset:0;width:100%;height:100%;opacity:0;border:none;margin:0;padding:0;}
+</style>
+
 </head>
 <body>
 <div id="app"></div>
@@ -229,6 +256,11 @@ function fmtTime(hhmm, spaced){
   let h12 = h%12; if(h12===0) h12=12;
   const sep = spaced ? ' ' : '';
   return m===0 ? `${h12}${sep}${ampm}` : `${h12}:${String(m).padStart(2,'0')}${sep}${ampm}`;
+}
+function fmtTime12(hhmm){ const s = fmtTime(hhmm, true); return s.replace('am','AM').replace('pm','PM'); }
+function timeFieldHTML(label, attr, id, val){
+  const disp = val ? fmtTime12(val) : 'Set';
+  return `<div class="rfield"><span>${label}</span><div class="tf"><span class="tf-val ${val?'':'tf-empty'}">${disp}</span><input type="time" ${attr}="${id}" value="${val||''}"></div></div>`;
 }
 function stationRank(s){ const i = STATIONS.indexOf(s); return i<0 ? 99 : i; }
 function buildRosterText(){
@@ -529,7 +561,7 @@ function render(){
   const app = document.getElementById('app');
   const v = state.view;
   const homeBtn = v.name === 'home' ? '' : `<button class="home-btn" data-goto="home" aria-label="Home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/></svg></button>`;
-  let html = `<div class="brand"><h1>The Pass</h1><div class="brand-right">${homeBtn}<span class="tag">v2.0</span></div></div>`;
+  let html = `<div class="brand"><h1>The Pass</h1><div class="brand-right">${homeBtn}<span class="tag">v2.2</span></div></div>`;
   if(v.name === "home") html += renderHome();
   else if(v.name === "list") html += renderList();
   else if(v.name === "supplier") html += renderSupplier(v.id);
@@ -606,8 +638,8 @@ function renderTimesheet(){
           <span class="ts-hours">${hoursLabel}</span>
         </div>
         <div class="ts-controls">
-          <label class="rfield"><span>Start</span><input type="time" data-ts-start="${k}" value="${e.start||''}"></label>
-          <label class="rfield"><span>End</span><input type="time" data-ts-end="${k}" value="${e.end||''}"></label>
+          ${timeFieldHTML('Start','data-ts-start',k,e.start||'')}
+          ${timeFieldHTML('End','data-ts-end',k,e.end||'')}
         </div>
       </div>
     `;
@@ -644,8 +676,8 @@ function renderRosterBuild(){
           ${scheduled?`<button class="rstaff-clear" data-rclear="${st.id}">clear</button>`:''}
         </div>
         <div class="rstaff-controls">
-          <label class="rfield"><span>Start</span><input type="time" data-rstart="${st.id}" value="${e.start||''}"></label>
-          ${scheduled?`<label class="rfield"><span>End</span><input type="time" data-rend="${st.id}" value="${e.end||''}"></label>`:''}
+          ${timeFieldHTML('Start','data-rstart',st.id,e.start||'')}
+          ${scheduled?timeFieldHTML('End','data-rend',st.id,e.end||''):''}
         </div>
         ${scheduled?`<select class="rstation" data-rstation="${st.id}">${stationOpts}</select>`:''}
       </div>

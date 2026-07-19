@@ -1,4 +1,4 @@
-const CACHE = 'the-pass-v2';
+const CACHE = 'the-pass-v3';
 const ASSETS = [
   './',
   './index.html',
