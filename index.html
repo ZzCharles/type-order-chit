@@ -139,13 +139,15 @@ a.btn-block{display:block;text-decoration:none;text-align:center;box-sizing:bord
 .ts-controls{display:flex;gap:10px;}
 .ts-total{margin-top:14px;padding:12px 14px;background:var(--paper-dark);border:1px solid var(--ink);border-radius:4px;font-size:14px;letter-spacing:0.5px;text-align:center;text-transform:uppercase;}
 .ts-total strong{color:var(--stamp);}
-/* Invoices UI additions */
-.invoice-entry{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;font-size:13px;}
+/* Invoices UI */
+.invoice-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;gap:8px;}
+.invoice-header .supplier-name{flex:1;min-width:0;}
+.invoice-form-inline{display:flex;gap:6px;align-items:center;}
+.invoice-form-inline input[type=number]{width:90px;font-family:inherit;font-size:13px;padding:6px;border:1px solid var(--ink);border-radius:4px;background:#fff;}
+.invoice-entry{display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;font-size:13px;}
 .invoice-amount{font-weight:600;}
 .invoice-del{color:var(--muted);background:none;border:none;font-size:16px;cursor:pointer;padding:0 4px;}
-.invoice-form{display:flex;gap:8px;align-items:center;margin-top:10px;}
-.invoice-form input[type=number]{flex:1;font-family:inherit;font-size:14px;padding:8px;border:1px solid var(--ink);border-radius:3px;background:#fff;}
-.invoice-supplier-total{margin-top:8px;font-weight:700;font-size:14px;}
+.invoice-supplier-total{margin-top:6px;font-weight:700;font-size:14px;border-top:1px dashed var(--line);padding-top:6px;}
 .grand-total-card{padding:14px 16px;background:var(--card);border:1px solid var(--line);border-radius:4px;text-align:center;margin-top:16px;font-size:15px;font-weight:700;}
 </style>
 
@@ -235,7 +237,7 @@ a.btn-block{display:block;}
 <script>
 const STORAGE_KEY = "order-chit-suppliers";
 const VERSION_KEY = "order-chit-seedver";
-const SEED_VERSION = "2026-07-14e"; /* bumped version for invoices integration */
+const SEED_VERSION = "2026-07-29b"; /* bumped to include new suppliers */
 const INVOICES_KEY = "order-chit-invoices";
 let state = { suppliers: [], staff: [], roster: {}, timesheet: {}, invoices: {}, view: {name:"home"} };
 let ticketDateWord = 'tomorrow';
@@ -443,6 +445,14 @@ const seed = [
     ],
     template: { mode:"freeform", greeting:"", orderLine:"", signoff:"", subject:"", dateDefault:"Wednesday", usualDay:"Wednesday",
       body:"Hi Michael,\n\nCould we please get {qty} {unit} of pepperoni on {date} please?\n\nThank you" }
+  },
+  { id:"s7", name:"Sydney Freezers", contactType:"email", contact:"orders@sydneyfreezers.com.au", address:"",
+    products:[],
+    template: defaultTemplate("email")
+  },
+  { id:"s8", name:"Two Providores", contactType:"email", contact:"orders@twoprovidores.com.au", address:"",
+    products:[],
+    template: defaultTemplate("email")
   }
 ];
 
@@ -513,7 +523,7 @@ function loadData(){
   loadStaff();
   loadRoster();
   loadTimesheet();
-  loadInvoices(); /* new */
+  loadInvoices();
   render();
 }
 
@@ -647,13 +657,15 @@ function renderInvoices(){
     `).join('');
     return `
       <div class="card">
-        <div class="supplier-name">${escapeHtml(s.name)}</div>
-        ${entriesHtml || '<div style="font-size:12px;color:var(--muted);margin-bottom:6px;">No invoices yet</div>'}
-        <div class="invoice-supplier-total">Supplier total: $${supplierTotal.toFixed(2)}</div>
-        <div class="invoice-form">
-          <input type="number" id="inv-amount-${s.id}" placeholder="Amount" min="0" step="0.01">
-          <button class="btn" data-invoice-add="${s.id}">Add</button>
+        <div class="invoice-header">
+          <span class="supplier-name">${escapeHtml(s.name)}</span>
+          <div class="invoice-form-inline">
+            <input type="number" id="inv-amount-${s.id}" placeholder="Amount" min="0" step="0.01">
+            <button class="btn" data-invoice-add="${s.id}">Add</button>
+          </div>
         </div>
+        ${entriesHtml || '<div style="font-size:12px;color:var(--muted);margin-bottom:4px;">No invoices yet</div>'}
+        <div class="invoice-supplier-total">Supplier total: $${supplierTotal.toFixed(2)}</div>
       </div>
     `;
   }).join('');
@@ -662,6 +674,7 @@ function renderInvoices(){
     <div class="staff-legend" style="display:block;">Week beginning ${new Date(weekKey+'T00:00:00').toLocaleDateString('en-AU',{weekday:'long',day:'numeric',month:'short'})}</div>
     ${supplierRows}
     <div class="grand-total-card">Weekly spend: $${totalWeek.toFixed(2)}</div>
+    <div class="add-row"><button class="btn btn-ghost" data-goto="addSupplier">+ Add Supplier</button></div>
   `;
 }
 
