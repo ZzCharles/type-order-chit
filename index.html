@@ -846,6 +846,7 @@ function renderList(){
 
   let incomingHtml = '';
   if(state.incomingOrder){
+    const sender = state.incomingOrder.sender || 'Sous Chef';
     const lines = Object.entries(state.incomingOrder.items || {}).map(([pid, qty]) => {
       let name = pid;
       for(const s of state.suppliers){
@@ -856,7 +857,7 @@ function renderList(){
     }).join('');
     incomingHtml = `
       <div class="receive-order-card">
-        <div style="font-weight:700;margin-bottom:8px;">Incoming order from Sous Chef</div>
+        <div style="font-weight:700;margin-bottom:8px;">${escapeHtml(sender)}'s Order</div>
         <div class="receive-summary">${lines || 'No items.'}</div>
         <div class="receive-actions">
           <button class="btn btn-ghost" id="reject-order">Ignore</button>
