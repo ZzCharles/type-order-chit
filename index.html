@@ -243,6 +243,13 @@ a.btn-block{display:block;}
 .prep-text{font-size:15px;font-weight:600;line-height:1.35;white-space:pre-wrap;word-break:break-word;}
 .prep-meta{font-size:11px;color:var(--muted);margin-top:3px;}
 .form-card textarea#prep-text{min-height:76px;font-size:15px;}
+.sync-line{font-size:11.5px;color:var(--muted);text-align:center;margin-top:18px;}
+.sync-line.sync-bad{color:var(--stamp);}
+.sync-line .sync-warn{color:var(--mustard);font-weight:700;}
+.chip.cat-chip{padding:7px 13px;font-size:11.5px;}
+.chip.chip-on{background:var(--ink);border-color:var(--ink);color:#fff;font-weight:700;}
+.chip.cat-new{border-style:dashed;color:var(--muted);}
+.sync-line button{background:none;border:none;font-family:inherit;font-size:11.5px;font-weight:700;color:var(--stamp);text-decoration:underline;cursor:pointer;padding:0;}
 @media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important;}}
 .add-row .btn{}
 </style>
@@ -280,10 +287,65 @@ const VERSION_KEY = "order-chit-seedver";
 const SEED_VERSION = "2026-07-29b";
 const INVOICES_KEY = "order-chit-invoices";
 const API = 'https://orders.charlesbobby253.workers.dev';
+const CATALOGUE_FP_KEY = 'order-chit-catalogue-fp';
+const CATS_KEY = 'order-chit-categories';
+const CAT_MIGRATION_KEY = 'order-chit-cat-migrated';
+
+/* Categories only exist so the staff app can group its list. They show up on
+   the product form, nowhere else. Edit the seed here or add one from the form. */
+const CATS_SEED = ['Veggies','Protein','Dry Goods'];
+let categories = CATS_SEED.slice();
+
+/* One-time backfill for the products that already existed before categories.
+   Keyed on its own flag, not SEED_VERSION, so nothing gets wiped. */
+const CAT_BACKFILL = {
+  p1:'Protein', p2:'Protein', p3:'Protein', p4:'Protein', p5:'Protein', p6:'Protein',
+  p7:'Protein', p8:'Protein', p9:'Protein', p10:'Protein', p11:'Protein', p35:'Protein', p40:'Protein',
+  p12:'Veggies', p13:'Veggies', p14:'Veggies', p15:'Veggies', p16:'Veggies', p17:'Veggies',
+  p18:'Veggies', p19:'Veggies', p20:'Veggies', p21:'Veggies', p22:'Veggies', p23:'Veggies',
+  p24:'Veggies', p25:'Veggies', p26:'Veggies', p27:'Veggies', p28:'Veggies', p29:'Veggies',
+  p30:'Veggies', p31:'Veggies', p32:'Veggies', p33:'Veggies', p34:'Veggies',
+  p36:'Dry Goods', p37:'Dry Goods', p38:'Dry Goods', p39:'Dry Goods'
+};
+
+function saveCategories(){ try{ localStorage.setItem(CATS_KEY, JSON.stringify(categories)); }catch(e){} }
+function loadCategories(){
+  try{
+    const raw = localStorage.getItem(CATS_KEY);
+    const list = raw ? JSON.parse(raw) : null;
+    categories = (Array.isArray(list) && list.length) ? list : CATS_SEED.slice();
+  }catch(e){ categories = CATS_SEED.slice(); }
+}
+function backfillCategories(){
+  let done = false;
+  try{ done = localStorage.getItem(CAT_MIGRATION_KEY) === '1'; }catch(e){}
+  if(done) return;
+  state.suppliers.forEach(s => (s.products||[]).forEach(p => {
+    if(!p.cat && CAT_BACKFILL[p.id]) p.cat = CAT_BACKFILL[p.id];
+  }));
+  try{ localStorage.setItem(CAT_MIGRATION_KEY, '1'); }catch(e){}
+  saveData();
+}
+function uncategorisedCount(){
+  let n = 0;
+  state.suppliers.forEach(s => (s.products||[]).forEach(p => { if(!p.cat) n++; }));
+  return n;
+}
+function categoryChipsHTML(selected){
+  const chips = categories.map(c =>
+    `<button type="button" class="chip cat-chip ${c===selected?'chip-on':''}" data-cat-chip="${escapeHtml(c)}">${escapeHtml(c)}</button>`
+  ).join('');
+  return `
+    <label>Section <span class="hint">— how staff see it grouped</span></label>
+    <input type="hidden" id="p-cat" value="${escapeHtml(selected || '')}">
+    <div class="chip-row">${chips}<button type="button" class="chip cat-chip cat-new" data-cat-new="1">+ New section</button></div>
+  `;
+}
 let state = {
   suppliers: [], staff: [], roster: {}, timesheet: {}, invoices: {},
   orders: [],
   prep: { items: [], loaded:false, loading:false, failed:false },
+  catalogueSynced: null,
   view: {name:"home"}
 };
 let ticketDateWord = 'tomorrow';
@@ -569,6 +631,8 @@ function loadData(){
   loadRoster();
   loadTimesheet();
   loadInvoices();
+  loadCategories();
+  backfillCategories();
   render();
 }
 
@@ -576,6 +640,54 @@ function saveData(){
   try{
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state.suppliers));
   }catch(e){ showToast('Not saved - storage unavailable'); }
+  schedulePublish();
+}
+
+/* ===== Product catalogue -> staff app =====
+   Every supplier product, flattened, pushed to the Worker so Almo Orders shows
+   exactly what The Pass has. Fingerprinted so a stepper tap doesn't trigger a
+   write: only names, units and increments count. */
+
+function buildCatalogue(){
+  const out = [];
+  state.suppliers.forEach(s => (s.products||[]).forEach(p => {
+    out.push({ id:p.id, name:p.name, unit:p.unit || '', inc: p.inc || 1, cat: p.cat || '' });
+  }));
+  return out;
+}
+
+function catalogueFingerprint(list){
+  return list.map(p => p.id+'|'+p.name+'|'+p.unit+'|'+p.inc+'|'+p.cat).sort().join('~') + '||' + categories.join(',');
+}
+
+function schedulePublish(){
+  clearTimeout(schedulePublish._t);
+  schedulePublish._t = setTimeout(()=>{ publishCatalogue(false); }, 900);
+}
+
+async function publishCatalogue(force){
+  const list = buildCatalogue();
+  const fp = catalogueFingerprint(list);
+  let last = null;
+  try{ last = localStorage.getItem(CATALOGUE_FP_KEY); }catch(e){}
+  if(!force && last === fp && state.catalogueSynced !== false) return true;
+
+  try{
+    const res = await fetch(API + '/api/catalogue', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ products: list, categories: categories })
+    });
+    if(!res.ok) throw new Error();
+    try{ localStorage.setItem(CATALOGUE_FP_KEY, fp); }catch(e){}
+    const was = state.catalogueSynced;
+    state.catalogueSynced = true;
+    if(was === false){ showToast('Staff app updated'); render(); }
+    return true;
+  }catch(e){
+    state.catalogueSynced = false;
+    if(state.view.name === 'list') render();
+    return false;
+  }
 }
 
 function lastOrderKey(id){ return 'order-chit-lastorder-'+id; }
@@ -905,11 +1017,18 @@ function renderList(){
   const n = state.orders.length;
   const waiting = n ? `<div class="waiting-strip" data-goto="notifications">${n} order${n===1?'':'s'} waiting from ${escapeHtml(senderSummary())}<span class="chev">&rsaquo;</span></div>` : '';
 
+  const count = buildCatalogue().length;
+  const loose = uncategorisedCount();
+  const sync = state.catalogueSynced === false
+    ? `<div class="sync-line sync-bad">Staff app is out of date. <button data-resync="1">Retry now</button></div>`
+    : `<div class="sync-line">Staff app can order ${count} product${count===1?'':'s'}${loose?` &middot; <span class="sync-warn">${loose} with no section</span>`:''}</div>`;
+
   return `
     <div class="crumb"><button data-goto="home">&larr; Home</button> / Ordering</div>
     ${waiting}
     ${rows}
     <div class="add-row"><button class="btn" data-goto="addSupplier">+ Add Supplier</button></div>
+    ${sync}
   `;
 }
 
@@ -1157,6 +1276,7 @@ function renderEditProduct(supplierId, pid){
       </div>
       <label>Increment per tap</label>
       <input id="ep-inc" value="${formatQty(p.inc||1)}" inputmode="decimal">
+      ${categoryChipsHTML(p.cat || '')}
       <div class="form-actions">
         <button class="btn" data-goto="supplier" data-supplier="${supplierId}">Cancel</button>
         <button class="btn" data-save-edit="${pid}" data-supplier="${supplierId}">Save</button>
@@ -1179,6 +1299,7 @@ function renderAddProduct(supplierId){
       </div>
       <label>Increment per tap</label>
       <input id="np-inc" value="1" inputmode="decimal">
+      ${categoryChipsHTML(categories[0] || '')}
       <div class="form-actions">
         <button class="btn" data-goto="supplier" data-supplier="${supplierId}">Cancel</button>
         <button class="btn" data-save-product="${supplierId}">Save</button>
@@ -1310,6 +1431,25 @@ function attachHandlers(){
       saveData(); render(); showToast('Order cleared');
     });
   });
+  document.querySelectorAll('[data-cat-chip]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const field = document.getElementById('p-cat');
+      if(field) field.value = el.dataset.catChip;
+      document.querySelectorAll('[data-cat-chip]').forEach(c=>c.classList.remove('chip-on'));
+      el.classList.add('chip-on');
+    });
+  });
+  const catNew = document.querySelector('[data-cat-new]');
+  if(catNew){
+    catNew.addEventListener('click', ()=>{
+      const name = (prompt('Name the new section') || '').trim().slice(0,30);
+      if(!name) return;
+      if(categories.indexOf(name) < 0){ categories.push(name); saveCategories(); }
+      const field = document.getElementById('p-cat');
+      if(field) field.value = name;
+      render();
+    });
+  }
   document.querySelectorAll('[data-unit-chip]').forEach(el=>{
     el.addEventListener('click', ()=>{
       const t = document.getElementById('np-unit') || document.getElementById('ep-unit');
@@ -1331,6 +1471,8 @@ function attachHandlers(){
       p.unit = document.getElementById('ep-unit').value.trim() || 'kg';
       let inc = parseFloat(document.getElementById('ep-inc').value);
       if(!isNaN(inc) && inc > 0) p.inc = Math.round(inc*100)/100;
+      const catField = document.getElementById('p-cat');
+      p.cat = catField ? catField.value : (p.cat || '');
       saveData();
       goto({name:'supplier', id: s.id});
       showToast('Product updated');
@@ -1493,7 +1635,8 @@ function attachHandlers(){
       const unit = document.getElementById('np-unit').value.trim() || 'kg';
       let inc = parseFloat(document.getElementById('np-inc').value); if(isNaN(inc)||inc<=0) inc = 1;
       if(!name){ showToast('Product name required'); return; }
-      s.products.push({ id: uid(), name, unit, qty:0, inc: Math.round(inc*100)/100 });
+      const catField = document.getElementById('p-cat');
+      s.products.push({ id: uid(), name, unit, qty:0, inc: Math.round(inc*100)/100, cat: catField ? catField.value : '' });
       saveData();
       goto({name:"supplier", id:supplierId});
     });
@@ -1683,6 +1826,15 @@ function attachHandlers(){
     });
   });
 
+  const resync = document.querySelector('[data-resync]');
+  if(resync){
+    resync.addEventListener('click', async ()=>{
+      resync.textContent = 'Sending…';
+      const ok = await publishCatalogue(true);
+      if(!ok){ showToast('Still no connection'); const b = document.querySelector('[data-resync]'); if(b) b.textContent = 'Retry now'; }
+    });
+  }
+
   // ---- Prep list ----
   document.querySelectorAll('[data-prep-done]').forEach(btn => {
     btn.addEventListener('click', ()=> clearPrep(btn.dataset.prepDone));
@@ -1803,7 +1955,7 @@ async function clearPrep(id){
   }
 }
 
-function refreshFromServer(){ fetchOrders(); fetchPrep(); }
+function refreshFromServer(){ fetchOrders(); fetchPrep(); publishCatalogue(false); }
 
 try{ history.replaceState({view:{name:'home'}}, ''); }catch(e){}
 window.addEventListener('popstate', (e)=>{
