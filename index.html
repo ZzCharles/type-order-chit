@@ -213,6 +213,37 @@ a.btn-block{display:block;}
 .roff-divider{color:var(--muted);}
 .toast{border-radius:999px;background:var(--ink);}
 .settings-section{border-top:1px solid var(--line);}
+
+/* ===== Orders in from staff ===== */
+.bell-badge{top:-6px;right:-8px;width:auto;height:auto;min-width:17px;padding:1px 4px;border-radius:999px;background:var(--stamp);border:2px solid var(--paper);color:#fff;font-size:9.5px;font-weight:800;line-height:13px;text-align:center;}
+.tab-card.tab-alert{border-color:#E8C9C4;background:#FDF5F3;}
+.tab-card.tab-alert .tab-title{color:var(--stamp);}
+.waiting-strip{display:flex;align-items:center;justify-content:space-between;gap:8px;background:#FDF5F3;border:1px solid #E8C9C4;color:var(--stamp);border-radius:14px;padding:13px 16px;margin-bottom:12px;font-size:13px;font-weight:700;cursor:pointer;}
+.waiting-strip:active{background:#F9E9E5;}
+.waiting-strip .chev{color:var(--stamp);}
+.order-in{padding:16px 16px 14px;}
+.oi-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-bottom:4px;}
+.oi-who{font-size:17px;font-weight:800;letter-spacing:-0.2px;}
+.oi-when{font-size:11.5px;color:var(--muted);white-space:nowrap;}
+.oi-group{margin-top:10px;}
+.oi-group-label{font-size:10px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted);padding-bottom:5px;border-bottom:1px solid var(--line);}
+.oi-line{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid #F5F3EA;font-size:14px;}
+.oi-line:last-child{border-bottom:none;}
+.oi-qty{font-weight:700;white-space:nowrap;}
+.oi-warn{margin-top:10px;font-size:12px;color:var(--stamp);line-height:1.4;}
+.oi-actions{display:flex;gap:8px;margin-top:14px;}
+.oi-actions .btn{flex:1;}
+
+/* ===== Shared prep list ===== */
+.prep-item{display:flex;align-items:flex-start;gap:12px;padding:13px 0;border-bottom:1px solid #F1EFE4;}
+.prep-item:last-child{border-bottom:none;}
+.prep-check{flex:0 0 auto;width:26px;height:26px;margin-top:1px;border:1.5px solid var(--line);background:#F6F5EE;border-radius:8px;font-family:inherit;font-size:14px;color:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.prep-check:active{background:var(--ink);border-color:var(--ink);color:#fff;}
+.prep-body{flex:1;min-width:0;}
+.prep-text{font-size:15px;font-weight:600;line-height:1.35;white-space:pre-wrap;word-break:break-word;}
+.prep-meta{font-size:11px;color:var(--muted);margin-top:3px;}
+.form-card textarea#prep-text{min-height:76px;font-size:15px;}
+@media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important;}}
 .add-row .btn{}
 </style>
 
@@ -248,7 +279,13 @@ const STORAGE_KEY = "order-chit-suppliers";
 const VERSION_KEY = "order-chit-seedver";
 const SEED_VERSION = "2026-07-29b";
 const INVOICES_KEY = "order-chit-invoices";
-let state = { suppliers: [], staff: [], roster: {}, timesheet: {}, invoices: {}, incomingOrder: null, view: {name:"home"} };
+const API = 'https://orders.charlesbobby253.workers.dev';
+let state = {
+  suppliers: [], staff: [], roster: {}, timesheet: {}, invoices: {},
+  orders: [],
+  prep: { items: [], loaded:false, loading:false, failed:false },
+  view: {name:"home"}
+};
 let ticketDateWord = 'tomorrow';
 let ticketDateMode = 'tomorrow';
 let rosterDay = 'wed';
@@ -602,9 +639,10 @@ function render(){
   const app = document.getElementById('app');
   const v = state.view;
   const homeBtn = v.name === 'home' ? '' : `<button class="home-btn" data-goto="home" aria-label="Home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/></svg></button>`;
-  const bellBadge = state.incomingOrder ? '<span class="bell-badge show"></span>' : '';
-  const bellBtn = `<button class="bell-btn" data-bell="1" aria-label="Incoming order">${bellBadge}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></button>`;
-  let html = `<div class="brand"><h1>The Pass</h1><div class="brand-right">${bellBtn}${homeBtn}<span class="tag">v2.2</span></div></div>`;
+  const n = state.orders.length;
+  const bellBadge = n ? `<span class="bell-badge show">${n>9?'9+':n}</span>` : '';
+  const bellBtn = `<button class="bell-btn" data-bell="1" aria-label="${n?n+' orders waiting':'No orders waiting'}">${bellBadge}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></button>`;
+  let html = `<div class="brand"><h1>The Pass</h1><div class="brand-right">${bellBtn}${homeBtn}<span class="tag">v2.3</span></div></div>`;
   if(v.name === "home") html += renderHome();
   else if(v.name === "list") html += renderList();
   else if(v.name === "supplier") html += renderSupplier(v.id);
@@ -619,13 +657,33 @@ function render(){
   else if(v.name === "rosterBuild") html += renderRosterBuild();
   else if(v.name === "timesheet") html += renderTimesheet();
   else if(v.name === "invoices") html += renderInvoices();
+  else if(v.name === "notifications") html += renderNotifications();
+  else if(v.name === "prep") html += renderPrep();
   app.innerHTML = html;
   attachHandlers();
 }
 
 function renderHome(){
+  const n = state.orders.length;
+  const open = state.prep.items.length;
+  const waiting = n ? `
+      <button class="tab-card tab-alert" data-goto="notifications">
+        <div class="tab-main">
+          <div class="tab-title">${n} order${n===1?'':'s'} waiting</div>
+          <div class="tab-sub">From ${escapeHtml(senderSummary())}</div>
+        </div>
+        <div class="chev">&rsaquo;</div>
+      </button>` : '';
   return `
     <div class="home-tabs">
+      ${waiting}
+      <button class="tab-card" data-goto="prep">
+        <div class="tab-main">
+          <div class="tab-title">Prep List</div>
+          <div class="tab-sub">${state.prep.loaded && !state.prep.failed ? (open ? open+' line'+(open===1?'':'s')+' to do' : 'Nothing on it yet') : 'Shared with the whole kitchen'}</div>
+        </div>
+        <div class="chev">&rsaquo;</div>
+      </button>
       <button class="tab-card" data-goto="list">
         <div class="tab-main">
           <div class="tab-title">Ordering</div>
@@ -844,35 +902,133 @@ function renderList(){
   `).join('');
   if(state.suppliers.length===0) rows = `<div class="empty">No suppliers yet.<br>Add your first one below.</div>`;
 
-  let incomingHtml = '';
-  if(state.incomingOrder){
-    const sender = state.incomingOrder.sender || 'Sous Chef';
-    const lines = Object.entries(state.incomingOrder.items || {}).map(([pid, qty]) => {
-      let name = pid;
-      for(const s of state.suppliers){
-        const p = s.products.find(x => x.id === pid);
-        if(p){ name = `${p.name} (${s.name})`; break; }
-      }
-      return `<div>${escapeHtml(name)}: ${qty}</div>`;
-    }).join('');
-    incomingHtml = `
-      <div class="receive-order-card">
-        <div style="font-weight:700;margin-bottom:8px;">${escapeHtml(sender)}'s Order</div>
-        <div class="receive-summary">${lines || 'No items.'}</div>
-        <div class="receive-actions">
-          <button class="btn btn-ghost" id="reject-order">Ignore</button>
-          <button class="btn" id="apply-order">Apply to Cart</button>
-        </div>
-      </div>`;
-  }
-  const receiveBtn = `<div style="margin-top:16px;"><button class="btn btn-ghost btn-block" id="check-order-btn">Check for Incoming Order</button></div>`;
+  const n = state.orders.length;
+  const waiting = n ? `<div class="waiting-strip" data-goto="notifications">${n} order${n===1?'':'s'} waiting from ${escapeHtml(senderSummary())}<span class="chev">&rsaquo;</span></div>` : '';
 
   return `
     <div class="crumb"><button data-goto="home">&larr; Home</button> / Ordering</div>
+    ${waiting}
     ${rows}
     <div class="add-row"><button class="btn" data-goto="addSupplier">+ Add Supplier</button></div>
-    ${incomingHtml}
-    ${receiveBtn}
+  `;
+}
+
+/* ===== Staff orders & shared prep list ===== */
+
+function senderSummary(){
+  const names = [];
+  state.orders.forEach(o => {
+    const s = (o.sender || 'Kitchen').trim();
+    if(names.indexOf(s) < 0) names.push(s);
+  });
+  if(names.length === 0) return '';
+  if(names.length === 1) return names[0];
+  if(names.length === 2) return names[0] + ' and ' + names[1];
+  return names.slice(0,-1).join(', ') + ' and ' + names[names.length-1];
+}
+
+function timeAgo(ts){
+  const mins = Math.floor((Date.now() - ts) / 60000);
+  if(mins < 1) return 'just now';
+  if(mins < 60) return mins + 'm ago';
+  const hrs = Math.floor(mins / 60);
+  if(hrs < 24) return hrs + 'h ago';
+  const days = Math.floor(hrs / 24);
+  return days + (days === 1 ? ' day ago' : ' days ago');
+}
+
+function lookupProduct(pid){
+  for(const s of state.suppliers){
+    const p = s.products.find(x => x.id === pid);
+    if(p) return { product:p, supplier:s };
+  }
+  return null;
+}
+
+function renderNotifications(){
+  if(state.orders.length === 0){
+    return `
+      <div class="crumb"><button data-goto="home">&larr; Home</button> / Orders In</div>
+      <div class="empty">Nothing waiting.<br>Orders sent from Almo Orders land here.</div>
+    `;
+  }
+
+  const cards = state.orders.slice().reverse().map(o => {
+    const grouped = {};
+    let unknown = 0;
+    Object.entries(o.items || {}).forEach(([pid, qty]) => {
+      const hit = lookupProduct(pid);
+      const key = hit ? hit.supplier.name : 'Not on file';
+      if(!hit) unknown++;
+      if(!grouped[key]) grouped[key] = [];
+      grouped[key].push({ name: hit ? hit.product.name : pid, unit: hit ? hit.product.unit : '', qty: qty });
+    });
+
+    const order = state.suppliers.map(s => s.name);
+    const keys = Object.keys(grouped).sort((a,b)=>{
+      const ia = a === 'Not on file' ? 999 : order.indexOf(a);
+      const ib = b === 'Not on file' ? 999 : order.indexOf(b);
+      return ia - ib;
+    });
+
+    const body = keys.map(sup => `
+      <div class="oi-group">
+        <div class="oi-group-label">${escapeHtml(sup)}</div>
+        ${grouped[sup].map(l => `<div class="oi-line"><span>${escapeHtml(l.name)}</span><span class="oi-qty">${l.qty} ${escapeHtml(l.unit)}</span></div>`).join('')}
+      </div>`).join('');
+
+    return `
+      <div class="card order-in">
+        <div class="oi-head">
+          <div class="oi-who">${escapeHtml(o.sender || 'Kitchen')}'s order</div>
+          <div class="oi-when">${timeAgo(o.timestamp || Date.now())}</div>
+        </div>
+        ${body}
+        ${unknown ? `<div class="oi-warn">${unknown} item${unknown===1?'':'s'} not on file — add ${unknown===1?'it':'them'} to a supplier first.</div>` : ''}
+        <div class="oi-actions">
+          <button class="btn btn-ghost" data-order-clear="${escapeHtml(o.id)}">Clear</button>
+          <button class="btn" data-order-apply="${escapeHtml(o.id)}">Add to cart</button>
+        </div>
+      </div>`;
+  }).join('');
+
+  return `
+    <div class="crumb"><button data-goto="home">&larr; Home</button> / Orders In</div>
+    <div class="staff-legend" style="display:block;">Adding to cart tops up the quantities on your supplier pages, then clears the order for everyone.</div>
+    ${cards}
+  `;
+}
+
+function renderPrep(){
+  const p = state.prep;
+  let body;
+  if(!p.loaded && p.loading){
+    body = `<div class="empty">Loading the prep list…</div>`;
+  } else if(p.failed && p.items.length === 0){
+    body = `<div class="empty">Can't reach the prep list right now.<br>Check your connection and reopen this screen.</div>`;
+  } else if(p.items.length === 0){
+    body = `<div class="empty">Nothing on the prep list.<br>Add the first line below.</div>`;
+  } else {
+    body = p.items.slice().reverse().map(i => `
+      <div class="prep-item">
+        <button class="prep-check" data-prep-done="${escapeHtml(i.id)}" aria-label="Mark done">&#10003;</button>
+        <div class="prep-body">
+          <div class="prep-text">${escapeHtml(i.text)}</div>
+          <div class="prep-meta">${escapeHtml(i.by || 'Kitchen')} &middot; ${timeAgo(i.timestamp || Date.now())}</div>
+        </div>
+      </div>`).join('');
+  }
+
+  return `
+    <div class="crumb"><button data-goto="home">&larr; Home</button> / Prep List</div>
+    <div class="staff-legend" style="display:block;">Everyone in the kitchen sees this list. Ticking a line off removes it for everyone.</div>
+    <div class="card">${body}</div>
+    <div class="form-card">
+      <label for="prep-text">Add a line</label>
+      <textarea id="prep-text" placeholder="e.g. 4L napoli, pickle 2kg onions"></textarea>
+      <div class="form-actions"><button class="btn" id="prep-add-btn">Add to prep list</button></div>
+    </div>
+    ${p.items.length ? `<div class="add-row"><button class="btn btn-danger" id="prep-clear-all">Clear the whole list</button></div>` : ''}
   `;
 }
 
@@ -1490,68 +1646,164 @@ function attachHandlers(){
   const bellBtn = document.querySelector('[data-bell]');
   if(bellBtn){
     bellBtn.addEventListener('click', ()=>{
-      goto({name:"list"});
+      goto({name:"notifications"});
+      fetchOrders();
     });
   }
 
-  // ---- Incoming order from sous chef ----
-  const checkBtn = document.getElementById('check-order-btn');
-  if(checkBtn){
-    checkBtn.addEventListener('click', async () => {
-      checkBtn.disabled = true;
-      checkBtn.textContent = 'Checking...';
-      try{
-        const res = await fetch('https://orders.charlesbobby253.workers.dev/api/order');
-        const data = await res.json();
-        if(data && data.items && Object.keys(data.items).length > 0){
-          state.incomingOrder = data;
-          render();
-        } else {
-          showToast('No pending order');
-        }
-      } catch(e){
-        showToast('Could not reach server');
+  // ---- Staff orders ----
+  document.querySelectorAll('[data-order-apply]').forEach(btn => {
+    btn.addEventListener('click', async ()=>{
+      const order = state.orders.find(o => o.id === btn.dataset.orderApply);
+      if(!order) return;
+      btn.disabled = true;
+      let added = 0, missed = 0;
+      for(const [pid, qty] of Object.entries(order.items || {})){
+        const hit = lookupProduct(pid);
+        if(hit){ hit.product.qty = Math.round(((hit.product.qty || 0) + Number(qty)) * 100) / 100; added++; }
+        else missed++;
       }
-      checkBtn.disabled = false;
-      checkBtn.textContent = 'Check for Incoming Order';
-    });
-  }
-  const applyBtn = document.getElementById('apply-order');
-  if(applyBtn){
-    applyBtn.addEventListener('click', () => {
-      if(!state.incomingOrder) return;
-      state.suppliers.forEach(s => s.products.forEach(p => p.qty = 0));
-      for(const [pid, qty] of Object.entries(state.incomingOrder.items)){
-        for(const s of state.suppliers){
-          const p = s.products.find(x => x.id === pid);
-          if(p){ p.qty = qty; break; }
-        }
-      }
-      state.incomingOrder = null;
       saveData();
-      render();
-      showToast('Order applied to cart');
+      const ok = await clearOrder(order.id, true);
+      if(!ok){ btn.disabled = false; showToast('Added to cart, but it stayed in the list'); render(); return; }
+      showToast(missed
+        ? `Added ${added} item${added===1?'':'s'}, ${missed} not on file`
+        : `Added ${order.sender ? order.sender + "'s" : 'the'} order to your cart`);
+      if(state.orders.length === 0) goto({name:"list"}); else render();
+    });
+  });
+
+  document.querySelectorAll('[data-order-clear]').forEach(btn => {
+    btn.addEventListener('click', async ()=>{
+      btn.disabled = true;
+      const ok = await clearOrder(btn.dataset.orderClear, true);
+      if(!ok){ btn.disabled = false; return; }
+      showToast('Cleared');
+      if(state.orders.length === 0) goto({name:"home"}); else render();
+    });
+  });
+
+  // ---- Prep list ----
+  document.querySelectorAll('[data-prep-done]').forEach(btn => {
+    btn.addEventListener('click', ()=> clearPrep(btn.dataset.prepDone));
+  });
+
+  const prepAdd = document.getElementById('prep-add-btn');
+  if(prepAdd){
+    prepAdd.addEventListener('click', async ()=>{
+      const ta = document.getElementById('prep-text');
+      const text = (ta.value || '').trim();
+      if(!text){ showToast('Type what needs prepping'); ta.focus(); return; }
+      prepAdd.disabled = true;
+      prepAdd.textContent = 'Adding…';
+      await addPrep(text);
+      const again = document.getElementById('prep-add-btn');
+      if(again){ again.disabled = false; again.textContent = 'Add to prep list'; }
     });
   }
-  const rejectBtn = document.getElementById('reject-order');
-  if(rejectBtn){
-    rejectBtn.addEventListener('click', () => {
-      state.incomingOrder = null;
-      render();
+
+  const prepClearAll = document.getElementById('prep-clear-all');
+  if(prepClearAll){
+    prepClearAll.addEventListener('click', async ()=>{
+      if(!confirm('Clear every line off the prep list for everyone?')) return;
+      prepClearAll.disabled = true;
+      try{
+        const res = await fetch(API + '/api/prep/clear', {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ all: true })
+        });
+        if(!res.ok) throw new Error();
+        state.prep.items = [];
+        render();
+        showToast('Prep list cleared');
+      }catch(e){
+        prepClearAll.disabled = false;
+        showToast('No connection. Nothing was cleared.');
+      }
     });
   }
 }
 
-async function checkForPendingOrder(){
+/* ===== Worker calls ===== */
+
+async function fetchOrders(){
   try{
-    const res = await fetch('https://orders.charlesbobby253.workers.dev/api/order');
+    const res = await fetch(API + '/api/orders', {cache:'no-store'});
     const data = await res.json();
-    if(data && data.items && Object.keys(data.items).length > 0 && !state.incomingOrder){
-      state.incomingOrder = data;
-      render();
-    }
-  } catch(e){}
+    state.orders = Array.isArray(data.orders) ? data.orders : [];
+    render();
+  }catch(e){ /* keep whatever we already had */ }
 }
+
+async function clearOrder(id, silent){
+  const before = state.orders;
+  state.orders = state.orders.filter(o => o.id !== id);
+  try{
+    const res = await fetch(API + '/api/orders/clear', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ id: id })
+    });
+    if(!res.ok) throw new Error();
+    return true;
+  }catch(e){
+    state.orders = before;
+    render();
+    if(!silent) showToast('No connection. Order is still waiting.');
+    else showToast('No connection. Order is still waiting.');
+    return false;
+  }
+}
+
+async function fetchPrep(){
+  if(state.prep.loading) return;
+  state.prep.loading = true;
+  try{
+    const res = await fetch(API + '/api/prep', {cache:'no-store'});
+    const data = await res.json();
+    state.prep.items = Array.isArray(data.items) ? data.items : [];
+    state.prep.failed = false;
+  }catch(e){
+    state.prep.failed = true;
+  }
+  state.prep.loading = false;
+  state.prep.loaded = true;
+  render();
+}
+
+async function addPrep(text){
+  try{
+    const res = await fetch(API + '/api/prep', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ text: text, by: 'Rabindra' })
+    });
+    if(!res.ok) throw new Error();
+    const ta = document.getElementById('prep-text');
+    if(ta) ta.value = '';
+    showToast('Added to the prep list');
+    await fetchPrep();
+  }catch(e){
+    showToast('No connection. Nothing was added.');
+  }
+}
+
+async function clearPrep(id){
+  const before = state.prep.items;
+  state.prep.items = state.prep.items.filter(i => i.id !== id);
+  render();
+  try{
+    const res = await fetch(API + '/api/prep/clear', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ id: id })
+    });
+    if(!res.ok) throw new Error();
+  }catch(e){
+    state.prep.items = before;
+    render();
+    showToast('No connection. Line is still on the list.');
+  }
+}
+
+function refreshFromServer(){ fetchOrders(); fetchPrep(); }
 
 try{ history.replaceState({view:{name:'home'}}, ''); }catch(e){}
 window.addEventListener('popstate', (e)=>{
@@ -1560,7 +1812,11 @@ window.addEventListener('popstate', (e)=>{
 });
 
 loadData();
-checkForPendingOrder();
+refreshFromServer();
+
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState === 'visible') refreshFromServer();
+});
 
 if('serviceWorker' in navigator){
   window.addEventListener('load', ()=>{
