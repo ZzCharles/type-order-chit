@@ -149,6 +149,10 @@ a.btn-block{display:block;text-decoration:none;text-align:center;box-sizing:bord
 .invoice-del{color:var(--muted);background:none;border:none;font-size:16px;cursor:pointer;padding:0 4px;}
 .invoice-supplier-total{margin-top:6px;font-weight:700;font-size:14px;border-top:1px dashed var(--line);padding-top:6px;}
 .grand-total-card{padding:14px 16px;background:var(--card);border:1px solid var(--line);border-radius:4px;text-align:center;margin-top:16px;font-size:15px;font-weight:700;}
+.receive-order-card{ background:var(--card); border:1px solid var(--line); border-radius:16px; padding:18px; margin-top:20px; text-align:center; }
+.receive-summary{ text-align:left; font-size:13px; margin:12px 0; max-height:180px; overflow-y:auto; }
+.receive-actions{ display:flex; gap:8px; }
+.receive-actions .btn{ flex:1; }
 </style>
 
 <style>
@@ -239,7 +243,7 @@ const STORAGE_KEY = "order-chit-suppliers";
 const VERSION_KEY = "order-chit-seedver";
 const SEED_VERSION = "2026-07-29b"; /* bumped to include new suppliers */
 const INVOICES_KEY = "order-chit-invoices";
-let state = { suppliers: [], staff: [], roster: {}, timesheet: {}, invoices: {}, view: {name:"home"} };
+let state = { suppliers: [], staff: [], roster: {}, timesheet: {}, invoices: {}, incomingOrder: null, view: {name:"home"} };
 let ticketDateWord = 'tomorrow';
 let ticketDateMode = 'tomorrow';
 let rosterDay = 'wed';
@@ -833,10 +837,37 @@ function renderList(){
     </div>
   `).join('');
   if(state.suppliers.length===0) rows = `<div class="empty">No suppliers yet.<br>Add your first one below.</div>`;
+
+  // --- incoming order from sous chef ---
+  let incomingHtml = '';
+  if(state.incomingOrder){
+    const lines = Object.entries(state.incomingOrder.items || {}).map(([pid, qty]) => {
+      let name = pid;
+      for(const s of state.suppliers){
+        const p = s.products.find(x => x.id === pid);
+        if(p){ name = `${p.name} (${s.name})`; break; }
+      }
+      return `<div>${escapeHtml(name)}: ${qty}</div>`;
+    }).join('');
+    incomingHtml = `
+      <div class="receive-order-card">
+        <div style="font-weight:700;margin-bottom:8px;">Incoming order from Sous Chef</div>
+        <div class="receive-summary">${lines || 'No items.'}</div>
+        <div class="receive-actions">
+          <button class="btn btn-ghost" id="reject-order">Ignore</button>
+          <button class="btn" id="apply-order">Apply to Cart</button>
+        </div>
+      </div>`;
+  }
+  const receiveBtn = `<div style="margin-top:16px;"><button class="btn btn-ghost btn-block" id="check-order-btn">Check for Incoming Order</button></div>`;
+  // --- end incoming order ---
+
   return `
     <div class="crumb"><button data-goto="home">&larr; Home</button> / Ordering</div>
     ${rows}
     <div class="add-row"><button class="btn" data-goto="addSupplier">+ Add Supplier</button></div>
+    ${incomingHtml}
+    ${receiveBtn}
   `;
 }
 
@@ -1390,12 +1421,10 @@ function attachHandlers(){
       e.preventDefault();
       const s = findSupplier(stampBtn.dataset.supplier);
       saveLastOrder(s);
-      // Clear all product quantities
       s.products.forEach(p => { p.qty = 0; });
       saveData();
       showToast('Order sent & cleared');
       stampBtn.classList.add('sent');
-      // Navigate to the link after a short delay to show toast
       setTimeout(() => {
         window.location.href = stampBtn.getAttribute('href');
       }, 100);
@@ -1434,7 +1463,7 @@ function attachHandlers(){
       if(!state.invoices[weekKey][supplierId]) state.invoices[weekKey][supplierId] = [];
       state.invoices[weekKey][supplierId].push({ amount: Math.round(amount*100)/100, timestamp: new Date().toISOString() });
       saveInvoices();
-      render(); // re-render invoice view (same view)
+      render();
     });
   });
 
@@ -1451,6 +1480,53 @@ function attachHandlers(){
       }
     });
   });
+
+  // ---- Incoming order from sous chef ----
+  const checkBtn = document.getElementById('check-order-btn');
+  if(checkBtn){
+    checkBtn.addEventListener('click', async () => {
+      checkBtn.disabled = true;
+      checkBtn.textContent = 'Checking...';
+      try{
+        const res = await fetch('https://orders.charlesbobby253.workers.dev/api/order');
+        const data = await res.json();
+        if(data && data.items && Object.keys(data.items).length > 0){
+          state.incomingOrder = data;
+          render();
+        } else {
+          showToast('No pending order');
+        }
+      } catch(e){
+        showToast('Could not reach server');
+      }
+      checkBtn.disabled = false;
+      checkBtn.textContent = 'Check for Incoming Order';
+    });
+  }
+  const applyBtn = document.getElementById('apply-order');
+  if(applyBtn){
+    applyBtn.addEventListener('click', () => {
+      if(!state.incomingOrder) return;
+      state.suppliers.forEach(s => s.products.forEach(p => p.qty = 0));
+      for(const [pid, qty] of Object.entries(state.incomingOrder.items)){
+        for(const s of state.suppliers){
+          const p = s.products.find(x => x.id === pid);
+          if(p){ p.qty = qty; break; }
+        }
+      }
+      state.incomingOrder = null;
+      saveData();
+      render();
+      showToast('Order applied to cart');
+    });
+  }
+  const rejectBtn = document.getElementById('reject-order');
+  if(rejectBtn){
+    rejectBtn.addEventListener('click', () => {
+      state.incomingOrder = null;
+      render();
+    });
+  }
 }
 
 try{ history.replaceState({view:{name:'home'}}, ''); }catch(e){}
