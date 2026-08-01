@@ -295,6 +295,35 @@ a.btn-block{display:block;}
 .rm-n{flex:0 0 auto;width:22px;height:22px;border-radius:50%;background:var(--ink);color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;margin-top:1px;}
 .rm-t{flex:1;font-size:14.5px;line-height:1.45;}
 .rn-text{font-size:14px;line-height:1.5;white-space:pre-wrap;}
+.ri-link{font-family:inherit;font-size:14.5px;font-weight:700;color:var(--stamp);background:none;border:none;padding:0;text-align:left;cursor:pointer;text-decoration:underline;text-underline-offset:2px;display:inline-flex;align-items:center;gap:3px;}
+.ri-link:active{color:var(--stamp-dark);}
+.ri-arrow{text-decoration:none;font-size:15px;}
+.sub-note{font-size:12.5px;color:var(--ink-soft);margin-top:10px;line-height:1.5;}
+.sub-link{font-family:inherit;font-size:12.5px;font-weight:700;color:var(--stamp);background:none;border:none;padding:0;cursor:pointer;text-decoration:underline;text-underline-offset:2px;}
+
+/* ===== Prep ===== */
+.pub-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin:2px 2px 10px;}
+.pub-head span:first-child{font-size:19px;font-weight:800;letter-spacing:-0.3px;}
+.pub-meta{font-size:11.5px;color:var(--muted);white-space:nowrap;}
+.prep-item{display:flex;align-items:flex-start;gap:12px;padding:13px 0;border-bottom:1px solid #F1EFE4;}
+.prep-item:last-child{border-bottom:none;}
+.prep-check{flex:0 0 auto;width:26px;height:26px;margin-top:1px;border:1.5px solid var(--line);background:#F6F5EE;border-radius:8px;font-family:inherit;font-size:14px;color:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.prep-check.on{background:var(--ink);border-color:var(--ink);color:#fff;}
+.prep-check:active{background:var(--ink);border-color:var(--ink);color:#fff;}
+.prep-body{flex:1;min-width:0;}
+.prep-text{font-size:15px;font-weight:600;line-height:1.35;white-space:pre-wrap;word-break:break-word;}
+.prep-item.is-done .prep-text{text-decoration:line-through;color:var(--muted);}
+.prep-meta{font-size:11px;color:var(--muted);margin-top:3px;}
+.prep-recipe{flex:0 0 auto;font-family:inherit;font-size:10.5px;font-weight:800;letter-spacing:0.5px;text-transform:uppercase;color:var(--stamp);background:none;border:1px solid var(--line);border-radius:999px;padding:5px 10px;cursor:pointer;margin-top:1px;}
+.prep-recipe:active{background:var(--stamp);border-color:var(--stamp);color:#fff;}
+.pick-row{display:flex;align-items:center;gap:11px;padding:12px 2px;border-bottom:1px solid #F5F3EA;cursor:pointer;}
+.pick-row:last-child{border-bottom:none;}
+.pick-box{flex:0 0 auto;width:24px;height:24px;border:1.5px solid var(--line);background:#F6F5EE;border-radius:7px;font-size:13px;color:transparent;display:flex;align-items:center;justify-content:center;}
+.pick-row.on .pick-box{background:var(--ink);border-color:var(--ink);color:#fff;}
+.pick-row.on .pick-name{font-weight:700;}
+.pick-name{flex:1;font-size:15px;font-weight:600;min-width:0;}
+.pitem-sec{width:96px!important;text-align:left!important;font-size:12.5px!important;color:var(--muted);}
+.sticky-foot{position:sticky;bottom:0;padding:12px 0 4px;background:linear-gradient(to bottom, rgba(241,239,230,0) 0%, var(--paper) 34%);}
 
 .ing-head{display:flex;gap:6px;padding:12px 0 6px;border-bottom:1px solid var(--line);font-size:10px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:var(--muted);}
 .ing-head span:nth-child(1){width:64px;}
@@ -360,6 +389,7 @@ const CHEF_KEY_STORE = 'order-chit-chef-key';
 const INVOICES_DIRTY_KEY = 'order-chit-invoices-dirty';
 const RECIPES_KEY = 'order-chit-recipes';
 const RECIPES_DIRTY_KEY = 'order-chit-recipes-dirty';
+const PREPITEMS_KEY = 'order-chit-prep-items';
 const CAT_MIGRATION_KEY = 'order-chit-cat-migrated';
 
 /* Categories only exist so the staff app can group its list. They show up on
@@ -415,11 +445,12 @@ function categoryChipsHTML(selected){
 let state = {
   suppliers: [], staff: [], roster: {}, timesheet: {}, invoices: {},
   orders: [],
-  prep: { items: [], loaded:false, loading:false, failed:false },
   catalogueSynced: null,
   invoiceSync: null,
   recipes: [], recipeSections: [], recipeSync: null, recipesLoaded: false,
   recipeSearch: '', recipeFilter: null,
+  prepItems: [],            // standalone prep items, not backed by a recipe
+  prepSubs: [], published: null, prepDraft: null, prepSearch: '',
   view: {name:"home"}
 };
 let ticketDateWord = 'tomorrow';
@@ -563,6 +594,7 @@ function saveRecipes(){
   sortRecipes();
   saveRecipesLocal();
   setRecipesDirty(true);
+  schedulePrepCatalogue();
   clearTimeout(saveRecipes._t);
   saveRecipes._t = setTimeout(pushRecipes, 700);
 }
@@ -620,7 +652,160 @@ async function fetchRecipes(){
   }
 }
 
+/* ===== Prep =====
+   The catalogue is every active recipe plus any standalone items. Staff read
+   names and sections only; recipe content stays behind the chef key. */
+
+function loadPrepItems(){
+  try{ const r = localStorage.getItem(PREPITEMS_KEY); state.prepItems = r ? JSON.parse(r) : []; }catch(e){ state.prepItems = []; }
+}
+function savePrepItems(){
+  try{ localStorage.setItem(PREPITEMS_KEY, JSON.stringify(state.prepItems)); }catch(e){}
+  schedulePrepCatalogue();
+}
+
+function buildPrepCatalogue(){
+  const items = state.recipes.filter(r => r.active).map(r => ({
+    id: 'r:' + r.id, name: r.name, section: r.section || '', recipe: r.id
+  }));
+  state.prepItems.forEach(i => items.push({ id: i.id, name: i.name, section: i.section || '', recipe: '' }));
+  const order = state.recipeSections;
+  items.sort((a,b)=>{
+    const ia = order.indexOf(a.section), ib = order.indexOf(b.section);
+    const sa = ia < 0 ? 999 : ia, sb = ib < 0 ? 999 : ib;
+    if(sa !== sb) return sa - sb;
+    return String(a.name).localeCompare(String(b.name),'en',{sensitivity:'base'});
+  });
+  return items;
+}
+
+function prepSectionsList(){
+  const secs = [];
+  buildPrepCatalogue().forEach(i => { const s = i.section || 'Other'; if(secs.indexOf(s) < 0) secs.push(s); });
+  return secs;
+}
+
+function schedulePrepCatalogue(){
+  clearTimeout(schedulePrepCatalogue._t);
+  schedulePrepCatalogue._t = setTimeout(pushPrepCatalogue, 800);
+}
+
+async function pushPrepCatalogue(){
+  if(!getChefKey()) return false;
+  const items = buildPrepCatalogue();
+  const secs = [];
+  items.forEach(i => { const s = i.section || 'Other'; if(secs.indexOf(s) < 0) secs.push(s); });
+  try{
+    const res = await fetch(API + '/api/prep/catalogue', {
+      method:'POST', headers: chefHeaders({'Content-Type':'application/json'}),
+      body: JSON.stringify({ items: items, sections: secs })
+    });
+    return res.ok;
+  }catch(e){ return false; }
+}
+
+async function fetchPrepSubs(){
+  try{
+    const res = await fetch(API + '/api/prep/submissions', {cache:'no-store'});
+    const d = await res.json();
+    state.prepSubs = Array.isArray(d.submissions) ? d.submissions : [];
+  }catch(e){}
+}
+
+async function fetchPublished(){
+  try{
+    const res = await fetch(API + '/api/prep/published', {cache:'no-store'});
+    const d = await res.json();
+    state.published = (d && Array.isArray(d.lines)) ? d : null;
+  }catch(e){}
+}
+
+async function refreshPrep(){
+  await fetchPrepSubs();
+  await fetchPublished();
+  if(state.view.name && state.view.name.indexOf('prep') === 0) render();
+}
+
+async function tickPrepLine(lineId, done){
+  if(!state.published) return;
+  const line = state.published.lines.find(l => l.id === lineId);
+  if(!line) return;
+  const before = JSON.parse(JSON.stringify(state.published.lines));
+  line.done = done;
+  line.doneBy = done ? 'Rabindra' : '';
+  line.doneAt = done ? Date.now() : 0;
+  render();
+  try{
+    const res = await fetch(API + '/api/prep/published/tick', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ id: lineId, by: 'Rabindra', done: done })
+    });
+    if(!res.ok) throw new Error();
+    const d = await res.json();
+    if(Array.isArray(d.lines)) state.published.lines = d.lines;
+    render();
+  }catch(e){
+    state.published.lines = before;
+    render();
+    showToast('No connection. Not saved.');
+  }
+}
+
+async function publishPrep(lines){
+  try{
+    const res = await fetch(API + '/api/prep/published', {
+      method:'POST', headers: chefHeaders({'Content-Type':'application/json'}),
+      body: JSON.stringify({ lines: lines })
+    });
+    if(!res.ok) throw new Error();
+    // published, so the submissions it came from are done with
+    await fetch(API + '/api/prep/submissions/clear', {
+      method:'POST', headers: chefHeaders({'Content-Type':'application/json'}),
+      body: JSON.stringify({ all: true })
+    }).catch(()=>{});
+    state.prepDraft = null;
+    await refreshPrep();
+    goto({name:'prep'});
+    showToast('Prep list published');
+  }catch(e){
+    showToast('No connection. Nothing was published.');
+  }
+}
+
+function savePrepItemEdits(){
+  document.querySelectorAll('[data-pitem]').forEach(inp => {
+    const it = state.prepItems.find(x => x.id === inp.dataset.pitem);
+    if(it) it.name = (inp.value||'').trim();
+  });
+  document.querySelectorAll('[data-pitem-sec]').forEach(inp => {
+    const it = state.prepItems.find(x => x.id === inp.dataset.pitemSec);
+    if(it) it.section = (inp.value||'').trim();
+  });
+  state.prepItems = state.prepItems.filter(i => i.name);
+}
+
 function findRecipe(id){ return state.recipes.find(r => r.id === id); }
+
+/* An ingredient that is itself a recipe becomes a link. Garlic Blitzed is an
+   ingredient in ten others, so this is the difference between "make pizza
+   sauce" and "make pizza sauce, oh, first make the garlic". */
+function recipeByName(name){
+  const n = String(name||'').trim().toLowerCase();
+  if(!n) return null;
+  return state.recipes.find(r => String(r.name).trim().toLowerCase() === n) || null;
+}
+function subRecipesOf(r){
+  const out = [];
+  (r.ingredients||[]).forEach(i => {
+    const hit = recipeByName(i.item);
+    if(hit && hit.id !== r.id && !out.some(x => x.id === hit.id)) out.push(hit);
+  });
+  return out;
+}
+function usedByRecipes(r){
+  return state.recipes.filter(x => x.id !== r.id &&
+    (x.ingredients||[]).some(i => String(i.item).trim().toLowerCase() === String(r.name).trim().toLowerCase()));
+}
 
 /* Keeps whatever is typed on screen when a row is added or removed. */
 function applyDraftAndRerender(draft){
@@ -945,6 +1130,7 @@ function loadData(){
   loadCategories();
   backfillCategories();
   loadRecipesLocal();
+  loadPrepItems();
   render();
 }
 
@@ -1086,6 +1272,8 @@ function render(){
   else if(v.name === "invoices") html += renderInvoices();
   else if(v.name === "notifications") html += renderNotifications();
   else if(v.name === "prep") html += renderPrep();
+  else if(v.name === "prepBuild") html += renderPrepBuild();
+  else if(v.name === "prepItems") html += renderPrepItems();
   else if(v.name === "recipes") html += renderRecipes();
   else if(v.name === "recipe") html += renderRecipe(v.rid);
   else if(v.name === "recipeEdit") html += renderRecipeEdit(v.rid);
@@ -1094,9 +1282,16 @@ function render(){
   attachHandlers();
 }
 
+function prepTileSub(){
+  if(state.prepSubs.length) return state.prepSubs.length+' request'+(state.prepSubs.length===1?'':'s')+' waiting';
+  const lines = state.published ? state.published.lines : [];
+  if(!lines.length) return 'Nothing published';
+  const done = lines.filter(l=>l.done).length;
+  return done+' of '+lines.length+' done';
+}
+
 function renderHome(){
   const n = state.orders.length;
-  const open = state.prep.items.length;
   const waiting = n ? `
       <button class="tab-card tab-alert" data-goto="notifications">
         <div class="tab-main">
@@ -1115,10 +1310,10 @@ function renderHome(){
         </div>
         <div class="chev">&rsaquo;</div>
       </button>
-      <button class="tab-card" data-goto="prep">
+      <button class="tab-card${state.prepSubs.length?' tab-alert':''}" data-goto="prep">
         <div class="tab-main">
           <div class="tab-title">Prep List</div>
-          <div class="tab-sub">${state.prep.loaded && !state.prep.failed ? (open ? open+' line'+(open===1?'':'s')+' to do' : 'Nothing on it yet') : 'Shared with the whole kitchen'}</div>
+          <div class="tab-sub">${prepTileSub()}</div>
         </div>
         <div class="chev">&rsaquo;</div>
       </button>
@@ -1215,6 +1410,168 @@ function invoiceDate(e){
   return isNaN(d) ? '' : d.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'});
 }
 
+/* ===== Prep screens (chef) ===== */
+
+function renderPrep(){
+  const subs = state.prepSubs.length;
+  const pub = state.published;
+  const lines = pub ? pub.lines : [];
+  const done = lines.filter(l => l.done).length;
+
+  const subBanner = subs ? `
+    <div class="waiting-strip" data-goto="prepBuild">${subs} prep request${subs===1?'':'s'} from ${escapeHtml(prepSubSummary())}<span class="chev">&rsaquo;</span></div>` : '';
+
+  let body;
+  if(!pub || lines.length === 0){
+    body = `<div class="empty">Nothing published yet.<br>Build a list and publish it to the kitchen.</div>`;
+  } else {
+    let out = '', lastSec = null;
+    lines.forEach(l => {
+      const sec = l.section || 'Other';
+      if(sec !== lastSec){ lastSec = sec; out += `<div class="sec-head">${escapeHtml(sec)}</div>`; }
+      out += `
+        <div class="prep-item ${l.done?'is-done':''}">
+          <button class="prep-check ${l.done?'on':''}" data-tick="${escapeHtml(l.id)}" data-done="${l.done?'1':'0'}" aria-label="${l.done?'Mark not done':'Mark done'}">&#10003;</button>
+          <div class="prep-body">
+            <div class="prep-text">${escapeHtml(l.text)}</div>
+            ${l.done ? `<div class="prep-meta">Completed by ${escapeHtml(l.doneBy||'someone')}${l.doneAt?' &middot; '+timeAgo(l.doneAt):''}</div>` : ''}
+          </div>
+          ${l.recipe && findRecipe(l.recipe) ? `<button class="prep-recipe" data-open-recipe="${escapeHtml(l.recipe)}" aria-label="Open recipe">Recipe</button>` : ''}
+        </div>`;
+    });
+    body = out;
+  }
+
+  return `
+    <div class="crumb"><button data-goto="home">&larr; Home</button> / Prep</div>
+    ${subBanner}
+    ${pub && lines.length ? `<div class="pub-head"><span>Today's Prep List</span><span class="pub-meta">${done}/${lines.length} done &middot; published ${timeAgo(pub.publishedAt)}</span></div>` : ''}
+    <div class="card tight">${body}</div>
+    <div class="add-row"><button class="btn" data-goto="prepBuild">${lines.length ? 'Edit &amp; republish' : 'Build the list'}</button></div>
+    ${lines.length ? `<div class="add-row"><button class="btn btn-danger" id="prep-pub-clear">Clear the list</button></div>` : ''}
+    <div class="sync-line"><button data-goto="prepItems">Manage prep items</button></div>
+  `;
+}
+
+function prepSubSummary(){
+  const names = [];
+  state.prepSubs.forEach(s => { const n = (s.by||'Kitchen').trim(); if(names.indexOf(n) < 0) names.push(n); });
+  if(names.length <= 1) return names[0] || '';
+  if(names.length === 2) return names[0]+' and '+names[1];
+  return names.slice(0,-1).join(', ')+' and '+names[names.length-1];
+}
+
+/* The draft is a plain list of lines. Staff requests arrive pre-ticked so the
+   default action is to publish what was asked for. */
+function ensurePrepDraft(){
+  if(state.prepDraft) return state.prepDraft;
+  const chosen = {};
+  const extras = [];
+  const cat = buildPrepCatalogue();
+  const byName = {};
+  cat.forEach(c => { byName[c.name.trim().toLowerCase()] = c; });
+
+  if(state.published && state.published.lines.length){
+    state.published.lines.forEach(l => {
+      const hit = byName[l.text.trim().toLowerCase()];
+      if(hit) chosen[hit.id] = true; else extras.push(l.text);
+    });
+  }
+  state.prepSubs.forEach(s => {
+    (s.items||[]).forEach(txt => {
+      const hit = byName[String(txt).trim().toLowerCase()];
+      if(hit) chosen[hit.id] = true;
+      else if(extras.indexOf(txt) < 0) extras.push(txt);
+    });
+    if(s.note && extras.indexOf(s.note) < 0) extras.push(s.note);
+  });
+  state.prepDraft = { chosen: chosen, extras: extras };
+  return state.prepDraft;
+}
+
+function renderPrepBuild(){
+  const d = ensurePrepDraft();
+  const cat = buildPrepCatalogue();
+  const q = state.prepSearch.trim().toLowerCase();
+  const list = q ? cat.filter(c => c.name.toLowerCase().indexOf(q) > -1) : cat;
+  const count = Object.keys(d.chosen).filter(k => d.chosen[k]).length + d.extras.length;
+
+  let rows = '', lastSec = null;
+  if(list.length === 0){
+    rows = `<div class="empty">${cat.length ? 'Nothing matches that.' : 'No prep items yet.<br>Import recipes or add items.'}</div>`;
+  } else {
+    list.forEach(c => {
+      const sec = c.section || 'Other';
+      if(!q && sec !== lastSec){ lastSec = sec; rows += `<div class="sec-head">${escapeHtml(sec)}</div>`; }
+      rows += `
+        <div class="pick-row ${d.chosen[c.id]?'on':''}" data-pick="${escapeHtml(c.id)}">
+          <span class="pick-box">&#10003;</span>
+          <span class="pick-name">${escapeHtml(c.name)}</span>
+        </div>`;
+    });
+  }
+
+  const extraRows = d.extras.map((x, i) => `
+    <div class="ing-row">
+      <input class="ing-item" data-extra="${i}" value="${escapeHtml(x)}">
+      <button class="del-x" data-extra-del="${i}" aria-label="Remove">&times;</button>
+    </div>`).join('');
+
+  return `
+    <div class="crumb"><button data-goto="prep">&larr; Cancel</button></div>
+    <h2 class="screen-title">Build the prep list</h2>
+    <p class="screen-sub">${state.prepSubs.length ? 'Staff requests are already ticked. Adjust and publish.' : 'Tick what needs doing today.'}</p>
+    <div class="search-wrap ${state.prepSearch?'filled':''}">
+      <input type="text" id="prep-search" placeholder="Search prep items" value="${escapeHtml(state.prepSearch)}" autocomplete="off">
+      <button class="search-clear" id="prep-search-clear" aria-label="Clear">&times;</button>
+    </div>
+    <div class="card tight">${rows}</div>
+    <div class="section-label">Anything else</div>
+    <div class="card tight">
+      <div id="extra-list">${extraRows || '<div class="empty">Nothing extra.</div>'}</div>
+    </div>
+    <div class="add-row"><button class="btn btn-ghost" id="extra-add">+ Add a one-off line</button></div>
+    <div class="sticky-foot">
+      <button class="btn" id="prep-publish" ${count?'':'disabled'}>${count ? 'Publish '+count+' line'+(count===1?'':'s') : 'Nothing ticked yet'}</button>
+    </div>
+  `;
+}
+
+function renderPrepItems(){
+  const standalone = state.prepItems.slice().sort((a,b)=>String(a.name).localeCompare(String(b.name),'en',{sensitivity:'base'}));
+  const fromRecipes = state.recipes.filter(r => r.active);
+
+  const sRows = standalone.length ? standalone.map(i => `
+    <div class="ing-row">
+      <input class="ing-item" data-pitem="${escapeHtml(i.id)}" value="${escapeHtml(i.name)}">
+      <input class="ing-unit pitem-sec" data-pitem-sec="${escapeHtml(i.id)}" value="${escapeHtml(i.section||'')}" placeholder="Section">
+      <button class="del-x" data-pitem-del="${escapeHtml(i.id)}" aria-label="Remove">&times;</button>
+    </div>`).join('') : '<div class="empty">No standalone items.<br>Things like "break down chicken" that aren\'t recipes.</div>';
+
+  const rRows = fromRecipes.length ? fromRecipes.map(r => `
+    <div class="prep-item">
+      <div class="prep-body">
+        <div class="prep-text">${escapeHtml(r.name)}</div>
+        <div class="prep-meta">${escapeHtml(r.section||'Unsorted')}</div>
+      </div>
+      <button class="prep-recipe" data-goto="recipeEdit" data-rid="${escapeHtml(r.id)}">Rename</button>
+    </div>`).join('') : '<div class="empty">No active recipes.</div>';
+
+  return `
+    <div class="crumb"><button data-goto="prep">&larr; Prep</button></div>
+    <h2 class="screen-title">Prep items</h2>
+    <p class="screen-sub">This is what staff can pick from. Every active recipe is here automatically.</p>
+
+    <div class="section-label">Your own items</div>
+    <div class="card tight"><div id="pitem-list">${sRows}</div></div>
+    <div class="add-row"><button class="btn btn-ghost" id="pitem-add">+ Add prep item</button></div>
+
+    <div class="section-label">From recipes (${fromRecipes.length})</div>
+    <div class="staff-legend" style="display:block;">Renaming one of these renames the recipe, so the two never drift apart. Hide a recipe to take it off this list.</div>
+    <div class="card tight">${rRows}</div>
+  `;
+}
+
 /* ===== Recipe screens ===== */
 
 function renderRecipes(){
@@ -1300,8 +1657,21 @@ function renderRecipe(id){
 
   const ing = (r.ingredients||[]).map(i => {
     const f = fmtAmount(i.qty, i.unit);
-    return `<tr><td class="ri-amt">${escapeHtml(f.amount)}</td><td class="ri-unit">${escapeHtml(f.unit)}</td><td class="ri-item">${escapeHtml(i.item)}</td></tr>`;
+    const sub = recipeByName(i.item);
+    const cell = sub && sub.id !== r.id
+      ? `<button class="ri-link" data-open-recipe="${escapeHtml(sub.id)}">${escapeHtml(i.item)}<span class="ri-arrow">&rsaquo;</span></button>`
+      : escapeHtml(i.item);
+    return `<tr><td class="ri-amt">${escapeHtml(f.amount)}</td><td class="ri-unit">${escapeHtml(f.unit)}</td><td class="ri-item">${cell}</td></tr>`;
   }).join('');
+
+  const subs = subRecipesOf(r);
+  const subNote = subs.length
+    ? `<div class="sub-note">Make first: ${subs.map(s => `<button class="sub-link" data-open-recipe="${escapeHtml(s.id)}">${escapeHtml(s.name)}</button>`).join(' &middot; ')}</div>`
+    : '';
+  const used = usedByRecipes(r);
+  const usedNote = used.length
+    ? `<div class="section-label">Used in</div><div class="card tight">${used.map(u => `<div class="recipe-row" data-open-recipe="${escapeHtml(u.id)}"><div class="recipe-row-main"><div class="recipe-row-name">${escapeHtml(u.name)}</div></div><div class="chev">&rsaquo;</div></div>`).join('')}</div>`
+    : '';
 
   const steps = (r.method||[]).map((s,i) =>
     `<li><span class="rm-n">${i+1}</span><span class="rm-t">${escapeHtml(s)}</span></li>`).join('');
@@ -1316,6 +1686,7 @@ function renderRecipe(id){
         <div><span class="rm-label">Allergens</span><span>${(r.allergens||[]).length ? escapeHtml(r.allergens.join(', ')) : 'None'}</span></div>
       </div>
       ${r.active ? '' : '<div class="hidden-note">Hidden — staff won\'t see this recipe.</div>'}
+      ${subNote}
     </div>
 
     <div class="section-label">Ingredients</div>
@@ -1330,6 +1701,8 @@ function renderRecipe(id){
 
     <div class="section-label">Handy hints</div>
     <div class="card"><div class="rn-text">${r.notes ? escapeHtml(r.notes) : 'None'}</div></div>
+
+    ${usedNote}
 
     <div class="oi-actions">
       <button class="btn btn-ghost" data-recipe-toggle="${escapeHtml(r.id)}">${r.active ? 'Hide from staff' : 'Show to staff'}</button>
@@ -1682,38 +2055,6 @@ function renderNotifications(){
   `;
 }
 
-function renderPrep(){
-  const p = state.prep;
-  let body;
-  if(!p.loaded && p.loading){
-    body = `<div class="empty">Loading the prep list…</div>`;
-  } else if(p.failed && p.items.length === 0){
-    body = `<div class="empty">Can't reach the prep list right now.<br>Check your connection and reopen this screen.</div>`;
-  } else if(p.items.length === 0){
-    body = `<div class="empty">Nothing on the prep list.<br>Add the first line below.</div>`;
-  } else {
-    body = p.items.slice().reverse().map(i => `
-      <div class="prep-item">
-        <button class="prep-check" data-prep-done="${escapeHtml(i.id)}" aria-label="Mark done">&#10003;</button>
-        <div class="prep-body">
-          <div class="prep-text">${escapeHtml(i.text)}</div>
-          <div class="prep-meta">${escapeHtml(i.by || 'Kitchen')} &middot; ${timeAgo(i.timestamp || Date.now())}</div>
-        </div>
-      </div>`).join('');
-  }
-
-  return `
-    <div class="crumb"><button data-goto="home">&larr; Home</button> / Prep List</div>
-    <div class="staff-legend" style="display:block;">Everyone in the kitchen sees this list. Ticking a line off removes it for everyone.</div>
-    <div class="card">${body}</div>
-    <div class="form-card">
-      <label for="prep-text">Add a line</label>
-      <textarea id="prep-text" placeholder="e.g. 4L napoli, pickle 2kg onions"></textarea>
-      <div class="form-actions"><button class="btn" id="prep-add-btn">Add to prep list</button></div>
-    </div>
-    ${p.items.length ? `<div class="add-row"><button class="btn btn-danger" id="prep-clear-all">Clear the whole list</button></div>` : ''}
-  `;
-}
 
 function renderSupplier(id){
   const s = findSupplier(id);
@@ -2380,6 +2721,141 @@ function attachHandlers(){
   });
 
 
+
+  // ---- Prep ----
+  document.querySelectorAll('[data-tick]').forEach(b => {
+    b.addEventListener('click', ()=> tickPrepLine(b.dataset.tick, b.dataset.done !== '1'));
+  });
+
+  const pubClear = document.getElementById('prep-pub-clear');
+  if(pubClear){
+    pubClear.addEventListener('click', async ()=>{
+      if(!confirm('Clear the published prep list for everyone?')) return;
+      pubClear.disabled = true;
+      try{
+        const res = await fetch(API + '/api/prep/published/clear', {
+          method:'POST', headers: chefHeaders({'Content-Type':'application/json'}), body:'{}'
+        });
+        if(!res.ok) throw new Error();
+        state.published = null;
+        state.prepDraft = null;
+        render();
+        showToast('Prep list cleared');
+      }catch(e){ pubClear.disabled = false; showToast('No connection. Nothing was cleared.'); }
+    });
+  }
+
+  function readExtras(){
+    const out = [];
+    document.querySelectorAll('[data-extra]').forEach(inp => {
+      const v = (inp.value||'').trim();
+      if(v) out.push(v);
+    });
+    return out;
+  }
+
+  document.querySelectorAll('[data-pick]').forEach(row => {
+    row.addEventListener('click', ()=>{
+      const d = ensurePrepDraft();
+      d.extras = readExtras();
+      const id = row.dataset.pick;
+      if(d.chosen[id]) delete d.chosen[id]; else d.chosen[id] = true;
+      render();
+    });
+  });
+
+  const pSearch = document.getElementById('prep-search');
+  if(pSearch){
+    pSearch.addEventListener('input', ()=>{
+      const d = ensurePrepDraft();
+      d.extras = readExtras();
+      state.prepSearch = pSearch.value;
+      const pos = pSearch.selectionStart;
+      render();
+      const again = document.getElementById('prep-search');
+      if(again){ again.focus(); try{ again.setSelectionRange(pos,pos); }catch(e){} }
+    });
+  }
+  const pClear = document.getElementById('prep-search-clear');
+  if(pClear){
+    pClear.addEventListener('click', ()=>{
+      const d = ensurePrepDraft();
+      d.extras = readExtras();
+      state.prepSearch = '';
+      render();
+    });
+  }
+
+  const extraAdd = document.getElementById('extra-add');
+  if(extraAdd){
+    extraAdd.addEventListener('click', ()=>{
+      const d = ensurePrepDraft();
+      d.extras = readExtras();
+      d.extras.push('');
+      render();
+      const inputs = document.querySelectorAll('[data-extra]');
+      if(inputs.length) inputs[inputs.length-1].focus();
+    });
+  }
+  document.querySelectorAll('[data-extra-del]').forEach(b => {
+    b.addEventListener('click', ()=>{
+      const d = ensurePrepDraft();
+      const ex = readExtras();
+      ex.splice(parseInt(b.dataset.extraDel,10), 1);
+      d.extras = ex;
+      render();
+    });
+  });
+
+  const doPublish = document.getElementById('prep-publish');
+  if(doPublish){
+    doPublish.addEventListener('click', ()=>{
+      const d = ensurePrepDraft();
+      d.extras = readExtras();
+      const cat = buildPrepCatalogue();
+      const lines = [];
+      cat.forEach(c => {
+        if(!d.chosen[c.id]) return;
+        lines.push({ id: c.id, text: c.name, section: c.section || 'Other', recipe: c.recipe || '' });
+      });
+      d.extras.forEach((x, i) => {
+        if(!x.trim()) return;
+        lines.push({ id: 'x'+i+'-'+Math.random().toString(36).slice(2,6), text: x.trim(), section: 'Anything else', recipe: '' });
+      });
+      if(lines.length === 0){ showToast('Nothing ticked'); return; }
+      doPublish.disabled = true;
+      doPublish.textContent = 'Publishing…';
+      publishPrep(lines);
+    });
+  }
+
+  // ---- Prep items ----
+  const pitemAdd = document.getElementById('pitem-add');
+  if(pitemAdd){
+    pitemAdd.addEventListener('click', ()=>{
+      savePrepItemEdits();
+      state.prepItems.push({ id:'s:'+uid(), name:'', section:'' });
+      savePrepItems();
+      render();
+      const inputs = document.querySelectorAll('[data-pitem]');
+      if(inputs.length) inputs[inputs.length-1].focus();
+    });
+  }
+  document.querySelectorAll('[data-pitem-del]').forEach(b => {
+    b.addEventListener('click', ()=>{
+      savePrepItemEdits();
+      state.prepItems = state.prepItems.filter(i => i.id !== b.dataset.pitemDel);
+      savePrepItems();
+      render();
+    });
+  });
+  document.querySelectorAll('[data-pitem]').forEach(inp => {
+    inp.addEventListener('change', ()=>{ savePrepItemEdits(); savePrepItems(); });
+  });
+  document.querySelectorAll('[data-pitem-sec]').forEach(inp => {
+    inp.addEventListener('change', ()=>{ savePrepItemEdits(); savePrepItems(); });
+  });
+
   // ---- Recipes ----
   document.querySelectorAll('[data-open-recipe]').forEach(el => {
     el.addEventListener('click', ()=> goto({name:'recipe', rid: el.dataset.openRecipe}));
@@ -2623,44 +3099,8 @@ function attachHandlers(){
   }
 
   // ---- Prep list ----
-  document.querySelectorAll('[data-prep-done]').forEach(btn => {
-    btn.addEventListener('click', ()=> clearPrep(btn.dataset.prepDone));
-  });
 
-  const prepAdd = document.getElementById('prep-add-btn');
-  if(prepAdd){
-    prepAdd.addEventListener('click', async ()=>{
-      const ta = document.getElementById('prep-text');
-      const text = (ta.value || '').trim();
-      if(!text){ showToast('Type what needs prepping'); ta.focus(); return; }
-      prepAdd.disabled = true;
-      prepAdd.textContent = 'Adding…';
-      await addPrep(text);
-      const again = document.getElementById('prep-add-btn');
-      if(again){ again.disabled = false; again.textContent = 'Add to prep list'; }
-    });
-  }
 
-  const prepClearAll = document.getElementById('prep-clear-all');
-  if(prepClearAll){
-    prepClearAll.addEventListener('click', async ()=>{
-      if(!confirm('Clear every line off the prep list for everyone?')) return;
-      prepClearAll.disabled = true;
-      try{
-        const res = await fetch(API + '/api/prep/clear', {
-          method:'POST', headers:{'Content-Type':'application/json'},
-          body: JSON.stringify({ all: true })
-        });
-        if(!res.ok) throw new Error();
-        state.prep.items = [];
-        render();
-        showToast('Prep list cleared');
-      }catch(e){
-        prepClearAll.disabled = false;
-        showToast('No connection. Nothing was cleared.');
-      }
-    });
-  }
 }
 
 /* ===== Worker calls ===== */
@@ -2693,56 +3133,10 @@ async function clearOrder(id, silent){
   }
 }
 
-async function fetchPrep(){
-  if(state.prep.loading) return;
-  state.prep.loading = true;
-  try{
-    const res = await fetch(API + '/api/prep', {cache:'no-store'});
-    const data = await res.json();
-    state.prep.items = Array.isArray(data.items) ? data.items : [];
-    state.prep.failed = false;
-  }catch(e){
-    state.prep.failed = true;
-  }
-  state.prep.loading = false;
-  state.prep.loaded = true;
-  render();
-}
 
-async function addPrep(text){
-  try{
-    const res = await fetch(API + '/api/prep', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ text: text, by: 'Rabindra' })
-    });
-    if(!res.ok) throw new Error();
-    const ta = document.getElementById('prep-text');
-    if(ta) ta.value = '';
-    showToast('Added to the prep list');
-    await fetchPrep();
-  }catch(e){
-    showToast('No connection. Nothing was added.');
-  }
-}
 
-async function clearPrep(id){
-  const before = state.prep.items;
-  state.prep.items = state.prep.items.filter(i => i.id !== id);
-  render();
-  try{
-    const res = await fetch(API + '/api/prep/clear', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({ id: id })
-    });
-    if(!res.ok) throw new Error();
-  }catch(e){
-    state.prep.items = before;
-    render();
-    showToast('No connection. Line is still on the list.');
-  }
-}
 
-function refreshFromServer(){ fetchOrders(); fetchPrep(); publishCatalogue(false); fetchInvoices(); fetchRecipes(); }
+function refreshFromServer(){ fetchOrders(); publishCatalogue(false); fetchInvoices(); fetchRecipes(); refreshPrep(); pushPrepCatalogue(); }
 
 try{ history.replaceState({view:{name:'home'}}, ''); }catch(e){}
 window.addEventListener('popstate', (e)=>{
