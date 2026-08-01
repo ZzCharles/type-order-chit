@@ -246,6 +246,73 @@ a.btn-block{display:block;}
 .sync-line{font-size:11.5px;color:var(--muted);text-align:center;margin-top:18px;}
 .sync-line.sync-bad{color:var(--stamp);}
 .sync-line .sync-warn{color:var(--mustard);font-weight:700;}
+.invoice-date{font-size:11.5px;color:var(--muted);margin-left:auto;padding-right:10px;}
+.key-blurb{font-size:12.5px;color:var(--muted);line-height:1.45;margin:8px 0 2px;}
+
+/* ===== Recipes ===== */
+.search-wrap{position:relative;margin-bottom:12px;}
+.search-wrap input{width:100%;font-family:inherit;font-size:16px;padding:13px 40px 13px 14px;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--ink);}
+.search-wrap input:focus{outline:none;border-color:var(--ink);}
+.search-clear{position:absolute;right:6px;top:50%;transform:translateY(-50%);background:none;border:none;font-family:inherit;font-size:20px;color:var(--muted);width:32px;height:32px;cursor:pointer;display:none;}
+.search-wrap.filled .search-clear{display:block;}
+.sec-head{font-size:11px;font-weight:800;letter-spacing:1.4px;text-transform:uppercase;color:var(--muted);padding:16px 2px 7px;border-bottom:1px solid var(--line);}
+.sec-head:first-child{padding-top:10px;}
+.filter-row{display:flex;gap:7px;overflow-x:auto;padding:0 16px 12px;margin:0 -16px;-webkit-overflow-scrolling:touch;scrollbar-width:none;}
+.filter-row::-webkit-scrollbar{display:none;}
+.filter-chip{flex:0 0 auto;font-family:inherit;font-size:12px;font-weight:700;padding:9px 15px;border:1px solid var(--line);border-radius:999px;background:#fff;color:var(--ink-soft);cursor:pointer;display:flex;align-items:center;gap:6px;}
+.filter-chip.on{background:var(--ink);border-color:var(--ink);color:#fff;}
+.fc-dot{background:#EDEBDF;color:var(--ink-soft);border-radius:999px;font-size:10px;font-weight:800;min-width:16px;padding:1px 5px;text-align:center;}
+.filter-chip.on .fc-dot{background:rgba(255,255,255,.22);color:#fff;}
+.card.tight{padding:4px 16px;}
+
+.recipe-row{display:flex;align-items:center;gap:10px;padding:13px 2px;border-bottom:1px solid #F5F3EA;cursor:pointer;}
+.recipe-row:last-child{border-bottom:none;}
+.recipe-row:active{background:#FBFAF4;}
+.recipe-row-main{flex:1;min-width:0;}
+.recipe-row-name{font-size:15px;font-weight:600;}
+.recipe-row-name.is-off{color:var(--muted);}
+.off-tag{font-size:10px;font-weight:800;letter-spacing:0.6px;text-transform:uppercase;color:var(--mustard);border:1px solid var(--mustard);border-radius:999px;padding:1px 6px;margin-left:4px;vertical-align:1px;}
+.recipe-row-sub{font-size:11.5px;color:var(--muted);margin-top:2px;}
+
+.recipe-head{margin-bottom:6px;}
+.recipe-title{font-size:24px;font-weight:800;letter-spacing:-0.4px;margin:0 0 12px;line-height:1.2;}
+.recipe-meta{display:flex;flex-direction:column;gap:6px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:13px 15px;}
+.recipe-meta > div{display:flex;justify-content:space-between;gap:12px;font-size:13.5px;font-weight:600;}
+.rm-label{color:var(--muted);font-weight:600;}
+.hidden-note{font-size:12px;color:var(--mustard);font-weight:700;margin-top:10px;}
+
+.ri-table{width:100%;border-collapse:collapse;}
+.ri-table th{font-size:10px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:var(--muted);text-align:left;padding:10px 6px 7px 0;border-bottom:1px solid var(--line);}
+.ri-table td{padding:9px 6px 9px 0;border-bottom:1px solid #F5F3EA;font-size:14.5px;vertical-align:top;}
+.ri-table tr:last-child td{border-bottom:none;}
+.ri-amt{font-weight:700;white-space:nowrap;width:1%;}
+.ri-unit{color:var(--muted);white-space:nowrap;width:1%;font-size:13px;}
+.ri-item{font-weight:600;}
+
+.rm-list{list-style:none;margin:0;padding:0;}
+.rm-list li{display:flex;gap:11px;padding:9px 0;border-bottom:1px solid #F5F3EA;}
+.rm-list li:last-child{border-bottom:none;}
+.rm-n{flex:0 0 auto;width:22px;height:22px;border-radius:50%;background:var(--ink);color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;margin-top:1px;}
+.rm-t{flex:1;font-size:14.5px;line-height:1.45;}
+.rn-text{font-size:14px;line-height:1.5;white-space:pre-wrap;}
+
+.ing-head{display:flex;gap:6px;padding:12px 0 6px;border-bottom:1px solid var(--line);font-size:10px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:var(--muted);}
+.ing-head span:nth-child(1){width:64px;}
+.ing-head span:nth-child(2){width:60px;}
+.ing-head span:nth-child(3){flex:1;}
+.ing-head span:nth-child(4){width:26px;}
+.ing-row{display:flex;gap:6px;align-items:center;padding:7px 0;border-bottom:1px solid #F5F3EA;}
+.ing-row:last-child{border-bottom:none;}
+.ing-row input{font-family:inherit;font-size:14px;padding:8px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);min-width:0;}
+.ing-qty{width:64px;text-align:center;font-weight:700;}
+.ing-unit{width:60px;text-align:center;}
+.ing-item{flex:1;}
+.step-row{display:flex;gap:9px;align-items:flex-start;padding:8px 0;border-bottom:1px solid #F5F3EA;}
+.step-row:last-child{border-bottom:none;}
+.step-n{flex:0 0 auto;width:22px;height:22px;border-radius:50%;background:#EDEBDF;color:var(--ink-soft);font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;margin-top:8px;}
+.step-t{flex:1;font-family:inherit;font-size:14px;padding:8px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);resize:vertical;min-width:0;}
+#import-json{width:100%;font-family:ui-monospace,monospace;font-size:11.5px;padding:10px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink);}
+.hint{font-weight:400;text-transform:none;letter-spacing:0;}
 .chip.cat-chip{padding:7px 13px;font-size:11.5px;}
 .chip.chip-on{background:var(--ink);border-color:var(--ink);color:#fff;font-weight:700;}
 .chip.cat-new{border-style:dashed;color:var(--muted);}
@@ -289,6 +356,10 @@ const INVOICES_KEY = "order-chit-invoices";
 const API = 'https://orders.charlesbobby253.workers.dev';
 const CATALOGUE_FP_KEY = 'order-chit-catalogue-fp';
 const CATS_KEY = 'order-chit-categories';
+const CHEF_KEY_STORE = 'order-chit-chef-key';
+const INVOICES_DIRTY_KEY = 'order-chit-invoices-dirty';
+const RECIPES_KEY = 'order-chit-recipes';
+const RECIPES_DIRTY_KEY = 'order-chit-recipes-dirty';
 const CAT_MIGRATION_KEY = 'order-chit-cat-migrated';
 
 /* Categories only exist so the staff app can group its list. They show up on
@@ -346,6 +417,9 @@ let state = {
   orders: [],
   prep: { items: [], loaded:false, loading:false, failed:false },
   catalogueSynced: null,
+  invoiceSync: null,
+  recipes: [], recipeSections: [], recipeSync: null, recipesLoaded: false,
+  recipeSearch: '', recipeFilter: null,
   view: {name:"home"}
 };
 let ticketDateWord = 'tomorrow';
@@ -357,16 +431,253 @@ const STATIONS = ['Oven','Dough','Pasta','Toppings','KH'];
 const ROSTER_DAY_KEYS = ['wed','thu','fri','sat','sun'];
 const ROSTER_DAY_FULL = {wed:'Wednesday',thu:'Thursday',fri:'Friday',sat:'Saturday',sun:'Sunday'};
 
+/* Week runs Wednesday 00:00 to Tuesday 23:59, local time.
+   Built from local date parts on purpose: toISOString() converts to UTC, which
+   in Sydney means anything logged before ~10am lands in the previous week. */
+function localDateKey(d){
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return d.getFullYear()+'-'+m+'-'+day;
+}
 function getCurrentWeekStart(){
   const now = new Date();
-  const day = now.getDay();
-  const diff = (day - 3 + 7) % 7;
-  const start = new Date(now);
-  start.setDate(now.getDate() - diff);
-  return start.toISOString().split('T')[0];
+  const diff = (now.getDay() - 3 + 7) % 7;
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - diff);
+  return localDateKey(start);
+}
+function todayLabel(){
+  return new Date().toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'});
 }
 
-function saveInvoices(){ try{ localStorage.setItem(INVOICES_KEY, JSON.stringify(state.invoices)); }catch(e){} }
+function saveInvoices(){
+  pruneInvoiceWeeks();
+  try{ localStorage.setItem(INVOICES_KEY, JSON.stringify(state.invoices)); }catch(e){}
+  setDirty(true);
+  scheduleInvoicePush();
+}
+
+/* Marks that this phone holds a change the cloud hasn't got yet. Without it,
+   anything logged offline would be wiped by the older cloud copy on next open. */
+function setDirty(v){ try{ localStorage.setItem(INVOICES_DIRTY_KEY, v ? '1' : '0'); }catch(e){} }
+function isDirty(){ try{ return localStorage.getItem(INVOICES_DIRTY_KEY) === '1'; }catch(e){ return false; } }
+
+/* Only this week and last are kept. Everything older is archived outside the
+   app, so holding it here is just clutter waiting to go stale. */
+function pruneInvoiceWeeks(){
+  const weeks = Object.keys(state.invoices).sort();
+  weeks.slice(0, -2).forEach(w => { delete state.invoices[w]; });
+}
+
+/* ---- Chef key ---- */
+function getChefKey(){ try{ return localStorage.getItem(CHEF_KEY_STORE) || ''; }catch(e){ return ''; } }
+function setChefKey(k){ try{ localStorage.setItem(CHEF_KEY_STORE, k); }catch(e){} }
+function chefHeaders(extra){
+  const h = Object.assign({}, extra || {});
+  const k = getChefKey();
+  if(k) h['X-Chef-Key'] = k;
+  return h;
+}
+
+/* ---- Invoices in the cloud ---- */
+function scheduleInvoicePush(){
+  clearTimeout(scheduleInvoicePush._t);
+  scheduleInvoicePush._t = setTimeout(pushInvoices, 700);
+}
+
+async function pushInvoices(){
+  if(!getChefKey()){ state.invoiceSync = 'nokey'; return false; }
+  const week = getCurrentWeekStart();
+  try{
+    const res = await fetch(API + '/api/invoices', {
+      method:'POST',
+      headers: chefHeaders({'Content-Type':'application/json'}),
+      body: JSON.stringify({ week: week, entries: state.invoices[week] || {} })
+    });
+    if(res.status === 401){ state.invoiceSync = 'badkey'; if(state.view.name==='invoices') render(); return false; }
+    if(!res.ok) throw new Error();
+    setDirty(false);
+    state.invoiceSync = 'ok';
+    if(state.view.name === 'invoices') render();
+    return true;
+  }catch(e){
+    state.invoiceSync = 'offline';
+    if(state.view.name === 'invoices') render();
+    return false;
+  }
+}
+
+async function fetchInvoices(){
+  if(!getChefKey()){ state.invoiceSync = 'nokey'; return; }
+  const week = getCurrentWeekStart();
+  try{
+    const res = await fetch(API + '/api/invoices?week=' + encodeURIComponent(week), {
+      cache:'no-store', headers: chefHeaders()
+    });
+    if(res.status === 401){ state.invoiceSync = 'badkey'; render(); return; }
+    if(res.status === 503){ state.invoiceSync = 'noworkerkey'; render(); return; }
+    if(!res.ok) throw new Error();
+    const data = await res.json();
+    if(isDirty()){
+      // this phone has unsynced changes, so it wins rather than the cloud copy
+      await pushInvoices();
+      return;
+    }
+    if(data.entries && Object.keys(data.entries).length){
+      state.invoices[week] = data.entries;
+      pruneInvoiceWeeks();
+      try{ localStorage.setItem(INVOICES_KEY, JSON.stringify(state.invoices)); }catch(e){}
+    } else if(state.invoices[week] && Object.keys(state.invoices[week]).length){
+      // nothing in the cloud but something on this phone: push it up
+      await pushInvoices();
+      return;
+    }
+    state.invoiceSync = 'ok';
+    render();
+  }catch(e){
+    state.invoiceSync = 'offline';
+  }
+}
+
+/* ===== Recipes =====
+   Chef-only for now: every endpoint needs the chef key, so recipes are not
+   readable by anyone holding the staff app URL. Cached locally so the book
+   still opens with no signal. */
+
+function saveRecipesLocal(){
+  try{ localStorage.setItem(RECIPES_KEY, JSON.stringify({recipes:state.recipes, sections:state.recipeSections})); }catch(e){}
+}
+function loadRecipesLocal(){
+  try{
+    const raw = localStorage.getItem(RECIPES_KEY);
+    if(!raw) return;
+    const d = JSON.parse(raw);
+    if(Array.isArray(d.recipes)) state.recipes = d.recipes;
+    if(Array.isArray(d.sections)) state.recipeSections = d.sections;
+    state.recipesLoaded = true;
+  }catch(e){}
+}
+function setRecipesDirty(v){ try{ localStorage.setItem(RECIPES_DIRTY_KEY, v?'1':'0'); }catch(e){} }
+function recipesDirty(){ try{ return localStorage.getItem(RECIPES_DIRTY_KEY)==='1'; }catch(e){ return false; } }
+
+function saveRecipes(){
+  sortRecipes();
+  saveRecipesLocal();
+  setRecipesDirty(true);
+  clearTimeout(saveRecipes._t);
+  saveRecipes._t = setTimeout(pushRecipes, 700);
+}
+
+function sortRecipes(){
+  const order = state.recipeSections;
+  state.recipes.sort((a,b)=>{
+    const ia = order.indexOf(a.section), ib = order.indexOf(b.section);
+    const sa = ia < 0 ? 999 : ia, sb = ib < 0 ? 999 : ib;
+    if(sa !== sb) return sa - sb;
+    return String(a.name).localeCompare(String(b.name),'en',{sensitivity:'base'});
+  });
+}
+
+async function pushRecipes(){
+  if(!getChefKey()){ state.recipeSync = 'nokey'; return false; }
+  try{
+    const res = await fetch(API + '/api/recipes', {
+      method:'POST', headers: chefHeaders({'Content-Type':'application/json'}),
+      body: JSON.stringify({ recipes: state.recipes, sections: state.recipeSections })
+    });
+    if(res.status === 401){ state.recipeSync = 'badkey'; render(); return false; }
+    if(!res.ok) throw new Error();
+    setRecipesDirty(false);
+    state.recipeSync = 'ok';
+    if(state.view.name && state.view.name.indexOf('recipe') === 0) render();
+    return true;
+  }catch(e){
+    state.recipeSync = 'offline';
+    if(state.view.name && state.view.name.indexOf('recipe') === 0) render();
+    return false;
+  }
+}
+
+async function fetchRecipes(){
+  if(!getChefKey()){ state.recipeSync = 'nokey'; return; }
+  try{
+    const res = await fetch(API + '/api/recipes', {cache:'no-store', headers: chefHeaders()});
+    if(res.status === 401){ state.recipeSync = 'badkey'; return; }
+    if(res.status === 503){ state.recipeSync = 'noworkerkey'; return; }
+    if(!res.ok) throw new Error();
+    if(recipesDirty()){ await pushRecipes(); return; }
+    const data = await res.json();
+    if(Array.isArray(data.recipes) && data.recipes.length){
+      state.recipes = data.recipes;
+      state.recipeSections = Array.isArray(data.sections) ? data.sections : [];
+      state.recipesLoaded = true;
+      sortRecipes();
+      saveRecipesLocal();
+    }
+    state.recipeSync = 'ok';
+    if(state.view.name && state.view.name.indexOf('recipe') === 0) render();
+  }catch(e){
+    state.recipeSync = 'offline';
+  }
+}
+
+function findRecipe(id){ return state.recipes.find(r => r.id === id); }
+
+/* Keeps whatever is typed on screen when a row is added or removed. */
+function applyDraftAndRerender(draft){
+  const v = state.view;
+  if(v.rid === 'new'){
+    state.recipeDraft = draft;
+  } else {
+    const r = findRecipe(v.rid);
+    if(r) Object.assign(r, draft);
+  }
+  render();
+}
+
+function recipeSlug(name){
+  const base = String(name||'').toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,60) || 'recipe';
+  let id = base, n = 2;
+  while(findRecipe(id)){ id = base + '-' + n; n++; }
+  return id;
+}
+
+/* Data stays in grams; this is display only. 4 kg reads better than 4000 g. */
+function fmtAmount(qty, unit){
+  const q = Number(qty);
+  if(!isFinite(q)) return '';
+  if(unit === 'g' && q >= 1000){
+    const kg = q / 1000;
+    return { amount: (Math.round(kg*1000)/1000).toString(), unit: 'kg' };
+  }
+  return { amount: (Math.round(q*1000)/1000).toString(), unit: unit || '' };
+}
+
+function recipeSectionsInUse(){
+  const used = [];
+  state.recipes.forEach(r => { const s = r.section || 'Unsorted'; if(used.indexOf(s) < 0) used.push(s); });
+  const ordered = state.recipeSections.filter(s => used.indexOf(s) > -1);
+  used.forEach(s => { if(ordered.indexOf(s) < 0) ordered.push(s); });
+  return ordered;
+}
+
+async function clearInvoiceWeek(){
+  const week = getCurrentWeekStart();
+  delete state.invoices[week];
+  setDirty(false);
+  try{ localStorage.setItem(INVOICES_KEY, JSON.stringify(state.invoices)); }catch(e){}
+  render();
+  if(!getChefKey()) return;
+  try{
+    const res = await fetch(API + '/api/invoices/clear', {
+      method:'POST', headers: chefHeaders({'Content-Type':'application/json'}),
+      body: JSON.stringify({ week: week })
+    });
+    if(!res.ok) throw new Error();
+    showToast('This week cleared');
+  }catch(e){
+    showToast('Cleared here, but not in the cloud yet');
+  }
+}
 function loadInvoices(){
   try{ const raw = localStorage.getItem(INVOICES_KEY); state.invoices = raw ? JSON.parse(raw) : {}; }
   catch(e){ state.invoices = {}; }
@@ -633,6 +944,7 @@ function loadData(){
   loadInvoices();
   loadCategories();
   backfillCategories();
+  loadRecipesLocal();
   render();
 }
 
@@ -674,7 +986,7 @@ async function publishCatalogue(force){
 
   try{
     const res = await fetch(API + '/api/catalogue', {
-      method:'POST', headers:{'Content-Type':'application/json'},
+      method:'POST', headers: chefHeaders({'Content-Type':'application/json'}),
       body: JSON.stringify({ products: list, categories: categories })
     });
     if(!res.ok) throw new Error();
@@ -708,7 +1020,10 @@ function showToast(msg){
   setTimeout(()=>t.classList.remove('show'), 1800);
 }
 
-function goto(view){ state.view = view; try{ history.pushState({view}, ''); }catch(e){} render(); }
+function goto(view){
+  if(!(view.name === 'recipeEdit' && view.rid === 'new')) state.recipeDraft = null;
+  state.view = view; try{ history.pushState({view}, ''); }catch(e){} render();
+}
 function findSupplier(id){ return state.suppliers.find(s=>s.id===id); }
 
 function escapeHtml(str){
@@ -771,6 +1086,10 @@ function render(){
   else if(v.name === "invoices") html += renderInvoices();
   else if(v.name === "notifications") html += renderNotifications();
   else if(v.name === "prep") html += renderPrep();
+  else if(v.name === "recipes") html += renderRecipes();
+  else if(v.name === "recipe") html += renderRecipe(v.rid);
+  else if(v.name === "recipeEdit") html += renderRecipeEdit(v.rid);
+  else if(v.name === "recipeImport") html += renderRecipeImport();
   app.innerHTML = html;
   attachHandlers();
 }
@@ -789,6 +1108,13 @@ function renderHome(){
   return `
     <div class="home-tabs">
       ${waiting}
+      <button class="tab-card" data-goto="recipes">
+        <div class="tab-main">
+          <div class="tab-title">Recipes</div>
+          <div class="tab-sub">${state.recipes.length ? state.recipes.length+' in the book' : 'Import your recipe book'}</div>
+        </div>
+        <div class="chev">&rsaquo;</div>
+      </button>
       <button class="tab-card" data-goto="prep">
         <div class="tab-main">
           <div class="tab-title">Prep List</div>
@@ -832,6 +1158,7 @@ function renderInvoices(){
     const entriesHtml = entries.map((e, idx) => `
       <div class="invoice-entry">
         <span class="invoice-amount">$${e.amount.toFixed(2)}</span>
+        <span class="invoice-date">${escapeHtml(e.date || invoiceDate(e))}</span>
         <button class="invoice-del" data-invoice-del="${s.id}" data-index="${idx}">&times;</button>
       </div>
     `).join('');
@@ -849,12 +1176,249 @@ function renderInvoices(){
       </div>
     `;
   }).join('');
+  const hasAny = totalWeek > 0 || Object.keys(weekInvoices).length > 0;
+
+  if(!getChefKey()){
+    return `
+      <div class="crumb"><button data-goto="home">&larr; Home</button> / Invoices</div>
+      <div class="form-card">
+        <div style="font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;">Chef key</div>
+        <p class="key-blurb">Invoice amounts are kept in the cloud, so this device isn't the only copy. The key is what keeps them yours — it's stored on this phone only and never appears in the app's code.</p>
+        <label>Key</label>
+        <input id="chef-key-input" type="password" placeholder="Type your chef key" autocomplete="off">
+        <div class="form-actions"><button class="btn" id="chef-key-save">Unlock invoices</button></div>
+      </div>
+    `;
+  }
+
+  let banner = '';
+  if(state.invoiceSync === 'badkey') banner = `<div class="sync-line sync-bad">That chef key was rejected. <button data-chef-reset="1">Enter it again</button></div>`;
+  else if(state.invoiceSync === 'noworkerkey') banner = `<div class="sync-line sync-bad">No chef key is set on the Worker yet, so nothing can sync.</div>`;
+  else if(state.invoiceSync === 'offline') banner = `<div class="sync-line sync-bad">Offline. Saved on this phone, not yet in the cloud.</div>`;
+
   return `
     <div class="crumb"><button data-goto="home">&larr; Home</button> / Invoices</div>
-    <div class="staff-legend" style="display:block;">Week beginning ${new Date(weekKey+'T00:00:00').toLocaleDateString('en-AU',{weekday:'long',day:'numeric',month:'short'})}</div>
+    <div class="staff-legend" style="display:block;">Week beginning ${new Date(weekKey+'T00:00:00').toLocaleDateString('en-AU',{weekday:'long',day:'numeric',month:'short'})} &middot; resets Tuesday midnight</div>
+    ${banner}
     ${supplierRows}
     <div class="grand-total-card">Weekly spend: $${totalWeek.toFixed(2)}</div>
     <div class="add-row"><button class="btn btn-ghost" data-goto="addSupplier">+ Add Supplier</button></div>
+    ${hasAny ? `<div class="add-row"><button class="btn btn-danger" id="inv-clear">Clear this week</button></div>` : ''}
+    <div class="sync-line">Chef key saved on this phone. <button data-chef-reset="1">Change it</button></div>
+  `;
+}
+
+function invoiceDate(e){
+  if(e.date) return e.date;
+  if(!e.timestamp) return '';
+  const d = new Date(e.timestamp);
+  return isNaN(d) ? '' : d.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'});
+}
+
+/* ===== Recipe screens ===== */
+
+function renderRecipes(){
+  if(!getChefKey()){
+    return `
+      <div class="crumb"><button data-goto="home">&larr; Home</button> / Recipes</div>
+      <div class="form-card">
+        <div style="font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;">Chef key</div>
+        <p class="key-blurb">Recipes are kept behind your chef key, so nobody with the app's address can read them. Same key as invoices.</p>
+        <label>Key</label>
+        <input id="chef-key-input" type="password" placeholder="Type your chef key" autocomplete="off">
+        <div class="form-actions"><button class="btn" id="chef-key-save">Unlock recipes</button></div>
+      </div>
+    `;
+  }
+
+  const q = state.recipeSearch.trim().toLowerCase();
+  let list = state.recipes;
+  if(q){
+    list = list.filter(r =>
+      String(r.name).toLowerCase().indexOf(q) > -1 ||
+      (r.ingredients||[]).some(i => String(i.item).toLowerCase().indexOf(q) > -1)
+    );
+  } else if(state.recipeFilter){
+    list = list.filter(r => (r.section || 'Unsorted') === state.recipeFilter);
+  }
+
+  const secs = recipeSectionsInUse();
+  const chips = secs.length > 1 && !q ? `<div class="filter-row">
+      <button type="button" class="filter-chip ${state.recipeFilter?'':'on'}" data-rfilter="">All</button>
+      ${secs.map(s => {
+        const n = state.recipes.filter(r => (r.section||'Unsorted') === s).length;
+        return `<button type="button" class="filter-chip ${state.recipeFilter===s?'on':''}" data-rfilter="${escapeHtml(s)}">${escapeHtml(s)}<span class="fc-dot">${n}</span></button>`;
+      }).join('')}
+    </div>` : '';
+
+  let body;
+  if(state.recipes.length === 0){
+    body = `<div class="empty">No recipes yet.<br>Import them below to get started.</div>`;
+  } else if(list.length === 0){
+    body = `<div class="empty">Nothing matches "${escapeHtml(state.recipeSearch.trim())}".</div>`;
+  } else {
+    let out = '', lastSec = null;
+    list.forEach(r => {
+      const sec = r.section || 'Unsorted';
+      if(!q && !state.recipeFilter && sec !== lastSec){ lastSec = sec; out += `<div class="sec-head">${escapeHtml(sec)}</div>`; }
+      out += `
+        <div class="recipe-row" data-open-recipe="${escapeHtml(r.id)}">
+          <div class="recipe-row-main">
+            <div class="recipe-row-name ${r.active?'':'is-off'}">${escapeHtml(r.name)}${r.active?'':' <span class="off-tag">Hidden</span>'}</div>
+            <div class="recipe-row-sub">${escapeHtml(r.batch || '')}${r.batch && (r.allergens||[]).length ? ' &middot; ' : ''}${escapeHtml((r.allergens||[]).join(', '))}</div>
+          </div>
+          <div class="chev">&rsaquo;</div>
+        </div>`;
+    });
+    body = out;
+  }
+
+  let banner = '';
+  if(state.recipeSync === 'badkey') banner = `<div class="sync-line sync-bad">That chef key was rejected. <button data-chef-reset="1">Enter it again</button></div>`;
+  else if(state.recipeSync === 'noworkerkey') banner = `<div class="sync-line sync-bad">No chef key is set on the Worker yet, so nothing can sync.</div>`;
+  else if(state.recipeSync === 'offline') banner = `<div class="sync-line sync-bad">Offline. Saved on this phone, not yet in the cloud.</div>`;
+
+  const active = state.recipes.filter(r => r.active).length;
+
+  return `
+    <div class="crumb"><button data-goto="home">&larr; Home</button> / Recipes</div>
+    ${banner}
+    <div class="search-wrap ${state.recipeSearch?'filled':''}">
+      <input type="text" id="recipe-search" placeholder="Search recipes or ingredients" value="${escapeHtml(state.recipeSearch)}" autocomplete="off" autocorrect="off" spellcheck="false">
+      <button class="search-clear" id="recipe-search-clear" aria-label="Clear search">&times;</button>
+    </div>
+    ${chips}
+    <div class="card tight">${body}</div>
+    <div class="add-row"><button class="btn" data-goto="recipeEdit" data-rid="new">+ New Recipe</button></div>
+    <div class="sync-line">${state.recipes.length} recipe${state.recipes.length===1?'':'s'} &middot; ${active} showing to staff once they have access &middot; <button data-goto="recipeImport">Import</button></div>
+  `;
+}
+
+function renderRecipe(id){
+  const r = findRecipe(id);
+  if(!r) return `<div class="empty">Recipe not found.</div>`;
+
+  const ing = (r.ingredients||[]).map(i => {
+    const f = fmtAmount(i.qty, i.unit);
+    return `<tr><td class="ri-amt">${escapeHtml(f.amount)}</td><td class="ri-unit">${escapeHtml(f.unit)}</td><td class="ri-item">${escapeHtml(i.item)}</td></tr>`;
+  }).join('');
+
+  const steps = (r.method||[]).map((s,i) =>
+    `<li><span class="rm-n">${i+1}</span><span class="rm-t">${escapeHtml(s)}</span></li>`).join('');
+
+  return `
+    <div class="crumb"><button data-goto="recipes">&larr; Recipes</button></div>
+    <div class="recipe-head">
+      <h2 class="recipe-title">${escapeHtml(r.name)}</h2>
+      <div class="recipe-meta">
+        <div><span class="rm-label">Section</span><span>${escapeHtml(r.section || 'Unsorted')}</span></div>
+        <div><span class="rm-label">Batch size</span><span>${escapeHtml(r.batch || '—')}</span></div>
+        <div><span class="rm-label">Allergens</span><span>${(r.allergens||[]).length ? escapeHtml(r.allergens.join(', ')) : 'None'}</span></div>
+      </div>
+      ${r.active ? '' : '<div class="hidden-note">Hidden — staff won\'t see this recipe.</div>'}
+    </div>
+
+    <div class="section-label">Ingredients</div>
+    <div class="card tight">
+      ${ing ? `<table class="ri-table"><thead><tr><th>Amount</th><th>Measure</th><th>Description</th></tr></thead><tbody>${ing}</tbody></table>` : '<div class="empty">No ingredients listed.</div>'}
+    </div>
+
+    <div class="section-label">Cooking method</div>
+    <div class="card">
+      ${steps ? `<ol class="rm-list">${steps}</ol>` : '<div class="empty">No method listed.</div>'}
+    </div>
+
+    <div class="section-label">Handy hints</div>
+    <div class="card"><div class="rn-text">${r.notes ? escapeHtml(r.notes) : 'None'}</div></div>
+
+    <div class="oi-actions">
+      <button class="btn btn-ghost" data-recipe-toggle="${escapeHtml(r.id)}">${r.active ? 'Hide from staff' : 'Show to staff'}</button>
+      <button class="btn" data-goto="recipeEdit" data-rid="${escapeHtml(r.id)}">Edit</button>
+    </div>
+    <div class="sync-line">${r.updated ? 'Updated '+escapeHtml(r.updated) : ''}</div>
+  `;
+}
+
+function renderRecipeEdit(id){
+  const isNew = id === 'new';
+  const r = isNew
+    ? Object.assign({ id:'', name:'', section: state.recipeSections[0] || '', active:true, batch:'', ingredients:[], method:[], notes:'', allergens:[] }, state.recipeDraft || {})
+    : findRecipe(id);
+  if(!r) return `<div class="empty">Recipe not found.</div>`;
+
+  const secs = state.recipeSections.slice();
+  if(r.section && secs.indexOf(r.section) < 0) secs.push(r.section);
+
+  const ingRows = (r.ingredients||[]).map((i, idx) => `
+    <div class="ing-row" data-ing-row="${idx}">
+      <input class="ing-qty" data-ing-qty="${idx}" value="${escapeHtml(String(i.qty))}" inputmode="decimal" aria-label="Amount">
+      <input class="ing-unit" data-ing-unit="${idx}" value="${escapeHtml(i.unit||'g')}" aria-label="Measure">
+      <input class="ing-item" data-ing-item="${idx}" value="${escapeHtml(i.item||'')}" aria-label="Description">
+      <button class="del-x" data-ing-del="${idx}" aria-label="Remove">&times;</button>
+    </div>`).join('');
+
+  const stepRows = (r.method||[]).map((s, idx) => `
+    <div class="step-row" data-step-row="${idx}">
+      <span class="step-n">${idx+1}</span>
+      <textarea class="step-t" data-step="${idx}" rows="2">${escapeHtml(s)}</textarea>
+      <button class="del-x" data-step-del="${idx}" aria-label="Remove">&times;</button>
+    </div>`).join('');
+
+  return `
+    <div class="crumb"><button data-goto="${isNew?'recipes':'recipe'}" data-rid="${escapeHtml(id)}">&larr; Cancel</button></div>
+    <div class="form-card">
+      <div style="font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;">${isNew?'New Recipe':'Edit Recipe'}</div>
+      <label>Recipe name</label>
+      <input id="r-name" value="${escapeHtml(r.name)}" placeholder="e.g. Confit Garlic Cream">
+      <label>Batch size</label>
+      <input id="r-batch" value="${escapeHtml(r.batch||'')}" placeholder="e.g. 3 kg">
+      <label>Section</label>
+      <input type="hidden" id="r-section" value="${escapeHtml(r.section||'')}">
+      <div class="chip-row">
+        ${secs.map(s => `<button type="button" class="chip cat-chip ${s===r.section?'chip-on':''}" data-rsec-chip="${escapeHtml(s)}">${escapeHtml(s)}</button>`).join('')}
+        <button type="button" class="chip cat-chip cat-new" data-rsec-new="1">+ New section</button>
+      </div>
+      <label>Allergens <span class="hint">— comma separated</span></label>
+      <input id="r-allergens" value="${escapeHtml((r.allergens||[]).join(', '))}" placeholder="e.g. Dairy, Gluten">
+    </div>
+
+    <div class="section-label">Ingredients</div>
+    <div class="card tight">
+      <div class="ing-head"><span>Amount</span><span>Measure</span><span>Description</span><span></span></div>
+      <div id="ing-list">${ingRows || '<div class="empty">No ingredients yet.</div>'}</div>
+    </div>
+    <div class="add-row"><button class="btn btn-ghost" id="ing-add">+ Add ingredient</button></div>
+
+    <div class="section-label">Cooking method</div>
+    <div class="card">
+      <div id="step-list">${stepRows || '<div class="empty">No steps yet.</div>'}</div>
+    </div>
+    <div class="add-row"><button class="btn btn-ghost" id="step-add">+ Add step</button></div>
+
+    <div class="form-card">
+      <label>Handy hints</label>
+      <textarea id="r-notes" rows="3" placeholder="Anything worth knowing">${escapeHtml(r.notes||'')}</textarea>
+    </div>
+
+    <div class="oi-actions">
+      <button class="btn btn-ghost" data-goto="${isNew?'recipes':'recipe'}" data-rid="${escapeHtml(id)}">Cancel</button>
+      <button class="btn" data-recipe-save="${escapeHtml(id)}">Save</button>
+    </div>
+    ${isNew ? '' : `<div class="add-row"><button class="btn btn-danger" data-recipe-del="${escapeHtml(id)}">Delete recipe</button></div>`}
+  `;
+}
+
+function renderRecipeImport(){
+  return `
+    <div class="crumb"><button data-goto="recipes">&larr; Recipes</button></div>
+    <h2 class="screen-title">Import recipes</h2>
+    <p class="screen-sub">Paste the whole JSON file. This replaces every recipe currently in the book.</p>
+    <div class="form-card">
+      <label>JSON</label>
+      <textarea id="import-json" rows="8" placeholder='{"sections":[...],"recipes":[...]}'></textarea>
+      <div class="form-actions"><button class="btn" id="import-go">Replace all recipes</button></div>
+    </div>
+    <div class="sync-line">Currently ${state.recipes.length} recipe${state.recipes.length===1?'':'s'} in the book.</div>
   `;
 }
 
@@ -1382,7 +1946,7 @@ function attachHandlers(){
     el.addEventListener('click', ()=> goto({name:"supplier", id:el.dataset.openSupplier}));
   });
   document.querySelectorAll('[data-goto]').forEach(el=>{
-    el.addEventListener('click', ()=>{ goto({name:el.dataset.goto, id:el.dataset.supplier}); });
+    el.addEventListener('click', ()=>{ goto({name:el.dataset.goto, id:el.dataset.supplier, rid:el.dataset.rid}); });
   });
   document.querySelectorAll('[data-qty-inc]').forEach(el=>{
     el.addEventListener('click', ()=>{
@@ -1755,6 +2319,32 @@ function attachHandlers(){
   }
 
   /* Invoice handlers */
+  const chefSave = document.getElementById('chef-key-save');
+  if(chefSave){
+    chefSave.addEventListener('click', async ()=>{
+      const v = (document.getElementById('chef-key-input').value || '').trim();
+      if(!v){ showToast('Enter the key first'); return; }
+      setChefKey(v);
+      state.invoiceSync = null;
+      render();
+      await fetchInvoices();
+      publishCatalogue(true);
+    });
+  }
+  document.querySelectorAll('[data-chef-reset]').forEach(btn => {
+    btn.addEventListener('click', ()=>{
+      setChefKey('');
+      state.invoiceSync = null;
+      render();
+    });
+  });
+  const invClear = document.getElementById('inv-clear');
+  if(invClear){
+    invClear.addEventListener('click', ()=>{
+      if(!confirm('Clear every invoice logged this week? Your archive elsewhere is untouched.')) return;
+      clearInvoiceWeek();
+    });
+  }
   document.querySelectorAll('[data-invoice-add]').forEach(btn => {
     btn.addEventListener('click', () => {
       const supplierId = btn.dataset.invoiceAdd;
@@ -1765,7 +2355,11 @@ function attachHandlers(){
       const weekKey = getCurrentWeekStart();
       if(!state.invoices[weekKey]) state.invoices[weekKey] = {};
       if(!state.invoices[weekKey][supplierId]) state.invoices[weekKey][supplierId] = [];
-      state.invoices[weekKey][supplierId].push({ amount: Math.round(amount*100)/100, timestamp: new Date().toISOString() });
+      state.invoices[weekKey][supplierId].push({
+        amount: Math.round(amount*100)/100,
+        date: todayLabel(),
+        timestamp: new Date().toISOString()
+      });
       saveInvoices();
       render();
     });
@@ -1784,6 +2378,199 @@ function attachHandlers(){
       }
     });
   });
+
+
+  // ---- Recipes ----
+  document.querySelectorAll('[data-open-recipe]').forEach(el => {
+    el.addEventListener('click', ()=> goto({name:'recipe', rid: el.dataset.openRecipe}));
+  });
+
+  const rSearch = document.getElementById('recipe-search');
+  if(rSearch){
+    rSearch.addEventListener('input', ()=>{
+      state.recipeSearch = rSearch.value;
+      const pos = rSearch.selectionStart;
+      render();
+      const again = document.getElementById('recipe-search');
+      if(again){ again.focus(); try{ again.setSelectionRange(pos,pos); }catch(e){} }
+    });
+  }
+  const rClear = document.getElementById('recipe-search-clear');
+  if(rClear){
+    rClear.addEventListener('click', ()=>{ state.recipeSearch=''; render(); const a=document.getElementById('recipe-search'); if(a) a.focus(); });
+  }
+  document.querySelectorAll('[data-rfilter]').forEach(b => {
+    b.addEventListener('click', ()=>{ state.recipeFilter = b.dataset.rfilter || null; render(); });
+  });
+
+  document.querySelectorAll('[data-recipe-toggle]').forEach(b => {
+    b.addEventListener('click', ()=>{
+      const r = findRecipe(b.dataset.recipeToggle);
+      if(!r) return;
+      r.active = !r.active;
+      r.updated = localDateKey(new Date());
+      saveRecipes();
+      render();
+      showToast(r.active ? 'Showing to staff' : 'Hidden from staff');
+    });
+  });
+
+  document.querySelectorAll('[data-rsec-chip]').forEach(el => {
+    el.addEventListener('click', ()=>{
+      const f = document.getElementById('r-section');
+      if(f) f.value = el.dataset.rsecChip;
+      document.querySelectorAll('[data-rsec-chip]').forEach(c=>c.classList.remove('chip-on'));
+      el.classList.add('chip-on');
+    });
+  });
+  const rsecNew = document.querySelector('[data-rsec-new]');
+  if(rsecNew){
+    rsecNew.addEventListener('click', ()=>{
+      const name = (prompt('Name the new section') || '').trim().slice(0,60);
+      if(!name) return;
+      if(state.recipeSections.indexOf(name) < 0){ state.recipeSections.push(name); saveRecipes(); }
+      const f = document.getElementById('r-section');
+      if(f) f.value = name;
+      render();
+    });
+  }
+
+  // draft edits are read straight off the inputs, so nothing is lost on re-render
+  function readRecipeDraft(){
+    const ings = [];
+    document.querySelectorAll('[data-ing-item]').forEach(inp => {
+      const idx = inp.dataset.ingItem;
+      const qtyEl = document.querySelector('[data-ing-qty="'+idx+'"]');
+      const unitEl = document.querySelector('[data-ing-unit="'+idx+'"]');
+      const item = (inp.value||'').trim();
+      if(!item) return;
+      const q = parseFloat(qtyEl ? qtyEl.value : '0');
+      ings.push({ qty: isFinite(q)?q:0, unit: (unitEl && unitEl.value.trim()) || 'g', item: item });
+    });
+    const steps = [];
+    document.querySelectorAll('[data-step]').forEach(ta => {
+      const v = (ta.value||'').trim();
+      if(v) steps.push(v);
+    });
+    const allerg = (document.getElementById('r-allergens').value||'')
+      .split(',').map(s=>s.trim()).filter(Boolean);
+    return {
+      name: (document.getElementById('r-name').value||'').trim(),
+      batch: (document.getElementById('r-batch').value||'').trim(),
+      section: (document.getElementById('r-section').value||'').trim(),
+      notes: (document.getElementById('r-notes').value||'').trim(),
+      allergens: allerg,
+      ingredients: ings,
+      method: steps
+    };
+  }
+
+  const ingAdd = document.getElementById('ing-add');
+  if(ingAdd){
+    ingAdd.addEventListener('click', ()=>{
+      const d = readRecipeDraft();
+      d.ingredients.push({qty:0, unit:'g', item:''});
+      applyDraftAndRerender(d);
+    });
+  }
+  const stepAdd = document.getElementById('step-add');
+  if(stepAdd){
+    stepAdd.addEventListener('click', ()=>{
+      const d = readRecipeDraft();
+      d.method.push('');
+      applyDraftAndRerender(d);
+    });
+  }
+  document.querySelectorAll('[data-ing-del]').forEach(b => {
+    b.addEventListener('click', ()=>{
+      const d = readRecipeDraft();
+      d.ingredients.splice(parseInt(b.dataset.ingDel,10), 1);
+      applyDraftAndRerender(d);
+    });
+  });
+  document.querySelectorAll('[data-step-del]').forEach(b => {
+    b.addEventListener('click', ()=>{
+      const d = readRecipeDraft();
+      d.method.splice(parseInt(b.dataset.stepDel,10), 1);
+      applyDraftAndRerender(d);
+    });
+  });
+
+  document.querySelectorAll('[data-recipe-save]').forEach(b => {
+    b.addEventListener('click', ()=>{
+      const id = b.dataset.recipeSave;
+      const d = readRecipeDraft();
+      if(!d.name){ showToast('Recipe name required'); return; }
+      if(id === 'new'){
+        const rec = Object.assign({ id: recipeSlug(d.name), active:true, updated: localDateKey(new Date()) }, d);
+        state.recipes.push(rec);
+        saveRecipes();
+        goto({name:'recipe', rid: rec.id});
+        showToast('Recipe added');
+      } else {
+        const r = findRecipe(id);
+        if(!r) return;
+        Object.assign(r, d, { updated: localDateKey(new Date()) });
+        saveRecipes();
+        goto({name:'recipe', rid: id});
+        showToast('Recipe saved');
+      }
+    });
+  });
+
+  document.querySelectorAll('[data-recipe-del]').forEach(b => {
+    b.addEventListener('click', ()=>{
+      const r = findRecipe(b.dataset.recipeDel);
+      if(!r) return;
+      if(!confirm('Delete "'+r.name+'"? This cannot be undone.')) return;
+      state.recipes = state.recipes.filter(x => x.id !== r.id);
+      saveRecipes();
+      goto({name:'recipes'});
+      showToast('Recipe deleted');
+    });
+  });
+
+  const importGo = document.getElementById('import-go');
+  if(importGo){
+    importGo.addEventListener('click', ()=>{
+      const raw = (document.getElementById('import-json').value||'').trim();
+      if(!raw){ showToast('Paste the JSON first'); return; }
+      let data;
+      try{ data = JSON.parse(raw); }catch(e){ showToast('That is not valid JSON'); return; }
+      const incoming = Array.isArray(data) ? data : data.recipes;
+      if(!Array.isArray(incoming) || incoming.length === 0){ showToast('No recipes found in that JSON'); return; }
+      if(state.recipes.length && !confirm('Replace all '+state.recipes.length+' recipes with '+incoming.length+' from this file?')) return;
+
+      state.recipes = incoming.map(r => ({
+        id: String(r.id || '').trim() || recipeSlug(r.name),
+        name: String(r.name||'').trim(),
+        section: String(r.section||'').trim(),
+        active: r.active !== false,
+        batch: String(r.batch || r.yield || '').trim(),
+        ingredients: Array.isArray(r.ingredients) ? r.ingredients.map(i => ({
+          qty: isFinite(Number(i.qty)) ? Number(i.qty) : 0,
+          unit: String(i.unit||'g').trim(),
+          item: String(i.item||'').trim()
+        })).filter(i => i.item) : [],
+        method: Array.isArray(r.method) ? r.method.map(s=>String(s).trim()).filter(Boolean) : [],
+        notes: String(r.notes||'').trim(),
+        allergens: Array.isArray(r.allergens) ? r.allergens.map(s=>String(s).trim()).filter(Boolean) : [],
+        updated: String(r.updated||'').trim()
+      })).filter(r => r.name);
+
+      if(Array.isArray(data.sections) && data.sections.length){
+        state.recipeSections = data.sections.map(s=>String(s).trim()).filter(Boolean);
+      } else {
+        const secs = [];
+        state.recipes.forEach(r => { if(r.section && secs.indexOf(r.section) < 0) secs.push(r.section); });
+        state.recipeSections = secs;
+      }
+      state.recipesLoaded = true;
+      saveRecipes();
+      goto({name:'recipes'});
+      showToast('Imported '+state.recipes.length+' recipes');
+    });
+  }
 
   // ---- Bell button ----
   const bellBtn = document.querySelector('[data-bell]');
@@ -1955,7 +2742,7 @@ async function clearPrep(id){
   }
 }
 
-function refreshFromServer(){ fetchOrders(); fetchPrep(); publishCatalogue(false); }
+function refreshFromServer(){ fetchOrders(); fetchPrep(); publishCatalogue(false); fetchInvoices(); fetchRecipes(); }
 
 try{ history.replaceState({view:{name:'home'}}, ''); }catch(e){}
 window.addEventListener('popstate', (e)=>{
