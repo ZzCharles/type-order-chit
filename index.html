@@ -163,15 +163,19 @@ a.btn-block{display:block;text-decoration:none;text-align:center;box-sizing:bord
    View Transitions handles screen changes on browsers that have it; anywhere
    else the screen just changes instantly, which is the right fallback. */
 @media (prefers-reduced-motion: no-preference){
-  ::view-transition-old(root){animation:vt-out .16s ease both;}
-  ::view-transition-new(root){animation:vt-in .2s cubic-bezier(.2,.7,.3,1) both;}
-  @keyframes vt-out{to{opacity:0;transform:translateY(-4px);}}
-  @keyframes vt-in{from{opacity:0;transform:translateY(6px);}}
+  /* A straight cross-fade. The earlier version also slid the page, which read
+     as a jerk because old and new moved in opposite directions at once. */
+  ::view-transition-old(root),::view-transition-new(root){
+    animation-duration:.26s;animation-timing-function:cubic-bezier(.33,0,.2,1);mix-blend-mode:normal;}
+  ::view-transition-old(root){animation-name:vt-out;}
+  ::view-transition-new(root){animation-name:vt-in;}
+  @keyframes vt-out{to{opacity:0;}}
+  @keyframes vt-in{from{opacity:0;}}
 }
-.btn,.tile,.tab-card,.sub-card,.icon-btn,.filter-chip,.chip,.pick-row,.recipe-row,.prep-check{
-  transition:background .16s ease,color .16s ease,border-color .16s ease,transform .12s ease,opacity .16s ease;}
-.btn:active,.tile:active,.tab-card:active,.recipe-row:active{transform:scale(.985);}
-.icon-btn:active,.chip:active{transform:scale(.92);}
+.btn,.tile,.tab-card,.sub-card,.icon-btn,.filter-chip,.chip,.pick-row,.recipe-row,.prep-check,.chev-btn{
+  transition:background .18s ease,color .18s ease,border-color .18s ease,transform .18s cubic-bezier(.25,.8,.35,1),opacity .18s ease;}
+.btn:active,.tile:active,.tab-card:active,.recipe-row:active{transform:scale(.99);}
+.icon-btn:active,.chip:active{transform:scale(.94);}
 .pick-row .pick-box{transition:background .16s ease,border-color .16s ease,color .16s ease;}
 .toast{transition:opacity .2s ease,transform .2s cubic-bezier(.2,.7,.3,1);transform:translateX(-50%) translateY(6px);}
 .toast.show{transform:translateX(-50%) translateY(0);}
@@ -338,13 +342,15 @@ a.btn-block{display:block;}
 .group .tab-card{margin-bottom:0;}
 .group-chev{transition:transform .22s cubic-bezier(.2,.7,.3,1);}
 .group.open .group-chev{transform:rotate(90deg);}
-.group-body{display:grid;grid-template-rows:0fr;transition:grid-template-rows .26s cubic-bezier(.2,.7,.3,1);}
+/* One grid row only. With several children, extras land in implicit auto rows
+   that never collapse, which is what left a gap under a closed group. */
+.group-body{display:grid;grid-template-rows:0fr;transition:grid-template-rows .3s cubic-bezier(.25,.8,.35,1);}
 .group.open .group-body{grid-template-rows:1fr;}
-.group-body > *{overflow:hidden;min-height:0;}
+.group-inner{overflow:hidden;min-height:0;}
 .sub-card{display:flex;align-items:center;justify-content:space-between;width:100%;text-align:left;font-family:inherit;
-  background:none;border:none;border-bottom:1px solid var(--line);padding:15px 6px 15px 18px;cursor:pointer;opacity:0;transform:translateY(-4px);
-  transition:opacity .2s ease .04s, transform .2s ease .04s;}
-.group.open .sub-card{opacity:1;transform:none;}
+  background:none;border:none;border-bottom:1px solid var(--line);padding:15px 6px 15px 18px;cursor:pointer;opacity:0;
+  transition:opacity .22s ease .06s;}
+.group.open .sub-card{opacity:1;}
 .sub-card:last-child{border-bottom:none;}
 .sub-card:active{background:rgba(38,35,25,.04);}
 .sub-name{font-size:15.5px;font-weight:700;}
@@ -376,8 +382,9 @@ a.btn-block{display:block;}
 .prep-body.linkable{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:3px;
   background:none;border:none;padding:0;margin:0;font-family:inherit;text-align:left;cursor:pointer;color:inherit;}
 .prep-body.linkable:active .prep-text{color:var(--stamp);}
-.prep-chev{flex:0 0 auto;color:var(--line);font-size:17px;align-self:center;}
-.prep-item:active .prep-chev{color:var(--muted);}
+.chev-btn{flex:0 0 auto;width:44px;height:44px;margin:-9px -12px -9px 0;border:none;background:none;font-family:inherit;
+  font-size:19px;color:var(--line);cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;}
+.chev-btn:active{color:var(--stamp);transform:scale(.9);}
 .icon-btn{flex:0 0 auto;width:34px;height:34px;border-radius:11px;border:1px solid var(--line);background:#fff;color:var(--muted);
   display:flex;align-items:center;justify-content:center;cursor:pointer;font-family:inherit;padding:0;
   transition:background .16s ease, color .16s ease, border-color .16s ease, transform .16s ease;}
@@ -461,6 +468,7 @@ const INVOICES_DIRTY_KEY = 'order-chit-invoices-dirty';
 const RECIPES_KEY = 'order-chit-recipes';
 const RECIPES_DIRTY_KEY = 'order-chit-recipes-dirty';
 const PREPITEMS_KEY = 'order-chit-prep-items';
+const HINTS_CLEARED_KEY = 'order-chit-hints-cleared';
 const CAT_MIGRATION_KEY = 'order-chit-cat-migrated';
 
 /* Categories only exist so the staff app can group its list. They show up on
@@ -877,6 +885,18 @@ function savePrepItemEdits(){
   state.prepItems = state.prepItems.filter(i => i.name);
 }
 
+/* The imported recipes all carried a generated handy hint. Runs once, so
+   anything added afterwards stays put. */
+function clearImportedHints(){
+  let done = false;
+  try{ done = localStorage.getItem(HINTS_CLEARED_KEY) === '1'; }catch(e){}
+  if(done) return;
+  let n = 0;
+  state.recipes.forEach(r => { if(r.notes){ r.notes = ''; n++; } });
+  try{ localStorage.setItem(HINTS_CLEARED_KEY, '1'); }catch(e){}
+  if(n){ saveRecipes(); }
+}
+
 function findRecipe(id){ return state.recipes.find(r => r.id === id); }
 
 /* An ingredient that is itself a recipe becomes a link. Garlic Blitzed is an
@@ -1223,6 +1243,7 @@ function loadData(){
   loadCategories();
   backfillCategories();
   loadRecipesLocal();
+  clearImportedHints();
   loadPrepItems();
   render();
 }
@@ -1432,7 +1453,7 @@ function renderHome(){
           </div>
           <div class="chev group-chev">&rsaquo;</div>
         </button>
-        <div class="group-body">
+        <div class="group-body"><div class="group-inner">
           ${g.items.map(i => `
             <button class="sub-card" data-goto="${i.go}">
               <div class="tab-main">
@@ -1441,7 +1462,7 @@ function renderHome(){
               </div>
               <div class="chev">&rsaquo;</div>
             </button>`).join('')}
-        </div>
+        </div></div>
       </div>`;
   }).join('');
 
@@ -1547,14 +1568,11 @@ function renderPrep(){
       out += `
         <div class="prep-item ${l.done?'is-done':''}">
           <button class="prep-check ${l.done?'on':''}" data-tick="${escapeHtml(l.id)}" data-done="${l.done?'1':'0'}" aria-label="${l.done?'Mark not done':'Mark done'}">&#10003;</button>
-          ${hasR ? `<button class="prep-body linkable" data-open-recipe="${escapeHtml(l.recipe)}" aria-label="Open ${escapeHtml(l.text)} recipe">
-            <span class="prep-text">${escapeHtml(l.text)}</span>
-            ${l.done ? `<span class="prep-meta">Completed by ${escapeHtml(l.doneBy||'someone')}${l.doneAt?' &middot; '+timeAgo(l.doneAt):''}</span>` : ''}
-          </button><span class="chev prep-chev">&rsaquo;</span>`
-          : `<div class="prep-body">
+          <div class="prep-body">
             <div class="prep-text">${escapeHtml(l.text)}</div>
             ${l.done ? `<div class="prep-meta">Completed by ${escapeHtml(l.doneBy||'someone')}${l.doneAt?' &middot; '+timeAgo(l.doneAt):''}</div>` : ''}
-          </div>`}
+          </div>
+          ${hasR ? `<button class="chev-btn" data-open-recipe="${escapeHtml(l.recipe)}" data-from="prep" aria-label="Open ${escapeHtml(l.text)} recipe">&rsaquo;</button>` : ''}
         </div>`;
     });
     body = out;
@@ -1785,18 +1803,18 @@ function renderRecipe(id){
     const f = fmtAmount(i.qty, i.unit);
     const sub = recipeByName(i.item);
     const cell = sub && sub.id !== r.id
-      ? `<button class="ri-link" data-open-recipe="${escapeHtml(sub.id)}">${escapeHtml(i.item)}<span class="ri-arrow">&rsaquo;</span></button>`
+      ? `<button class="ri-link" data-open-recipe="${escapeHtml(sub.id)}" data-from="${escapeHtml(state.view.from||'recipes')}">${escapeHtml(i.item)}<span class="ri-arrow">&rsaquo;</span></button>`
       : escapeHtml(i.item);
     return `<tr><td class="ri-amt">${escapeHtml(f.amount)}<span class="ri-unit">${escapeHtml(f.unit)}</span></td><td class="ri-item">${cell}</td></tr>`;
   }).join('');
 
   const subs = subRecipesOf(r);
   const subNote = subs.length
-    ? `<div class="sub-note">Make first: ${subs.map(s => `<button class="sub-link" data-open-recipe="${escapeHtml(s.id)}">${escapeHtml(s.name)}</button>`).join(' &middot; ')}</div>`
+    ? `<div class="sub-note">Make first: ${subs.map(s => `<button class="sub-link" data-open-recipe="${escapeHtml(s.id)}" data-from="${escapeHtml(state.view.from||'recipes')}">${escapeHtml(s.name)}</button>`).join(' &middot; ')}</div>`
     : '';
   const used = usedByRecipes(r);
   const usedNote = used.length
-    ? `<div class="section-label">Used in</div><div class="card tight">${used.map(u => `<div class="recipe-row" data-open-recipe="${escapeHtml(u.id)}"><div class="recipe-row-main"><div class="recipe-row-name">${escapeHtml(u.name)}</div></div><div class="chev">&rsaquo;</div></div>`).join('')}</div>`
+    ? `<div class="section-label">Used in</div><div class="card tight">${used.map(u => `<div class="recipe-row" data-open-recipe="${escapeHtml(u.id)}" data-from="${escapeHtml(state.view.from||'recipes')}"><div class="recipe-row-main"><div class="recipe-row-name">${escapeHtml(u.name)}</div></div><div class="chev">&rsaquo;</div></div>`).join('')}</div>`
     : '';
 
   const steps = (r.method||[]).map((s,i) =>
@@ -1805,8 +1823,10 @@ function renderRecipe(id){
   const allerg = (r.allergens||[]).length
     ? `<div class="pill-row">${r.allergens.map(a => `<span class="pill warn">${escapeHtml(a)}</span>`).join('')}</div>` : '';
 
+  const from = state.view.from === 'prep' ? { label:'Prep', go:'prep' } : { label:'Recipes', go:'recipes' };
+
   return `
-    <div class="crumb"><button data-goto="recipes">&larr; Recipes</button></div>
+    <div class="crumb"><button data-goto="${from.go}">&larr; ${from.label}</button></div>
 
     <div class="recipe-head">
       <div class="recipe-top">
@@ -3023,7 +3043,7 @@ function attachHandlers(){
 
   // ---- Recipes ----
   document.querySelectorAll('[data-open-recipe]').forEach(el => {
-    el.addEventListener('click', ()=> goto({name:'recipe', rid: el.dataset.openRecipe}));
+    el.addEventListener('click', ()=> goto({name:'recipe', rid: el.dataset.openRecipe, from: el.dataset.from || 'recipes'}));
   });
 
   const rSearch = document.getElementById('recipe-search');
