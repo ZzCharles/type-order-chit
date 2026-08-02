@@ -158,6 +158,26 @@ a.btn-block{display:block;text-decoration:none;text-align:center;box-sizing:bord
 .bell-btn svg{width:22px;height:22px;}
 .bell-badge{position:absolute;top:-4px;right:-6px;width:14px;height:14px;background:var(--stamp);border-radius:50%;border:2px solid var(--paper);display:none;}
 .bell-badge.show{display:block;}
+
+/* ===== Motion =====
+   View Transitions handles screen changes on browsers that have it; anywhere
+   else the screen just changes instantly, which is the right fallback. */
+@media (prefers-reduced-motion: no-preference){
+  ::view-transition-old(root){animation:vt-out .16s ease both;}
+  ::view-transition-new(root){animation:vt-in .2s cubic-bezier(.2,.7,.3,1) both;}
+  @keyframes vt-out{to{opacity:0;transform:translateY(-4px);}}
+  @keyframes vt-in{from{opacity:0;transform:translateY(6px);}}
+}
+.btn,.tile,.tab-card,.sub-card,.icon-btn,.filter-chip,.chip,.pick-row,.recipe-row,.prep-check{
+  transition:background .16s ease,color .16s ease,border-color .16s ease,transform .12s ease,opacity .16s ease;}
+.btn:active,.tile:active,.tab-card:active,.recipe-row:active{transform:scale(.985);}
+.icon-btn:active,.chip:active{transform:scale(.92);}
+.pick-row .pick-box{transition:background .16s ease,border-color .16s ease,color .16s ease;}
+.toast{transition:opacity .2s ease,transform .2s cubic-bezier(.2,.7,.3,1);transform:translateX(-50%) translateY(6px);}
+.toast.show{transform:translateX(-50%) translateY(0);}
+@media (prefers-reduced-motion: reduce){
+  *,*::before,*::after{animation-duration:.001ms!important;transition-duration:.001ms!important;}
+}
 </style>
 
 <style>
@@ -274,26 +294,38 @@ a.btn-block{display:block;}
 .off-tag{font-size:10px;font-weight:800;letter-spacing:0.6px;text-transform:uppercase;color:var(--mustard);border:1px solid var(--mustard);border-radius:999px;padding:1px 6px;margin-left:4px;vertical-align:1px;}
 .recipe-row-sub{font-size:11.5px;color:var(--muted);margin-top:2px;}
 
-.recipe-head{margin-bottom:6px;}
-.recipe-title{font-size:24px;font-weight:800;letter-spacing:-0.4px;margin:0 0 12px;line-height:1.2;}
-.recipe-meta{display:flex;flex-direction:column;gap:6px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:13px 15px;}
-.recipe-meta > div{display:flex;justify-content:space-between;gap:12px;font-size:13.5px;font-weight:600;}
-.rm-label{color:var(--muted);font-weight:600;}
-.hidden-note{font-size:12px;color:var(--mustard);font-weight:700;margin-top:10px;}
+.recipe-head{margin-bottom:14px;}
+.recipe-top{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:5px;}
+.recipe-eyebrow{font-size:10.5px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);}
+.recipe-title{font-size:29px;font-weight:800;letter-spacing:-0.8px;margin:0;line-height:1.12;}
+.pill-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:11px;}
+.pill{font-size:10.5px;font-weight:800;letter-spacing:0.7px;text-transform:uppercase;border-radius:999px;padding:4px 10px;background:#EDEBDF;color:var(--ink-soft);}
+.pill.warn{background:#F6EBDC;color:#8A5A16;}
+
+/* switch */
+.switch{display:inline-flex;align-items:center;gap:7px;cursor:pointer;flex:0 0 auto;}
+.switch input{position:absolute;opacity:0;width:0;height:0;}
+.switch-track{width:38px;height:22px;border-radius:999px;background:#DEDBCC;position:relative;transition:background .2s ease;flex:0 0 auto;}
+.switch-knob{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(38,35,25,.28);transition:transform .22s cubic-bezier(.2,.7,.3,1);}
+.switch input:checked + .switch-track{background:var(--stamp);}
+.switch input:checked + .switch-track .switch-knob{transform:translateX(16px);}
+.switch-label{font-size:11px;font-weight:800;letter-spacing:0.8px;text-transform:uppercase;color:var(--muted);}
+.switch input:checked ~ .switch-label{color:var(--stamp);}
+.switch.inline{margin:4px 0 10px;}
 
 .ri-table{width:100%;border-collapse:collapse;}
-.ri-table th{font-size:10px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:var(--muted);text-align:left;padding:10px 6px 7px 0;border-bottom:1px solid var(--line);}
-.ri-table td{padding:9px 6px 9px 0;border-bottom:1px solid #F5F3EA;font-size:14.5px;vertical-align:top;}
+.ri-table td{padding:12px 0;border-bottom:1px solid #F5F3EA;font-size:15px;vertical-align:baseline;}
 .ri-table tr:last-child td{border-bottom:none;}
-.ri-amt{font-weight:700;white-space:nowrap;width:1%;}
-.ri-unit{color:var(--muted);white-space:nowrap;width:1%;font-size:13px;}
-.ri-item{font-weight:600;}
+.ri-amt{font-weight:800;white-space:nowrap;width:1%;padding-right:16px!important;font-variant-numeric:tabular-nums;font-size:16px;}
+.ri-unit{color:var(--muted);font-weight:600;font-size:12px;margin-left:3px;}
+.ri-item{font-weight:600;line-height:1.35;}
 
 .rm-list{list-style:none;margin:0;padding:0;}
 .rm-list li{display:flex;gap:11px;padding:9px 0;border-bottom:1px solid #F5F3EA;}
 .rm-list li:last-child{border-bottom:none;}
-.rm-n{flex:0 0 auto;width:22px;height:22px;border-radius:50%;background:var(--ink);color:#fff;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;margin-top:1px;}
-.rm-t{flex:1;font-size:14.5px;line-height:1.45;}
+.rm-n{flex:0 0 auto;width:21px;height:21px;border-radius:50%;border:1.5px solid var(--line);background:transparent;color:var(--muted);font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;margin-top:2px;}
+.rm-t{flex:1;font-size:15px;line-height:1.5;}
+.rm-list li{padding:11px 0;}
 .rn-text{font-size:14px;line-height:1.5;white-space:pre-wrap;}
 .ri-link{font-family:inherit;font-size:14.5px;font-weight:700;color:var(--stamp);background:none;border:none;padding:0;text-align:left;cursor:pointer;text-decoration:underline;text-underline-offset:2px;display:inline-flex;align-items:center;gap:3px;}
 .ri-link:active{color:var(--stamp-dark);}
@@ -302,20 +334,59 @@ a.btn-block{display:block;}
 .sub-link{font-family:inherit;font-size:12.5px;font-weight:700;color:var(--stamp);background:none;border:none;padding:0;cursor:pointer;text-decoration:underline;text-underline-offset:2px;}
 
 /* ===== Prep ===== */
+.group{margin-bottom:12px;}
+.group .tab-card{margin-bottom:0;}
+.group-chev{transition:transform .22s cubic-bezier(.2,.7,.3,1);}
+.group.open .group-chev{transform:rotate(90deg);}
+.group-body{display:grid;grid-template-rows:0fr;transition:grid-template-rows .26s cubic-bezier(.2,.7,.3,1);}
+.group.open .group-body{grid-template-rows:1fr;}
+.group-body > *{overflow:hidden;min-height:0;}
+.sub-card{display:flex;align-items:center;justify-content:space-between;width:100%;text-align:left;font-family:inherit;
+  background:none;border:none;border-bottom:1px solid var(--line);padding:15px 6px 15px 18px;cursor:pointer;opacity:0;transform:translateY(-4px);
+  transition:opacity .2s ease .04s, transform .2s ease .04s;}
+.group.open .sub-card{opacity:1;transform:none;}
+.sub-card:last-child{border-bottom:none;}
+.sub-card:active{background:rgba(38,35,25,.04);}
+.sub-name{font-size:15.5px;font-weight:700;}
+.sub-hint{font-size:12px;color:var(--muted);margin-top:2px;}
 .pub-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin:2px 2px 10px;}
 .pub-head span:first-child{font-size:19px;font-weight:800;letter-spacing:-0.3px;}
 .pub-meta{font-size:11.5px;color:var(--muted);white-space:nowrap;}
 .prep-item{display:flex;align-items:flex-start;gap:12px;padding:13px 0;border-bottom:1px solid #F1EFE4;}
 .prep-item:last-child{border-bottom:none;}
-.prep-check{flex:0 0 auto;width:26px;height:26px;margin-top:1px;border:1.5px solid var(--line);background:#F6F5EE;border-radius:8px;font-family:inherit;font-size:14px;color:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;}
-.prep-check.on{background:var(--ink);border-color:var(--ink);color:#fff;}
-.prep-check:active{background:var(--ink);border-color:var(--ink);color:#fff;}
+.prep-check{flex:0 0 auto;width:44px;height:44px;margin:-9px 0 -9px -9px;border:none;background:none;font-family:inherit;font-size:14px;
+  color:transparent;cursor:pointer;display:flex;align-items:center;justify-content:center;position:relative;}
+.prep-check::before{content:'';position:absolute;width:26px;height:26px;border:1.5px solid var(--line);background:#F6F5EE;border-radius:8px;
+  transition:background .18s ease, border-color .18s ease;}
+.prep-check > *,.prep-check{z-index:0;}
+.prep-check.on{color:#fff;}
+.prep-check.on::before{background:var(--ink);border-color:var(--ink);}
+.prep-check:active::before{background:var(--ink);border-color:var(--ink);}
+.prep-check span,.prep-check{position:relative;}
+.prep-text{position:relative;}
+.prep-item.is-done .prep-text::after{content:'';position:absolute;left:0;top:50%;height:1.5px;background:currentColor;width:100%;
+  animation:strike .22s cubic-bezier(.2,.7,.3,1) both;}
+@keyframes strike{from{width:0;}to{width:100%;}}
 .prep-body{flex:1;min-width:0;}
 .prep-text{font-size:15px;font-weight:600;line-height:1.35;white-space:pre-wrap;word-break:break-word;}
-.prep-item.is-done .prep-text{text-decoration:line-through;color:var(--muted);}
+.prep-item.is-done .prep-text{color:var(--muted);}
 .prep-meta{font-size:11px;color:var(--muted);margin-top:3px;}
 .prep-recipe{flex:0 0 auto;font-family:inherit;font-size:10.5px;font-weight:800;letter-spacing:0.5px;text-transform:uppercase;color:var(--stamp);background:none;border:1px solid var(--line);border-radius:999px;padding:5px 10px;cursor:pointer;margin-top:1px;}
 .prep-recipe:active{background:var(--stamp);border-color:var(--stamp);color:#fff;}
+.prep-body.linkable{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:3px;
+  background:none;border:none;padding:0;margin:0;font-family:inherit;text-align:left;cursor:pointer;color:inherit;}
+.prep-body.linkable:active .prep-text{color:var(--stamp);}
+.prep-chev{flex:0 0 auto;color:var(--line);font-size:17px;align-self:center;}
+.prep-item:active .prep-chev{color:var(--muted);}
+.icon-btn{flex:0 0 auto;width:34px;height:34px;border-radius:11px;border:1px solid var(--line);background:#fff;color:var(--muted);
+  display:flex;align-items:center;justify-content:center;cursor:pointer;font-family:inherit;padding:0;
+  transition:background .16s ease, color .16s ease, border-color .16s ease, transform .16s ease;}
+.icon-btn svg{width:16px;height:16px;}
+.icon-btn:active{transform:scale(.92);}
+.icon-btn.add{color:var(--stamp);border-color:#E8D6D2;}
+.icon-btn.add:active{background:var(--stamp);border-color:var(--stamp);color:#fff;}
+.icon-btn.add.on{background:#EFF3E9;border-color:#D5E0C6;color:#5C7A3F;}
+.icon-btn:disabled{opacity:.5;}
 .pick-row{display:flex;align-items:center;gap:11px;padding:12px 2px;border-bottom:1px solid #F5F3EA;cursor:pointer;}
 .pick-row:last-child{border-bottom:none;}
 .pick-box{flex:0 0 auto;width:24px;height:24px;border:1.5px solid var(--line);background:#F6F5EE;border-radius:7px;font-size:13px;color:transparent;display:flex;align-items:center;justify-content:center;}
@@ -447,6 +518,7 @@ let state = {
   orders: [],
   catalogueSynced: null,
   invoiceSync: null,
+  homeOpen: null,
   recipes: [], recipeSections: [], recipeSync: null, recipesLoaded: false,
   recipeSearch: '', recipeFilter: null,
   prepItems: [],            // standalone prep items, not backed by a recipe
@@ -716,7 +788,8 @@ async function fetchPublished(){
   try{
     const res = await fetch(API + '/api/prep/published', {cache:'no-store'});
     const d = await res.json();
-    state.published = (d && Array.isArray(d.lines)) ? d : null;
+    if(d && Array.isArray(d.lines)){ d.lines = applyRecentTicks(d.lines); state.published = d; }
+    else state.published = null;
   }catch(e){}
 }
 
@@ -724,6 +797,25 @@ async function refreshPrep(){
   await fetchPrepSubs();
   await fetchPublished();
   if(state.view.name && state.view.name.indexOf('prep') === 0) render();
+}
+
+/* KV can take a moment to report a tick that was only just written, so a
+   background refresh could otherwise undo what you just ticked. Recent local
+   ticks win over the server for a short window. */
+const recentTicks = {};
+/* Long enough to cover KV catching up, short enough that if someone else
+   changes the same line it wins almost straight away. */
+const TICK_GRACE = 12000;
+function rememberTick(id, done, by){ recentTicks[id] = { done: done, by: by, at: Date.now() }; }
+function applyRecentTicks(lines){
+  const cutoff = Date.now() - TICK_GRACE;
+  return (lines||[]).map(l => {
+    const r = recentTicks[l.id];
+    if(!r) return l;
+    if(r.at < cutoff){ delete recentTicks[l.id]; return l; }
+    if(l.done === r.done) { delete recentTicks[l.id]; return l; }
+    return Object.assign({}, l, { done: r.done, doneBy: r.done ? r.by : '', doneAt: r.done ? r.at : 0 });
+  });
 }
 
 async function tickPrepLine(lineId, done){
@@ -734,6 +826,7 @@ async function tickPrepLine(lineId, done){
   line.done = done;
   line.doneBy = done ? 'Rabindra' : '';
   line.doneAt = done ? Date.now() : 0;
+  rememberTick(lineId, done, 'Rabindra');
   render();
   try{
     const res = await fetch(API + '/api/prep/published/tick', {
@@ -741,9 +834,9 @@ async function tickPrepLine(lineId, done){
       body: JSON.stringify({ id: lineId, by: 'Rabindra', done: done })
     });
     if(!res.ok) throw new Error();
-    const d = await res.json();
-    if(Array.isArray(d.lines)) state.published.lines = d.lines;
-    render();
+    // the optimistic update already shows the truth; don't overwrite it with a
+    // read-back that KV may not have caught up with yet
+    await res.json().catch(()=>({}));
   }catch(e){
     state.published.lines = before;
     render();
@@ -1206,9 +1299,21 @@ function showToast(msg){
   setTimeout(()=>t.classList.remove('show'), 1800);
 }
 
+/* Wraps a render in a View Transition where supported, so screens cross-fade
+   instead of snapping. Falls through untouched everywhere else. */
+function animate(fn){
+  try{
+    if(document.startViewTransition && !window.matchMedia('(prefers-reduced-motion: reduce)').matches){
+      document.startViewTransition(fn);
+      return;
+    }
+  }catch(e){}
+  fn();
+}
+
 function goto(view){
   if(!(view.name === 'recipeEdit' && view.rid === 'new')) state.recipeDraft = null;
-  state.view = view; try{ history.pushState({view}, ''); }catch(e){} render();
+  state.view = view; try{ history.pushState({view}, ''); }catch(e){} animate(render);
 }
 function findSupplier(id){ return state.suppliers.find(s=>s.id===id); }
 
@@ -1300,46 +1405,55 @@ function renderHome(){
         </div>
         <div class="chev">&rsaquo;</div>
       </button>` : '';
-  return `
-    <div class="home-tabs">
-      ${waiting}
-      <button class="tab-card" data-goto="recipes">
-        <div class="tab-main">
-          <div class="tab-title">Recipes</div>
-          <div class="tab-sub">${state.recipes.length ? state.recipes.length+' in the book' : 'Import your recipe book'}</div>
+
+  const groups = [
+    { key:'ordering', title:'Ordering', sub:'Suppliers &amp; invoices', alert:false, items:[
+      { go:'list',     name:'Suppliers', hint:'Build and send orders' },
+      { go:'invoices', name:'Invoices',  hint:invoiceHint() }
+    ]},
+    { key:'rostering', title:'Rostering', sub:'Roster &amp; timesheet', alert:false, items:[
+      { go:'roster',    name:'Roster',    hint:'Staff availability and shifts' },
+      { go:'timesheet', name:'Timesheet', hint:'Your hours for accounts' }
+    ]},
+    { key:'prep', title:'Prep', sub:'Prep list &amp; recipes', alert:!!state.prepSubs.length, items:[
+      { go:'prep',    name:'Prep List', hint:prepTileSub() },
+      { go:'recipes', name:'Recipes',   hint:state.recipes.length ? state.recipes.length+' in the book' : 'Import your recipe book' }
+    ]}
+  ];
+
+  const body = groups.map(g => {
+    const open = state.homeOpen === g.key;
+    return `
+      <div class="group ${open?'open':''}">
+        <button class="tab-card${g.alert?' tab-alert':''}" data-group="${g.key}" aria-expanded="${open?'true':'false'}">
+          <div class="tab-main">
+            <div class="tab-title">${g.title}</div>
+            <div class="tab-sub">${g.sub}</div>
+          </div>
+          <div class="chev group-chev">&rsaquo;</div>
+        </button>
+        <div class="group-body">
+          ${g.items.map(i => `
+            <button class="sub-card" data-goto="${i.go}">
+              <div class="tab-main">
+                <div class="sub-name">${i.name}</div>
+                <div class="sub-hint">${i.hint}</div>
+              </div>
+              <div class="chev">&rsaquo;</div>
+            </button>`).join('')}
         </div>
-        <div class="chev">&rsaquo;</div>
-      </button>
-      <button class="tab-card${state.prepSubs.length?' tab-alert':''}" data-goto="prep">
-        <div class="tab-main">
-          <div class="tab-title">Prep List</div>
-          <div class="tab-sub">${prepTileSub()}</div>
-        </div>
-        <div class="chev">&rsaquo;</div>
-      </button>
-      <button class="tab-card" data-goto="list">
-        <div class="tab-main">
-          <div class="tab-title">Ordering</div>
-          <div class="tab-sub">Suppliers, cart &amp; sending orders</div>
-        </div>
-        <div class="chev">&rsaquo;</div>
-      </button>
-      <button class="tab-card" data-goto="roster">
-        <div class="tab-main">
-          <div class="tab-title">Rostering</div>
-          <div class="tab-sub">Staff, roster &amp; timesheet</div>
-        </div>
-        <div class="chev">&rsaquo;</div>
-      </button>
-      <button class="tab-card" data-goto="invoices">
-        <div class="tab-main">
-          <div class="tab-title">Invoices</div>
-          <div class="tab-sub">Weekly spend tracker</div>
-        </div>
-        <div class="chev">&rsaquo;</div>
-      </button>
-    </div>
-  `;
+      </div>`;
+  }).join('');
+
+  return `<div class="home-tabs">${waiting}${body}</div>`;
+}
+
+function invoiceHint(){
+  const wk = getCurrentWeekStart();
+  const w = state.invoices[wk] || {};
+  let total = 0;
+  Object.keys(w).forEach(sid => (w[sid]||[]).forEach(e => { total += Number(e.amount)||0; }));
+  return total > 0 ? '$'+total.toFixed(2)+' this week' : 'Weekly spend tracker';
 }
 
 function renderInvoices(){
@@ -1429,14 +1543,18 @@ function renderPrep(){
     lines.forEach(l => {
       const sec = l.section || 'Other';
       if(sec !== lastSec){ lastSec = sec; out += `<div class="sec-head">${escapeHtml(sec)}</div>`; }
+      const hasR = l.recipe && findRecipe(l.recipe);
       out += `
         <div class="prep-item ${l.done?'is-done':''}">
           <button class="prep-check ${l.done?'on':''}" data-tick="${escapeHtml(l.id)}" data-done="${l.done?'1':'0'}" aria-label="${l.done?'Mark not done':'Mark done'}">&#10003;</button>
-          <div class="prep-body">
+          ${hasR ? `<button class="prep-body linkable" data-open-recipe="${escapeHtml(l.recipe)}" aria-label="Open ${escapeHtml(l.text)} recipe">
+            <span class="prep-text">${escapeHtml(l.text)}</span>
+            ${l.done ? `<span class="prep-meta">Completed by ${escapeHtml(l.doneBy||'someone')}${l.doneAt?' &middot; '+timeAgo(l.doneAt):''}</span>` : ''}
+          </button><span class="chev prep-chev">&rsaquo;</span>`
+          : `<div class="prep-body">
             <div class="prep-text">${escapeHtml(l.text)}</div>
             ${l.done ? `<div class="prep-meta">Completed by ${escapeHtml(l.doneBy||'someone')}${l.doneAt?' &middot; '+timeAgo(l.doneAt):''}</div>` : ''}
-          </div>
-          ${l.recipe && findRecipe(l.recipe) ? `<button class="prep-recipe" data-open-recipe="${escapeHtml(l.recipe)}" aria-label="Open recipe">Recipe</button>` : ''}
+          </div>`}
         </div>`;
     });
     body = out;
@@ -1537,7 +1655,13 @@ function renderPrepBuild(){
   `;
 }
 
+const PENCIL = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
+const PLUS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>';
+const TICK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+
 function renderPrepItems(){
+  const onList = {};
+  (state.published ? state.published.lines : []).forEach(l => { onList[l.id] = true; });
   const standalone = state.prepItems.slice().sort((a,b)=>String(a.name).localeCompare(String(b.name),'en',{sensitivity:'base'}));
   const fromRecipes = state.recipes.filter(r => r.active);
 
@@ -1545,22 +1669,27 @@ function renderPrepItems(){
     <div class="ing-row">
       <input class="ing-item" data-pitem="${escapeHtml(i.id)}" value="${escapeHtml(i.name)}">
       <input class="ing-unit pitem-sec" data-pitem-sec="${escapeHtml(i.id)}" value="${escapeHtml(i.section||'')}" placeholder="Section">
+      <button class="icon-btn add ${onList[i.id]?'on':''}" data-add-line="${escapeHtml(i.id)}" data-name="${escapeHtml(i.name)}" data-sec="${escapeHtml(i.section||'Other')}" data-recipe="" aria-label="${onList[i.id]?'Already on the list':'Add to the prep list'}">${onList[i.id]?TICK:PLUS}</button>
       <button class="del-x" data-pitem-del="${escapeHtml(i.id)}" aria-label="Remove">&times;</button>
     </div>`).join('') : '<div class="empty">No standalone items.<br>Things like "break down chicken" that aren\'t recipes.</div>';
 
-  const rRows = fromRecipes.length ? fromRecipes.map(r => `
+  const rRows = fromRecipes.length ? fromRecipes.map(r => {
+    const pid = 'r:' + r.id;
+    const on = !!onList[pid];
+    return `
     <div class="prep-item">
       <div class="prep-body">
         <div class="prep-text">${escapeHtml(r.name)}</div>
         <div class="prep-meta">${escapeHtml(r.section||'Unsorted')}</div>
       </div>
-      <button class="prep-recipe" data-goto="recipeEdit" data-rid="${escapeHtml(r.id)}">Rename</button>
-    </div>`).join('') : '<div class="empty">No active recipes.</div>';
+      <button class="icon-btn" data-goto="recipeEdit" data-rid="${escapeHtml(r.id)}" aria-label="Edit ${escapeHtml(r.name)}" title="Edit label">${PENCIL}</button>
+      <button class="icon-btn add ${on?'on':''}" data-add-line="${escapeHtml(pid)}" data-name="${escapeHtml(r.name)}" data-sec="${escapeHtml(r.section||'Other')}" data-recipe="${escapeHtml(r.id)}" aria-label="${on?'Already on the list':'Add to the prep list'}" title="${on?'Already on the list':'Add to the prep list'}">${on?TICK:PLUS}</button>
+    </div>`; }).join('') : '<div class="empty">No active recipes.</div>';
 
   return `
     <div class="crumb"><button data-goto="prep">&larr; Prep</button></div>
     <h2 class="screen-title">Prep items</h2>
-    <p class="screen-sub">This is what staff can pick from. Every active recipe is here automatically.</p>
+    <p class="screen-sub">This is what staff can pick from. Every active recipe is here automatically. Tap + to put something straight on today's list.</p>
 
     <div class="section-label">Your own items</div>
     <div class="card tight"><div id="pitem-list">${sRows}</div></div>
@@ -1591,10 +1720,7 @@ function renderRecipes(){
   const q = state.recipeSearch.trim().toLowerCase();
   let list = state.recipes;
   if(q){
-    list = list.filter(r =>
-      String(r.name).toLowerCase().indexOf(q) > -1 ||
-      (r.ingredients||[]).some(i => String(i.item).toLowerCase().indexOf(q) > -1)
-    );
+    list = list.filter(r => String(r.name).toLowerCase().indexOf(q) > -1);
   } else if(state.recipeFilter){
     list = list.filter(r => (r.section || 'Unsorted') === state.recipeFilter);
   }
@@ -1622,7 +1748,7 @@ function renderRecipes(){
         <div class="recipe-row" data-open-recipe="${escapeHtml(r.id)}">
           <div class="recipe-row-main">
             <div class="recipe-row-name ${r.active?'':'is-off'}">${escapeHtml(r.name)}${r.active?'':' <span class="off-tag">Hidden</span>'}</div>
-            <div class="recipe-row-sub">${escapeHtml(r.batch || '')}${r.batch && (r.allergens||[]).length ? ' &middot; ' : ''}${escapeHtml((r.allergens||[]).join(', '))}</div>
+            ${(r.allergens||[]).length ? `<div class="recipe-row-sub">${escapeHtml(r.allergens.join(', '))}</div>` : ''}
           </div>
           <div class="chev">&rsaquo;</div>
         </div>`;
@@ -1661,7 +1787,7 @@ function renderRecipe(id){
     const cell = sub && sub.id !== r.id
       ? `<button class="ri-link" data-open-recipe="${escapeHtml(sub.id)}">${escapeHtml(i.item)}<span class="ri-arrow">&rsaquo;</span></button>`
       : escapeHtml(i.item);
-    return `<tr><td class="ri-amt">${escapeHtml(f.amount)}</td><td class="ri-unit">${escapeHtml(f.unit)}</td><td class="ri-item">${cell}</td></tr>`;
+    return `<tr><td class="ri-amt">${escapeHtml(f.amount)}<span class="ri-unit">${escapeHtml(f.unit)}</span></td><td class="ri-item">${cell}</td></tr>`;
   }).join('');
 
   const subs = subRecipesOf(r);
@@ -1676,38 +1802,41 @@ function renderRecipe(id){
   const steps = (r.method||[]).map((s,i) =>
     `<li><span class="rm-n">${i+1}</span><span class="rm-t">${escapeHtml(s)}</span></li>`).join('');
 
+  const allerg = (r.allergens||[]).length
+    ? `<div class="pill-row">${r.allergens.map(a => `<span class="pill warn">${escapeHtml(a)}</span>`).join('')}</div>` : '';
+
   return `
     <div class="crumb"><button data-goto="recipes">&larr; Recipes</button></div>
+
     <div class="recipe-head">
-      <h2 class="recipe-title">${escapeHtml(r.name)}</h2>
-      <div class="recipe-meta">
-        <div><span class="rm-label">Section</span><span>${escapeHtml(r.section || 'Unsorted')}</span></div>
-        <div><span class="rm-label">Batch size</span><span>${escapeHtml(r.batch || '—')}</span></div>
-        <div><span class="rm-label">Allergens</span><span>${(r.allergens||[]).length ? escapeHtml(r.allergens.join(', ')) : 'None'}</span></div>
+      <div class="recipe-top">
+        <div class="recipe-eyebrow">${escapeHtml(r.section || 'Unsorted')}</div>
+        <label class="switch" title="${r.active ? 'Staff can see this' : 'Hidden from staff'}">
+          <input type="checkbox" data-recipe-toggle="${escapeHtml(r.id)}" ${r.active?'checked':''}>
+          <span class="switch-track"><span class="switch-knob"></span></span>
+          <span class="switch-label">Staff</span>
+        </label>
       </div>
-      ${r.active ? '' : '<div class="hidden-note">Hidden — staff won\'t see this recipe.</div>'}
+      <h2 class="recipe-title">${escapeHtml(r.name)}</h2>
+      ${allerg}
       ${subNote}
     </div>
 
     <div class="section-label">Ingredients</div>
     <div class="card tight">
-      ${ing ? `<table class="ri-table"><thead><tr><th>Amount</th><th>Measure</th><th>Description</th></tr></thead><tbody>${ing}</tbody></table>` : '<div class="empty">No ingredients listed.</div>'}
+      ${ing ? `<table class="ri-table"><tbody>${ing}</tbody></table>` : '<div class="empty">No ingredients listed.</div>'}
     </div>
 
-    <div class="section-label">Cooking method</div>
+    <div class="section-label">Method</div>
     <div class="card">
       ${steps ? `<ol class="rm-list">${steps}</ol>` : '<div class="empty">No method listed.</div>'}
     </div>
 
-    <div class="section-label">Handy hints</div>
-    <div class="card"><div class="rn-text">${r.notes ? escapeHtml(r.notes) : 'None'}</div></div>
+    ${r.notes ? `<div class="section-label">Handy hints</div><div class="card"><div class="rn-text">${escapeHtml(r.notes)}</div></div>` : ''}
 
     ${usedNote}
 
-    <div class="oi-actions">
-      <button class="btn btn-ghost" data-recipe-toggle="${escapeHtml(r.id)}">${r.active ? 'Hide from staff' : 'Show to staff'}</button>
-      <button class="btn" data-goto="recipeEdit" data-rid="${escapeHtml(r.id)}">Edit</button>
-    </div>
+    <div class="add-row"><button class="btn" data-goto="recipeEdit" data-rid="${escapeHtml(r.id)}">Edit recipe</button></div>
     <div class="sync-line">${r.updated ? 'Updated '+escapeHtml(r.updated) : ''}</div>
   `;
 }
@@ -1715,7 +1844,7 @@ function renderRecipe(id){
 function renderRecipeEdit(id){
   const isNew = id === 'new';
   const r = isNew
-    ? Object.assign({ id:'', name:'', section: state.recipeSections[0] || '', active:true, batch:'', ingredients:[], method:[], notes:'', allergens:[] }, state.recipeDraft || {})
+    ? Object.assign({ id:'', name:'', section: state.recipeSections[0] || '', active:true, ingredients:[], method:[], notes:'', allergens:[] }, state.recipeDraft || {})
     : findRecipe(id);
   if(!r) return `<div class="empty">Recipe not found.</div>`;
 
@@ -1743,8 +1872,6 @@ function renderRecipeEdit(id){
       <div style="font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;">${isNew?'New Recipe':'Edit Recipe'}</div>
       <label>Recipe name</label>
       <input id="r-name" value="${escapeHtml(r.name)}" placeholder="e.g. Confit Garlic Cream">
-      <label>Batch size</label>
-      <input id="r-batch" value="${escapeHtml(r.batch||'')}" placeholder="e.g. 3 kg">
       <label>Section</label>
       <input type="hidden" id="r-section" value="${escapeHtml(r.section||'')}">
       <div class="chip-row">
@@ -1769,8 +1896,12 @@ function renderRecipeEdit(id){
     <div class="add-row"><button class="btn btn-ghost" id="step-add">+ Add step</button></div>
 
     <div class="form-card">
-      <label>Handy hints</label>
-      <textarea id="r-notes" rows="3" placeholder="Anything worth knowing">${escapeHtml(r.notes||'')}</textarea>
+      <label class="switch inline" title="Show a handy hints note on this recipe">
+        <input type="checkbox" id="r-notes-on" ${r.notes?'checked':''}>
+        <span class="switch-track"><span class="switch-knob"></span></span>
+        <span class="switch-label">Handy hints</span>
+      </label>
+      <textarea id="r-notes" rows="3" placeholder="Anything worth knowing" ${r.notes?'':'hidden'}>${escapeHtml(r.notes||'')}</textarea>
     </div>
 
     <div class="oi-actions">
@@ -2722,6 +2853,14 @@ function attachHandlers(){
 
 
 
+  document.querySelectorAll('[data-group]').forEach(b => {
+    b.addEventListener('click', ()=>{
+      const k = b.dataset.group;
+      state.homeOpen = state.homeOpen === k ? null : k;
+      render();
+    });
+  });
+
   // ---- Prep ----
   document.querySelectorAll('[data-tick]').forEach(b => {
     b.addEventListener('click', ()=> tickPrepLine(b.dataset.tick, b.dataset.done !== '1'));
@@ -2829,6 +2968,32 @@ function attachHandlers(){
     });
   }
 
+  document.querySelectorAll('[data-add-line]').forEach(b => {
+    b.addEventListener('click', async ()=>{
+      const id = b.dataset.addLine;
+      const already = (state.published ? state.published.lines : []).some(l => l.id === id);
+      if(already){ showToast('Already on the list'); return; }
+      savePrepItemEdits();
+      const line = { id: id, text: b.dataset.name, section: b.dataset.sec || 'Other', recipe: b.dataset.recipe || '' };
+      if(!line.text){ showToast('Give it a name first'); return; }
+      b.disabled = true;
+      const lines = (state.published ? state.published.lines.slice() : []).concat([line]);
+      try{
+        const res = await fetch(API + '/api/prep/published', {
+          method:'POST', headers: chefHeaders({'Content-Type':'application/json'}),
+          body: JSON.stringify({ lines: lines })
+        });
+        if(!res.ok) throw new Error();
+        state.published = { lines: lines, publishedAt: state.published ? state.published.publishedAt : Date.now() };
+        render();
+        showToast(line.text + ' added to the list');
+      }catch(e){
+        b.disabled = false;
+        showToast('No connection. Not added.');
+      }
+    });
+  });
+
   // ---- Prep items ----
   const pitemAdd = document.getElementById('pitem-add');
   if(pitemAdd){
@@ -2879,8 +3044,18 @@ function attachHandlers(){
     b.addEventListener('click', ()=>{ state.recipeFilter = b.dataset.rfilter || null; render(); });
   });
 
+  const notesOn = document.getElementById('r-notes-on');
+  if(notesOn){
+    notesOn.addEventListener('change', ()=>{
+      const ta = document.getElementById('r-notes');
+      if(!ta) return;
+      ta.hidden = !notesOn.checked;
+      if(notesOn.checked) ta.focus(); else ta.value = '';
+    });
+  }
+
   document.querySelectorAll('[data-recipe-toggle]').forEach(b => {
-    b.addEventListener('click', ()=>{
+    b.addEventListener('change', ()=>{
       const r = findRecipe(b.dataset.recipeToggle);
       if(!r) return;
       r.active = !r.active;
@@ -2930,11 +3105,11 @@ function attachHandlers(){
     });
     const allerg = (document.getElementById('r-allergens').value||'')
       .split(',').map(s=>s.trim()).filter(Boolean);
+    const notesOn = document.getElementById('r-notes-on');
     return {
       name: (document.getElementById('r-name').value||'').trim(),
-      batch: (document.getElementById('r-batch').value||'').trim(),
       section: (document.getElementById('r-section').value||'').trim(),
-      notes: (document.getElementById('r-notes').value||'').trim(),
+      notes: (notesOn && !notesOn.checked) ? '' : (document.getElementById('r-notes').value||'').trim(),
       allergens: allerg,
       ingredients: ings,
       method: steps
