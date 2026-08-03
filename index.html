@@ -539,6 +539,7 @@ let state = {
   catalogueSynced: null,
   invoiceSync: null,
   homeOpen: null,
+  codeDrafts: {},
   devices: [], codes: [], authEnforced: false, authLoaded: false,
   recipes: [], recipeSections: [], recipeSync: null, recipesLoaded: false,
   recipeSearch: '', recipeFilter: null,
@@ -921,13 +922,32 @@ async function fetchDevices(){
     state.codes = Array.isArray(d.codes) ? d.codes : [];
     state.authEnforced = !!d.enforced;
     state.authLoaded = true;
-    if(state.view.name === 'access') render();
+    // don't redraw over someone typing a code
+    const typing = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.codefor;
+    if(state.view.name === 'access' && !typing){ stashCodeDrafts(); render(); }
   }catch(e){}
 }
 
-function suggestCode(name){
-  const base = String(name||'').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,6) || 'STAFF';
-  return base + String(Math.floor(Math.random()*90)+10);
+/* Generated once per person and kept in state. The earlier version made a new
+   one on every render, so a code you had already read out changed under you the
+   next time the app polled the server. */
+function suggestCode(staffId, name){
+  if(!state.codeDrafts) state.codeDrafts = {};
+  if(!state.codeDrafts[staffId]){
+    const base = String(name||'').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,6) || 'STAFF';
+    state.codeDrafts[staffId] = base + String(Math.floor(Math.random()*90)+10);
+  }
+  return state.codeDrafts[staffId];
+}
+
+/* Keeps whatever is typed in the code boxes, so a background refresh mid-typing
+   doesn't wipe it. */
+function stashCodeDrafts(){
+  if(!state.codeDrafts) state.codeDrafts = {};
+  document.querySelectorAll('[data-codefor]').forEach(inp => {
+    const v = (inp.value||'').trim();
+    if(v) state.codeDrafts[inp.dataset.codefor] = v;
+  });
 }
 
 async function issueCode(staffId, name, code){
@@ -940,6 +960,7 @@ async function issueCode(staffId, name, code){
     if(res.status === 400){ showToast('Code needs at least 4 letters or numbers'); return null; }
     if(!res.ok) throw new Error();
     const d = await res.json();
+    if(state.codeDrafts) delete state.codeDrafts[staffId];
     await fetchDevices();
     render();
     return d.code;
@@ -1645,7 +1666,7 @@ function renderAccess(){
       action = `<button class="btn btn-ghost small" data-recode="${escapeHtml(s.id)}" data-name="${escapeHtml(s.name)}">Change</button>`;
     } else {
       status = `<div class="acc-status">No access</div>
-        <input class="code-input-small" data-codefor="${escapeHtml(s.id)}" value="${escapeHtml(suggestCode(s.name))}" autocapitalize="characters" autocomplete="off" spellcheck="false" aria-label="Code for ${escapeHtml(s.name)}">`;
+        <input class="code-input-small" data-codefor="${escapeHtml(s.id)}" value="${escapeHtml(suggestCode(s.id, s.name))}" autocapitalize="characters" autocomplete="off" spellcheck="false" aria-label="Code for ${escapeHtml(s.name)}">`;
       action = `<button class="btn small" data-issue="${escapeHtml(s.id)}" data-name="${escapeHtml(s.name)}">Set code</button>`;
     }
     return `
@@ -3018,8 +3039,16 @@ function attachHandlers(){
     });
   });
 
+  document.querySelectorAll('[data-codefor]').forEach(inp => {
+    inp.addEventListener('input', ()=>{
+      inp.value = inp.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,12);
+      state.codeDrafts[inp.dataset.codefor] = inp.value;
+    });
+  });
+
   document.querySelectorAll('[data-issue]').forEach(b => {
     b.addEventListener('click', async ()=>{
+      stashCodeDrafts();
       const field = document.querySelector('[data-codefor="'+b.dataset.issue+'"]');
       const wanted = field ? (field.value||'').trim() : '';
       b.disabled = true; b.textContent = 'Saving…';
