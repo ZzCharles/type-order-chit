@@ -355,6 +355,18 @@ a.btn-block{display:block;}
 .sub-card:active{background:rgba(38,35,25,.04);}
 .sub-name{font-size:15.5px;font-weight:700;}
 .sub-hint{font-size:12px;color:var(--muted);margin-top:2px;}
+.acc-row{display:flex;align-items:center;gap:12px;padding:14px 2px;border-bottom:1px solid #F5F3EA;}
+.acc-row:last-child{border-bottom:none;}
+.acc-main{flex:1;min-width:0;}
+.acc-name{font-size:15.5px;font-weight:700;}
+.acc-status{font-size:11.5px;color:var(--muted);margin-top:3px;}
+.acc-status.in{color:#5C7A3F;font-weight:700;}
+.acc-status.waiting{color:var(--mustard);font-weight:700;}
+.btn.small{width:auto;flex:0 0 auto;padding:9px 15px;font-size:10px;}
+.code-box{font-size:22px;font-weight:800;letter-spacing:3px;color:var(--stamp);margin:6px 0 2px;}
+.code-input-small{width:100%;max-width:170px;margin-top:6px;font-family:inherit;font-size:15px;font-weight:700;letter-spacing:1.5px;
+  padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);text-transform:uppercase;}
+.code-input-small:focus{outline:none;border-color:var(--ink);}
 .pub-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin:2px 2px 10px;}
 .pub-head span:first-child{font-size:19px;font-weight:800;letter-spacing:-0.3px;}
 .pub-meta{font-size:11.5px;color:var(--muted);white-space:nowrap;}
@@ -527,6 +539,7 @@ let state = {
   catalogueSynced: null,
   invoiceSync: null,
   homeOpen: null,
+  devices: [], codes: [], authEnforced: false, authLoaded: false,
   recipes: [], recipeSections: [], recipeSync: null, recipesLoaded: false,
   recipeSearch: '', recipeFilter: null,
   prepItems: [],            // standalone prep items, not backed by a recipe
@@ -896,6 +909,58 @@ function clearImportedHints(){
   try{ localStorage.setItem(HINTS_CLEARED_KEY, '1'); }catch(e){}
   if(n){ saveRecipes(); }
 }
+
+/* ===== Staff access ===== */
+async function fetchDevices(){
+  if(!getChefKey()) return;
+  try{
+    const res = await fetch(API + '/api/auth/devices', {cache:'no-store', headers: chefHeaders()});
+    if(!res.ok) throw new Error();
+    const d = await res.json();
+    state.devices = Array.isArray(d.devices) ? d.devices : [];
+    state.codes = Array.isArray(d.codes) ? d.codes : [];
+    state.authEnforced = !!d.enforced;
+    state.authLoaded = true;
+    if(state.view.name === 'access') render();
+  }catch(e){}
+}
+
+function suggestCode(name){
+  const base = String(name||'').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,6) || 'STAFF';
+  return base + String(Math.floor(Math.random()*90)+10);
+}
+
+async function issueCode(staffId, name, code){
+  try{
+    const res = await fetch(API + '/api/auth/code', {
+      method:'POST', headers: chefHeaders({'Content-Type':'application/json'}),
+      body: JSON.stringify({ staffId: staffId, name: name, code: code || undefined })
+    });
+    if(res.status === 409){ showToast('That code is already used by someone else'); return null; }
+    if(res.status === 400){ showToast('Code needs at least 4 letters or numbers'); return null; }
+    if(!res.ok) throw new Error();
+    const d = await res.json();
+    await fetchDevices();
+    render();
+    return d.code;
+  }catch(e){ showToast('No connection. No code made.'); return null; }
+}
+
+async function revokeAccess(payload, label){
+  try{
+    const res = await fetch(API + '/api/auth/revoke', {
+      method:'POST', headers: chefHeaders({'Content-Type':'application/json'}),
+      body: JSON.stringify(payload)
+    });
+    if(!res.ok) throw new Error();
+    await fetchDevices();
+    render();
+    showToast(label + ' signed out');
+  }catch(e){ showToast('No connection. Nothing changed.'); }
+}
+
+function deviceFor(staffId){ return state.devices.filter(d => d.staffId === staffId); }
+function codeFor(staffId){ return state.codes.find(c => c.staffId === staffId); }
 
 function findRecipe(id){ return state.recipes.find(r => r.id === id); }
 
@@ -1398,6 +1463,7 @@ function render(){
   else if(v.name === "invoices") html += renderInvoices();
   else if(v.name === "notifications") html += renderNotifications();
   else if(v.name === "prep") html += renderPrep();
+  else if(v.name === "access") html += renderAccess();
   else if(v.name === "prepBuild") html += renderPrepBuild();
   else if(v.name === "prepItems") html += renderPrepItems();
   else if(v.name === "recipes") html += renderRecipes();
@@ -1434,7 +1500,8 @@ function renderHome(){
     ]},
     { key:'rostering', title:'Rostering', sub:'Roster &amp; timesheet', alert:false, items:[
       { go:'roster',    name:'Roster',    hint:'Staff availability and shifts' },
-      { go:'timesheet', name:'Timesheet', hint:'Your hours for accounts' }
+      { go:'timesheet', name:'Timesheet', hint:'Your hours for accounts' },
+      { go:'access',    name:'Staff Access', hint:accessHint() }
     ]},
     { key:'prep', title:'Prep', sub:'Prep list &amp; recipes', alert:!!state.prepSubs.length, items:[
       { go:'prep',    name:'Prep List', hint:prepTileSub() },
@@ -1467,6 +1534,12 @@ function renderHome(){
   }).join('');
 
   return `<div class="home-tabs">${waiting}${body}</div>`;
+}
+
+function accessHint(){
+  if(!state.authLoaded) return 'Codes and sign-outs';
+  const n = state.devices.length;
+  return n ? n+' signed in' : 'Nobody signed in yet';
 }
 
 function invoiceHint(){
@@ -1543,6 +1616,70 @@ function invoiceDate(e){
   if(!e.timestamp) return '';
   const d = new Date(e.timestamp);
   return isNaN(d) ? '' : d.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'});
+}
+
+function renderAccess(){
+  if(!getChefKey()){
+    return `
+      <div class="crumb"><button data-goto="home">&larr; Home</button> / Staff Access</div>
+      <div class="form-card">
+        <div style="font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;">Chef key</div>
+        <p class="key-blurb">Handing out and revoking access needs your chef key.</p>
+        <label>Key</label>
+        <input id="chef-key-input" type="password" placeholder="Type your chef key" autocomplete="off">
+        <div class="form-actions"><button class="btn" id="chef-key-save">Unlock</button></div>
+      </div>`;
+  }
+
+  const rows = state.staff.map(s => {
+    const devs = deviceFor(s.id);
+    const code = codeFor(s.id);
+    const showing = state.showCode === s.id && code;
+    let status, action;
+    if(devs.length){
+      status = `<div class="acc-status in">Signed in${devs.length>1?' on '+devs.length+' devices':''}${devs[0].device?' &middot; '+escapeHtml(devs[0].device):''}</div>`;
+      action = `<button class="btn btn-ghost small" data-revoke="${escapeHtml(s.id)}" data-name="${escapeHtml(s.name)}">Sign out</button>`;
+    } else if(code){
+      status = `<div class="code-box">${escapeHtml(code.code)}</div>
+        <div class="acc-status waiting">Not used yet${code.custom?'':' &middot; expires 24h after it was made'}</div>`;
+      action = `<button class="btn btn-ghost small" data-recode="${escapeHtml(s.id)}" data-name="${escapeHtml(s.name)}">Change</button>`;
+    } else {
+      status = `<div class="acc-status">No access</div>
+        <input class="code-input-small" data-codefor="${escapeHtml(s.id)}" value="${escapeHtml(suggestCode(s.name))}" autocapitalize="characters" autocomplete="off" spellcheck="false" aria-label="Code for ${escapeHtml(s.name)}">`;
+      action = `<button class="btn small" data-issue="${escapeHtml(s.id)}" data-name="${escapeHtml(s.name)}">Set code</button>`;
+    }
+    return `
+      <div class="acc-row">
+        <div class="acc-main">
+          <div class="acc-name">${escapeHtml(s.name)}</div>
+          ${status}
+        </div>
+        ${action}
+      </div>`;
+  }).join('');
+
+  const orphan = state.devices.filter(d => !state.staff.some(s => s.id === d.staffId));
+  const orphanRows = orphan.length ? `
+    <div class="section-label">Other devices</div>
+    <div class="card tight">${orphan.map(d => `
+      <div class="acc-row">
+        <div class="acc-main">
+          <div class="acc-name">${escapeHtml(d.name)}</div>
+          <div class="acc-status in">${escapeHtml(d.device||'Unknown device')}</div>
+        </div>
+        <button class="btn btn-ghost small" data-revoke-token="${escapeHtml(d.token)}" data-name="${escapeHtml(d.name)}">Sign out</button>
+      </div>`).join('')}</div>` : '';
+
+  return `
+    <div class="crumb"><button data-goto="home">&larr; Home</button> / Staff Access</div>
+    <h2 class="screen-title">Staff access</h2>
+    <p class="screen-sub">Set each person a code they'll remember, then tell them what it is. They type it once on their phone. Sign them out and that phone stops working straight away.</p>
+    ${state.authEnforced
+      ? `<div class="sync-line">Sign-in is required. Anyone without a code can't use the app.</div>`
+      : `<div class="sync-line sync-bad">Sign-in is not enforced yet. Set REQUIRE_STAFF_AUTH to 1 in Cloudflare once everyone has a code.</div>`}
+    <div class="card tight">${rows}</div>
+    ${orphanRows}
+  `;
 }
 
 /* ===== Prep screens (chef) ===== */
@@ -2881,6 +3018,36 @@ function attachHandlers(){
     });
   });
 
+  document.querySelectorAll('[data-issue]').forEach(b => {
+    b.addEventListener('click', async ()=>{
+      const field = document.querySelector('[data-codefor="'+b.dataset.issue+'"]');
+      const wanted = field ? (field.value||'').trim() : '';
+      b.disabled = true; b.textContent = 'Saving…';
+      const code = await issueCode(b.dataset.issue, b.dataset.name, wanted);
+      if(!code){ b.disabled = false; b.textContent = 'Set code'; }
+    });
+  });
+  document.querySelectorAll('[data-recode]').forEach(b => {
+    b.addEventListener('click', async ()=>{
+      const now = codeFor(b.dataset.recode);
+      const next = (prompt('New code for '+b.dataset.name, now ? now.code : '') || '').trim();
+      if(!next) return;
+      await issueCode(b.dataset.recode, b.dataset.name, next);
+    });
+  });
+  document.querySelectorAll('[data-revoke]').forEach(b => {
+    b.addEventListener('click', ()=>{
+      if(!confirm('Sign '+b.dataset.name+' out? Their phone stops working straight away.')) return;
+      revokeAccess({ staffId: b.dataset.revoke }, b.dataset.name);
+    });
+  });
+  document.querySelectorAll('[data-revoke-token]').forEach(b => {
+    b.addEventListener('click', ()=>{
+      if(!confirm('Sign this device out?')) return;
+      revokeAccess({ token: b.dataset.revokeToken }, b.dataset.name);
+    });
+  });
+
   // ---- Prep ----
   document.querySelectorAll('[data-tick]').forEach(b => {
     b.addEventListener('click', ()=> tickPrepLine(b.dataset.tick, b.dataset.done !== '1'));
@@ -3331,7 +3498,7 @@ async function clearOrder(id, silent){
 
 
 
-function refreshFromServer(){ fetchOrders(); publishCatalogue(false); fetchInvoices(); fetchRecipes(); refreshPrep(); pushPrepCatalogue(); }
+function refreshFromServer(){ fetchDevices(); fetchOrders(); publishCatalogue(false); fetchInvoices(); fetchRecipes(); refreshPrep(); pushPrepCatalogue(); }
 
 try{ history.replaceState({view:{name:'home'}}, ''); }catch(e){}
 window.addEventListener('popstate', (e)=>{
