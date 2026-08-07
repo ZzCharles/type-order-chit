@@ -355,6 +355,30 @@ a.btn-block{display:block;}
 .sub-card:active{background:rgba(38,35,25,.04);}
 .sub-name{font-size:15.5px;font-weight:700;}
 .sub-hint{font-size:12px;color:var(--muted);margin-top:2px;}
+.fn-row{display:flex;align-items:center;gap:13px;padding:13px 2px;border-bottom:1px solid #F5F3EA;cursor:pointer;}
+.fn-row:last-child{border-bottom:none;}
+.fn-row:active{background:#FBFAF4;}
+.fn-date{flex:0 0 auto;width:52px;text-align:center;background:#EDEBDF;border-radius:11px;padding:7px 4px;}
+.fn-dow{font-size:10px;font-weight:800;letter-spacing:0.8px;text-transform:uppercase;color:var(--stamp);}
+.fn-day{font-size:13px;font-weight:800;margin-top:1px;}
+.fn-main{flex:1;min-width:0;}
+.fn-name{font-size:15.5px;font-weight:700;}
+.fn-sub{font-size:11.5px;color:var(--muted);margin-top:2px;}
+.fn-item{display:flex;gap:11px;align-items:baseline;padding:10px 0;border-bottom:1px solid #F5F3EA;}
+.fn-item:last-child{border-bottom:none;}
+.fn-qty{flex:0 0 auto;min-width:34px;font-size:15px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--stamp);}
+.fn-label{flex:1;font-size:15px;font-weight:600;line-height:1.35;}
+.fn-time{font-weight:800;color:var(--stamp);letter-spacing:0;text-transform:none;font-size:11px;}
+.fnc-head{display:flex;gap:8px;align-items:center;margin-bottom:8px;}
+.fnc-name{flex:1;font-family:inherit;font-size:15px;font-weight:700;padding:9px 10px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);min-width:0;}
+.fnc-time{width:92px;font-family:inherit;font-size:14px;padding:9px 10px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);}
+.fni-row{display:flex;gap:6px;align-items:center;padding:7px 0;border-bottom:1px solid #F5F3EA;}
+.fni-row:last-of-type{border-bottom:none;}
+.fni-row input,.fni-row select{font-family:inherit;font-size:14px;padding:8px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);min-width:0;}
+.fni-label{flex:1;}
+.fni-course{width:86px;font-size:13px!important;}
+.fni-kind{width:88px;font-size:12.5px!important;}
+.fni-num{width:52px;text-align:center;font-weight:700;}
 .acc-row{display:flex;align-items:center;gap:12px;padding:14px 2px;border-bottom:1px solid #F5F3EA;}
 .acc-row:last-child{border-bottom:none;}
 .acc-main{flex:1;min-width:0;}
@@ -412,7 +436,11 @@ a.btn-block{display:block;}
 .pick-row.on .pick-box{background:var(--ink);border-color:var(--ink);color:#fff;}
 .pick-row.on .pick-name{font-weight:700;}
 .pick-name{flex:1;font-size:15px;font-weight:600;min-width:0;}
-.pitem-sec{width:96px!important;text-align:left!important;font-size:12.5px!important;color:var(--muted);}
+.pitem-row{padding:8px 0;border-bottom:1px solid #F5F3EA;}
+.pitem-row:last-child{border-bottom:none;}
+.pitem-row .ing-row{border-bottom:none;padding:0;}
+.chip-row.tight-chips{margin-top:7px;gap:5px;}
+.chip-row.tight-chips .chip{padding:5px 10px;font-size:11px;}
 .sticky-foot{position:sticky;bottom:0;padding:12px 0 4px;background:linear-gradient(to bottom, rgba(241,239,230,0) 0%, var(--paper) 34%);}
 
 .ing-head{display:flex;gap:6px;padding:12px 0 6px;border-bottom:1px solid var(--line);font-size:10px;font-weight:800;letter-spacing:1.1px;text-transform:uppercase;color:var(--muted);}
@@ -533,6 +561,9 @@ function categoryChipsHTML(selected){
     <div class="chip-row">${chips}<button type="button" class="chip cat-chip cat-new" data-cat-new="1">+ New section</button></div>
   `;
 }
+/* Single place the version lives. Update this and the header follows. */
+const APP_VERSION = 'v3.1';
+
 let state = {
   suppliers: [], staff: [], roster: {}, timesheet: {}, invoices: {},
   orders: [],
@@ -540,6 +571,7 @@ let state = {
   invoiceSync: null,
   homeOpen: null,
   codeDrafts: {},
+  functions: [], tiers: [], fnLoaded: false, fnDraft: null,
   devices: [], codes: [], authEnforced: false, authLoaded: false,
   recipes: [], recipeSections: [], recipeSync: null, recipesLoaded: false,
   recipeSearch: '', recipeFilter: null,
@@ -887,14 +919,39 @@ async function publishPrep(lines){
   }
 }
 
+/* Sections are picked, not typed, so "Sauces" and "sauces" can't both exist. */
+function sameSection(a, b){
+  return String(a||'').trim().toLowerCase() === String(b||'').trim().toLowerCase();
+}
+function prepSectionChoices(){
+  const out = [];
+  const add = s => {
+    const v = String(s||'').trim();
+    if(v && !out.some(x => sameSection(x, v))) out.push(v);
+  };
+  state.recipeSections.forEach(add);
+  state.recipes.forEach(r => add(r.section));
+  state.prepItems.forEach(i => add(i.section));
+  return out;
+}
+
+/* Folds any near-duplicate sections created before this onto the canonical
+   spelling, so the old ones disappear on their own. */
+function mergePrepSections(){
+  const canon = prepSectionChoices();
+  let changed = false;
+  state.prepItems.forEach(i => {
+    if(!i.section) return;
+    const hit = canon.find(c => sameSection(c, i.section));
+    if(hit && hit !== i.section){ i.section = hit; changed = true; }
+  });
+  if(changed) savePrepItems();
+}
+
 function savePrepItemEdits(){
   document.querySelectorAll('[data-pitem]').forEach(inp => {
     const it = state.prepItems.find(x => x.id === inp.dataset.pitem);
     if(it) it.name = (inp.value||'').trim();
-  });
-  document.querySelectorAll('[data-pitem-sec]').forEach(inp => {
-    const it = state.prepItems.find(x => x.id === inp.dataset.pitemSec);
-    if(it) it.section = (inp.value||'').trim();
   });
   state.prepItems = state.prepItems.filter(i => i.name);
 }
@@ -982,6 +1039,157 @@ async function revokeAccess(payload, label){
 
 function deviceFor(staffId){ return state.devices.filter(d => d.staffId === staffId); }
 function codeFor(staffId){ return state.codes.find(c => c.staffId === staffId); }
+
+/* ===== Functions =====
+   Quantities are rules, not numbers. "1 per 5" against 52 people gives 11, and
+   changing the head count re-does every line at once. Always rounds up: a
+   kitchen would rather have a spare than be one short. */
+
+const TIER_SEED = [
+  { id:'49', label:'$49', items:[
+    { id:'i49a', label:'Polenta',        kind:'ratio', per:5, course:'Entrée' },
+    { id:'i49b', label:'Salad',          kind:'ratio', per:5, course:'Entrée' },
+    { id:'i49c', label:'Calamari',       kind:'ratio', per:5, course:'Entrée' },
+    { id:'i49d', label:'Unlimited pizza', kind:'text',        course:'Main' }
+  ]},
+  { id:'59', label:'$59', items:[
+    { id:'i59a', label:'Bruschetta',      kind:'ratio', per:4, course:'Starter' },
+    { id:'i59b', label:'Cheese & Garlic', kind:'ratio', per:6, course:'Starter' },
+    { id:'i59c', label:'Polenta',         kind:'ratio', per:5, course:'Entrée' },
+    { id:'i59d', label:'Salad',           kind:'ratio', per:5, course:'Entrée' },
+    { id:'i59e', label:'Calamari',        kind:'ratio', per:5, course:'Entrée' },
+    { id:'i59f', label:'Unlimited pizza', kind:'text',         course:'Main' }
+  ]},
+  { id:'69', label:'$69', items:[
+    { id:'i69a', label:'Bruschetta',      kind:'ratio', per:4, course:'Starter' },
+    { id:'i69b', label:'Cheese & Garlic', kind:'ratio', per:6, course:'Starter' },
+    { id:'i69c', label:'Polenta',         kind:'ratio', per:5, course:'Entrée' },
+    { id:'i69d', label:'Salad',           kind:'ratio', per:5, course:'Entrée' },
+    { id:'i69e', label:'Calamari',        kind:'ratio', per:5, course:'Entrée' },
+    { id:'i69f', label:'Unlimited pizza', kind:'text',         course:'Main' },
+    { id:'i69g', label:'Grand Tiramisu',  kind:'fixed', qty:36, perPax:50, course:'Dessert' }
+  ]}
+];
+
+const COURSE_ORDER = ['Starter','Entrée','Main','Dessert'];
+
+/* Service day, not calendar day: before 5am still counts as last night, so a
+   function doesn't vanish off the screen while you're closing down. */
+function serviceDateKey(){
+  const d = new Date();
+  if(d.getHours() < 5) d.setDate(d.getDate() - 1);
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return d.getFullYear()+'-'+m+'-'+day;
+}
+
+function addDaysKey(days){
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  const m = String(d.getMonth()+1).padStart(2,'0');
+  const day = String(d.getDate()).padStart(2,'0');
+  return d.getFullYear()+'-'+m+'-'+day;
+}
+
+function fnQty(item, pax){
+  if(!item) return '';
+  if(item.kind === 'text') return '';
+  if(item.kind === 'fixed'){
+    if(!item.perPax) return String(item.qty || 0);
+    return String((item.qty || 0) * Math.max(1, Math.ceil((pax||0) / item.perPax)));
+  }
+  const per = Math.max(1, item.per || 1);
+  return String(Math.ceil((pax||0) / per));
+}
+
+function fnDateLabel(key){
+  const d = new Date(key + 'T00:00:00');
+  if(isNaN(d)) return key;
+  return d.toLocaleDateString('en-AU', { weekday:'short', day:'numeric', month:'short' });
+}
+
+function sortCourses(courses){
+  return (courses||[]).slice().sort((a,b)=>{
+    const ia = COURSE_ORDER.indexOf(a.name), ib = COURSE_ORDER.indexOf(b.name);
+    const sa = ia < 0 ? 50 : ia, sb = ib < 0 ? 50 : ib;
+    if(sa !== sb) return sa - sb;
+    return String(a.time||'').localeCompare(String(b.time||''));
+  });
+}
+
+/* Turns a tier template into the course list for a new function. */
+function coursesFromTier(tier){
+  if(!tier) return [];
+  const byCourse = {};
+  (tier.items||[]).forEach(i => {
+    const c = i.course || 'Main';
+    if(!byCourse[c]) byCourse[c] = [];
+    byCourse[c].push(Object.assign({}, i, { id: 'i'+Math.random().toString(36).slice(2,7) }));
+  });
+  const names = Object.keys(byCourse).sort((a,b)=>{
+    const ia = COURSE_ORDER.indexOf(a), ib = COURSE_ORDER.indexOf(b);
+    return (ia<0?50:ia) - (ib<0?50:ib);
+  });
+  return names.map(n => ({ id:'c'+Math.random().toString(36).slice(2,7), name:n, time:'', items:byCourse[n] }));
+}
+
+async function fetchFunctions(){
+  try{
+    const [fr, tr] = await Promise.all([
+      fetch(API + '/api/functions', {cache:'no-store', headers: chefHeaders()}),
+      fetch(API + '/api/tiers', {cache:'no-store', headers: chefHeaders()})
+    ]);
+    if(fr.ok){
+      const d = await fr.json();
+      state.functions = Array.isArray(d.functions) ? d.functions : [];
+    }
+    if(tr.ok){
+      const d = await tr.json();
+      state.tiers = (Array.isArray(d.tiers) && d.tiers.length) ? d.tiers : TIER_SEED.slice();
+      if(!Array.isArray(d.tiers) || !d.tiers.length) pushTiers();
+    }
+    state.fnLoaded = true;
+    pruneFunctions();
+    if(state.view.name && state.view.name.indexOf('fn') === 0) render();
+  }catch(e){
+    if(!state.tiers.length) state.tiers = TIER_SEED.slice();
+  }
+}
+
+/* Anything before the current service day is gone for good, as agreed. */
+function pruneFunctions(){
+  const cutoff = serviceDateKey();
+  const before = state.functions.length;
+  state.functions = state.functions.filter(f => f.date >= cutoff);
+  if(state.functions.length !== before) pushFunctions();
+}
+
+async function pushFunctions(){
+  try{
+    const res = await fetch(API + '/api/functions', {
+      method:'POST', headers: chefHeaders({'Content-Type':'application/json'}),
+      body: JSON.stringify({ functions: state.functions })
+    });
+    return res.ok;
+  }catch(e){ showToast('No connection. Not saved.'); return false; }
+}
+
+async function pushTiers(){
+  try{
+    const res = await fetch(API + '/api/tiers', {
+      method:'POST', headers: chefHeaders({'Content-Type':'application/json'}),
+      body: JSON.stringify({ tiers: state.tiers })
+    });
+    return res.ok;
+  }catch(e){ return false; }
+}
+
+function findFunction(id){ return state.functions.find(f => f.id === id); }
+function upcomingFunctions(days){
+  const from = serviceDateKey(), to = addDaysKey(days);
+  return state.functions.filter(f => f.date >= from && f.date <= to)
+    .sort((a,b)=> a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+}
 
 function findRecipe(id){ return state.recipes.find(r => r.id === id); }
 
@@ -1331,6 +1539,7 @@ function loadData(){
   loadRecipesLocal();
   clearImportedHints();
   loadPrepItems();
+  mergePrepSections();
   render();
 }
 
@@ -1420,6 +1629,7 @@ function animate(fn){
 
 function goto(view){
   if(!(view.name === 'recipeEdit' && view.rid === 'new')) state.recipeDraft = null;
+  if(!(view.name === 'fnEdit' && view.fid === 'new')) state.fnDraft = null;
   state.view = view; try{ history.pushState({view}, ''); }catch(e){} animate(render);
 }
 function findSupplier(id){ return state.suppliers.find(s=>s.id===id); }
@@ -1467,7 +1677,7 @@ function render(){
   const n = state.orders.length;
   const bellBadge = n ? `<span class="bell-badge show">${n>9?'9+':n}</span>` : '';
   const bellBtn = `<button class="bell-btn" data-bell="1" aria-label="${n?n+' orders waiting':'No orders waiting'}">${bellBadge}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></button>`;
-  let html = `<div class="brand"><h1>The Pass</h1><div class="brand-right">${bellBtn}${homeBtn}<span class="tag">v2.3</span></div></div>`;
+  let html = `<div class="brand"><h1>The Pass</h1><div class="brand-right">${bellBtn}${homeBtn}<span class="tag">${APP_VERSION}</span></div></div>`;
   if(v.name === "home") html += renderHome();
   else if(v.name === "list") html += renderList();
   else if(v.name === "supplier") html += renderSupplier(v.id);
@@ -1485,6 +1695,10 @@ function render(){
   else if(v.name === "notifications") html += renderNotifications();
   else if(v.name === "prep") html += renderPrep();
   else if(v.name === "access") html += renderAccess();
+  else if(v.name === "functions") html += renderFunctions();
+  else if(v.name === "fnView") html += renderFunction(v.fid);
+  else if(v.name === "fnEdit") html += renderFunctionEdit(v.fid);
+  else if(v.name === "fnTiers") html += renderTiers();
   else if(v.name === "prepBuild") html += renderPrepBuild();
   else if(v.name === "prepItems") html += renderPrepItems();
   else if(v.name === "recipes") html += renderRecipes();
@@ -1524,6 +1738,10 @@ function renderHome(){
       { go:'timesheet', name:'Timesheet', hint:'Your hours for accounts' },
       { go:'access',    name:'Staff Access', hint:accessHint() }
     ]},
+    { key:'functions', title:'Functions', sub:'Upcoming events', alert:false, items:[
+      { go:'functions', name:'Functions', hint:fnHint() },
+      { go:'fnTiers',   name:'Menu Tiers', hint:'Templates and portion rules' }
+    ]},
     { key:'prep', title:'Prep', sub:'Prep list &amp; recipes', alert:!!state.prepSubs.length, items:[
       { go:'prep',    name:'Prep List', hint:prepTileSub() },
       { go:'recipes', name:'Recipes',   hint:state.recipes.length ? state.recipes.length+' in the book' : 'Import your recipe book' }
@@ -1555,6 +1773,12 @@ function renderHome(){
   }).join('');
 
   return `<div class="home-tabs">${waiting}${body}</div>`;
+}
+
+function fnHint(){
+  const n = upcomingFunctions(31).length;
+  if(!state.fnLoaded) return 'Upcoming bookings';
+  return n ? n+' in the next month' : 'Nothing booked';
 }
 
 function accessHint(){
@@ -1703,6 +1927,195 @@ function renderAccess(){
   `;
 }
 
+/* ===== Function screens (chef) ===== */
+
+function renderFunctions(){
+  const list = upcomingFunctions(31);
+  let body;
+  if(!state.fnLoaded && list.length === 0){
+    body = `<div class="empty">Loading…</div>`;
+  } else if(list.length === 0){
+    body = `<div class="empty">Nothing booked in the next month.</div>`;
+  } else {
+    body = list.map(f => `
+      <div class="fn-row" data-open-fn="${escapeHtml(f.id)}">
+        <div class="fn-date">
+          <div class="fn-dow">${escapeHtml(fnDateLabel(f.date).split(' ')[0])}</div>
+          <div class="fn-day">${escapeHtml(fnDateLabel(f.date).split(' ').slice(1).join(' '))}</div>
+        </div>
+        <div class="fn-main">
+          <div class="fn-name">${escapeHtml(f.name || 'Function')}</div>
+          <div class="fn-sub">${f.pax} pax${f.tier?' &middot; '+escapeHtml(tierLabel(f.tier)):''}${f.startTime?' &middot; '+escapeHtml(f.startTime):''}</div>
+        </div>
+        <div class="chev">&rsaquo;</div>
+      </div>`).join('');
+  }
+  return `
+    <div class="crumb"><button data-goto="home">&larr; Home</button> / Functions</div>
+    <h2 class="screen-title">Functions</h2>
+    <p class="screen-sub">Next month. Staff see the next two weeks.</p>
+    <div class="card tight">${body}</div>
+    <div class="add-row"><button class="btn" data-goto="fnEdit" data-fid="new">+ New Function</button></div>
+    <div class="sync-line"><button data-goto="fnTiers">Menu tiers</button></div>
+  `;
+}
+
+function tierLabel(id){
+  const tr = state.tiers.find(x => x.id === id);
+  return tr ? tr.label : id;
+}
+
+function renderFunction(id){
+  const f = findFunction(id);
+  if(!f) return `<div class="crumb"><button data-goto="functions">&larr; Functions</button></div><div class="empty">Function not found.</div>`;
+
+  const courses = sortCourses(f.courses).map(c => {
+    const items = (c.items||[]).map(i => {
+      const q = fnQty(i, f.pax);
+      return `<div class="fn-item"><span class="fn-qty">${q?escapeHtml(q)+' &times;':'&mdash;'}</span><span class="fn-label">${escapeHtml(i.label)}</span></div>`;
+    }).join('');
+    return `
+      <div class="section-label">${escapeHtml(c.name)}${c.time?` <span class="fn-time">${escapeHtml(c.time)}</span>`:''}</div>
+      <div class="card tight">${items || '<div class="empty">Nothing listed.</div>'}</div>`;
+  }).join('');
+
+  const diet = (f.dietary||[]).length
+    ? `<div class="section-label">Dietary requirements</div><div class="card tight">${f.dietary.map(d=>`<div class="fn-item"><span class="fn-label">${escapeHtml(d)}</span></div>`).join('')}</div>`
+    : '';
+
+  return `
+    <div class="crumb"><button data-goto="functions">&larr; Functions</button></div>
+    <div class="recipe-head">
+      <div class="recipe-eyebrow">${escapeHtml(fnDateLabel(f.date))}</div>
+      <h2 class="recipe-title">${escapeHtml(f.name || 'Function')}</h2>
+      <div class="pill-row">
+        <span class="pill">${f.pax} pax</span>
+        ${f.tier?`<span class="pill">${escapeHtml(tierLabel(f.tier))}</span>`:''}
+        ${f.startTime?`<span class="pill">Starts ${escapeHtml(f.startTime)}</span>`:''}
+      </div>
+    </div>
+    ${diet}
+    ${f.notes?`<div class="section-label">Notes</div><div class="card"><div class="rn-text">${escapeHtml(f.notes)}</div></div>`:''}
+    ${courses}
+    <div class="add-row"><button class="btn" data-goto="fnEdit" data-fid="${escapeHtml(f.id)}">Edit function</button></div>
+  `;
+}
+
+function blankFunction(){
+  return { id:'', date: addDaysKey(7), name:'', pax:0, tier:'', startTime:'', dietary:[], notes:'', courses:[] };
+}
+
+function renderFunctionEdit(id){
+  const isNew = id === 'new';
+  const f = isNew ? Object.assign(blankFunction(), state.fnDraft || {}) : findFunction(id);
+  if(!f) return `<div class="empty">Function not found.</div>`;
+
+  const tierChips = state.tiers.map(tr =>
+    `<button type="button" class="chip cat-chip ${tr.id===f.tier?'chip-on':''}" data-tier-pick="${escapeHtml(tr.id)}">${escapeHtml(tr.label)}</button>`).join('');
+
+  const dietRows = (f.dietary||[]).map((d,i)=>`
+    <div class="ing-row">
+      <input class="ing-item" data-diet="${i}" value="${escapeHtml(d)}" placeholder="e.g. 2 GF, 1 vegan">
+      <button class="del-x" data-diet-del="${i}" aria-label="Remove">&times;</button>
+    </div>`).join('');
+
+  const courseBlocks = sortCourses(f.courses).map(c => {
+    const rows = (c.items||[]).map(i => `
+      <div class="fni-row" data-item-of="${escapeHtml(c.id)}">
+        <input class="fni-label" data-fi-label="${escapeHtml(i.id)}" value="${escapeHtml(i.label)}" placeholder="Dish">
+        <select class="fni-kind" data-fi-kind="${escapeHtml(i.id)}">
+          <option value="ratio" ${i.kind==='ratio'?'selected':''}>1 per…</option>
+          <option value="fixed" ${i.kind==='fixed'?'selected':''}>Fixed</option>
+          <option value="text"  ${i.kind==='text' ?'selected':''}>No count</option>
+        </select>
+        ${i.kind==='ratio'?`<input class="fni-num" data-fi-per="${escapeHtml(i.id)}" value="${i.per||5}" inputmode="numeric" aria-label="per how many people">`:''}
+        ${i.kind==='fixed'?`<input class="fni-num" data-fi-qty="${escapeHtml(i.id)}" value="${i.qty||0}" inputmode="numeric" aria-label="quantity">
+          <input class="fni-num" data-fi-perpax="${escapeHtml(i.id)}" value="${i.perPax||0}" inputmode="numeric" aria-label="per how many people, 0 for flat">`:''}
+        <button class="del-x" data-fi-del="${escapeHtml(i.id)}" aria-label="Remove">&times;</button>
+      </div>`).join('');
+    return `
+      <div class="form-card">
+        <div class="fnc-head">
+          <input class="fnc-name" data-course-name="${escapeHtml(c.id)}" value="${escapeHtml(c.name)}" placeholder="Course">
+          <input class="fnc-time" data-course-time="${escapeHtml(c.id)}" value="${escapeHtml(c.time||'')}" placeholder="Time">
+          <button class="del-x" data-course-del="${escapeHtml(c.id)}" aria-label="Remove course">&times;</button>
+        </div>
+        ${rows || '<div class="empty">No dishes yet.</div>'}
+        <div class="form-actions"><button class="btn btn-ghost" data-item-add="${escapeHtml(c.id)}">+ Add dish</button></div>
+      </div>`;
+  }).join('');
+
+  return `
+    <div class="crumb"><button data-goto="${isNew?'functions':'fnView'}" data-fid="${escapeHtml(id)}">&larr; Cancel</button></div>
+    <div class="form-card">
+      <div style="font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;">${isNew?'New Function':'Edit Function'}</div>
+      <label>Date</label>
+      <input type="date" id="f-date" value="${escapeHtml(f.date)}">
+      <label>Name</label>
+      <input id="f-name" value="${escapeHtml(f.name||'')}" placeholder="e.g. Alicia">
+      <label>Head count</label>
+      <input id="f-pax" value="${f.pax||''}" inputmode="numeric" placeholder="50">
+      <label>Start time</label>
+      <input id="f-start" value="${escapeHtml(f.startTime||'')}" placeholder="e.g. 6:30pm">
+      <label>Menu tier <span class="hint">— picking one fills the courses in</span></label>
+      <div class="chip-row">${tierChips}<button type="button" class="chip cat-chip cat-new" data-tier-pick="">None</button></div>
+      <label>Notes</label>
+      <textarea id="f-notes" rows="2" placeholder="Anything the kitchen should know">${escapeHtml(f.notes||'')}</textarea>
+    </div>
+
+    <div class="section-label">Dietary requirements</div>
+    <div class="card tight"><div id="diet-list">${dietRows || '<div class="empty">None yet.</div>'}</div></div>
+    <div class="add-row"><button class="btn btn-ghost" id="diet-add">+ Add a dietary line</button></div>
+
+    <div class="section-label">Running order</div>
+    ${courseBlocks || '<div class="card"><div class="empty">Pick a menu tier above, or add a course.</div></div>'}
+    <div class="add-row"><button class="btn btn-ghost" id="course-add">+ Add course</button></div>
+
+    <div class="oi-actions">
+      <button class="btn btn-ghost" data-goto="${isNew?'functions':'fnView'}" data-fid="${escapeHtml(id)}">Cancel</button>
+      <button class="btn" data-fn-save="${escapeHtml(id)}">Save</button>
+    </div>
+    ${isNew?'':`<div class="add-row"><button class="btn btn-danger" data-fn-del="${escapeHtml(f.id)}">Delete function</button></div>`}
+  `;
+}
+
+function renderTiers(){
+  const blocks = state.tiers.map(tr => {
+    const rows = (tr.items||[]).map(i => `
+      <div class="fni-row">
+        <input class="fni-label" data-ti-label="${escapeHtml(i.id)}" value="${escapeHtml(i.label)}" placeholder="Dish">
+        <input class="fni-course" data-ti-course="${escapeHtml(i.id)}" value="${escapeHtml(i.course||'')}" placeholder="Course">
+        <select class="fni-kind" data-ti-kind="${escapeHtml(i.id)}">
+          <option value="ratio" ${i.kind==='ratio'?'selected':''}>1 per…</option>
+          <option value="fixed" ${i.kind==='fixed'?'selected':''}>Fixed</option>
+          <option value="text"  ${i.kind==='text' ?'selected':''}>No count</option>
+        </select>
+        ${i.kind==='ratio'?`<input class="fni-num" data-ti-per="${escapeHtml(i.id)}" value="${i.per||5}" inputmode="numeric">`:''}
+        ${i.kind==='fixed'?`<input class="fni-num" data-ti-qty="${escapeHtml(i.id)}" value="${i.qty||0}" inputmode="numeric">
+          <input class="fni-num" data-ti-perpax="${escapeHtml(i.id)}" value="${i.perPax||0}" inputmode="numeric">`:''}
+        <button class="del-x" data-ti-del="${escapeHtml(i.id)}" aria-label="Remove">&times;</button>
+      </div>`).join('');
+    return `
+      <div class="form-card">
+        <div class="fnc-head">
+          <input class="fnc-name" data-tier-label="${escapeHtml(tr.id)}" value="${escapeHtml(tr.label)}">
+          <button class="del-x" data-tier-del="${escapeHtml(tr.id)}" aria-label="Remove tier">&times;</button>
+        </div>
+        ${rows || '<div class="empty">Nothing in this tier.</div>'}
+        <div class="form-actions"><button class="btn btn-ghost" data-ti-add="${escapeHtml(tr.id)}">+ Add dish</button></div>
+      </div>`;
+  }).join('');
+
+  return `
+    <div class="crumb"><button data-goto="functions">&larr; Functions</button></div>
+    <h2 class="screen-title">Menu tiers</h2>
+    <p class="screen-sub">Templates used when you pick a tier on a function. "1 per 5" against 52 people gives 11 — it always rounds up.</p>
+    ${blocks}
+    <div class="add-row"><button class="btn btn-ghost" id="tier-add">+ Add tier</button></div>
+    <div class="oi-actions"><button class="btn" id="tiers-save">Save tiers</button></div>
+  `;
+}
+
 /* ===== Prep screens (chef) ===== */
 
 function renderPrep(){
@@ -1836,22 +2249,22 @@ const PLUS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-
 const TICK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
 
 function renderPrepItems(){
-  const onList = {};
-  (state.published ? state.published.lines : []).forEach(l => { onList[l.id] = true; });
   const standalone = state.prepItems.slice().sort((a,b)=>String(a.name).localeCompare(String(b.name),'en',{sensitivity:'base'}));
   const fromRecipes = state.recipes.filter(r => r.active);
 
   const sRows = standalone.length ? standalone.map(i => `
-    <div class="ing-row">
-      <input class="ing-item" data-pitem="${escapeHtml(i.id)}" value="${escapeHtml(i.name)}">
-      <input class="ing-unit pitem-sec" data-pitem-sec="${escapeHtml(i.id)}" value="${escapeHtml(i.section||'')}" placeholder="Section">
-      <button class="icon-btn add ${onList[i.id]?'on':''}" data-add-line="${escapeHtml(i.id)}" data-name="${escapeHtml(i.name)}" data-sec="${escapeHtml(i.section||'Other')}" data-recipe="" aria-label="${onList[i.id]?'Already on the list':'Add to the prep list'}">${onList[i.id]?TICK:PLUS}</button>
-      <button class="del-x" data-pitem-del="${escapeHtml(i.id)}" aria-label="Remove">&times;</button>
+    <div class="pitem-row">
+      <div class="ing-row">
+        <input class="ing-item" data-pitem="${escapeHtml(i.id)}" value="${escapeHtml(i.name)}" placeholder="e.g. Break down chicken">
+        <button class="del-x" data-pitem-del="${escapeHtml(i.id)}" aria-label="Remove">&times;</button>
+      </div>
+      <div class="chip-row tight-chips">
+        ${prepSectionChoices().map(sec => `<button type="button" class="chip cat-chip ${sameSection(sec, i.section)?'chip-on':''}" data-psec="${escapeHtml(i.id)}" data-secname="${escapeHtml(sec)}">${escapeHtml(sec)}</button>`).join('')}
+        <button type="button" class="chip cat-chip cat-new" data-psec-new="${escapeHtml(i.id)}">+ New</button>
+      </div>
     </div>`).join('') : '<div class="empty">No standalone items.<br>Things like "break down chicken" that aren\'t recipes.</div>';
 
   const rRows = fromRecipes.length ? fromRecipes.map(r => {
-    const pid = 'r:' + r.id;
-    const on = !!onList[pid];
     return `
     <div class="prep-item">
       <div class="prep-body">
@@ -1859,13 +2272,12 @@ function renderPrepItems(){
         <div class="prep-meta">${escapeHtml(r.section||'Unsorted')}</div>
       </div>
       <button class="icon-btn" data-goto="recipeEdit" data-rid="${escapeHtml(r.id)}" aria-label="Edit ${escapeHtml(r.name)}" title="Edit label">${PENCIL}</button>
-      <button class="icon-btn add ${on?'on':''}" data-add-line="${escapeHtml(pid)}" data-name="${escapeHtml(r.name)}" data-sec="${escapeHtml(r.section||'Other')}" data-recipe="${escapeHtml(r.id)}" aria-label="${on?'Already on the list':'Add to the prep list'}" title="${on?'Already on the list':'Add to the prep list'}">${on?TICK:PLUS}</button>
     </div>`; }).join('') : '<div class="empty">No active recipes.</div>';
 
   return `
     <div class="crumb"><button data-goto="prep">&larr; Prep</button></div>
     <h2 class="screen-title">Prep items</h2>
-    <p class="screen-sub">This is what staff can pick from. Every active recipe is here automatically. Tap + to put something straight on today's list.</p>
+    <p class="screen-sub">This is what staff can pick from. Every active recipe is here automatically. Today's list is built from Prep &rarr; Build the list.</p>
 
     <div class="section-label">Your own items</div>
     <div class="card tight"><div id="pitem-list">${sRows}</div></div>
@@ -2596,7 +3008,7 @@ function attachHandlers(){
     el.addEventListener('click', ()=> goto({name:"supplier", id:el.dataset.openSupplier}));
   });
   document.querySelectorAll('[data-goto]').forEach(el=>{
-    el.addEventListener('click', ()=>{ goto({name:el.dataset.goto, id:el.dataset.supplier, rid:el.dataset.rid}); });
+    el.addEventListener('click', ()=>{ goto({name:el.dataset.goto, id:el.dataset.supplier, rid:el.dataset.rid, fid:el.dataset.fid}); });
   });
   document.querySelectorAll('[data-qty-inc]').forEach(el=>{
     el.addEventListener('click', ()=>{
@@ -3077,6 +3489,212 @@ function attachHandlers(){
     });
   });
 
+
+  // ---- Functions ----
+  document.querySelectorAll('[data-open-fn]').forEach(el => {
+    el.addEventListener('click', ()=> goto({name:'fnView', fid: el.dataset.openFn}));
+  });
+
+  function readFnDraft(){
+    const f = state.view.fid === 'new'
+      ? Object.assign(blankFunction(), state.fnDraft || {})
+      : Object.assign({}, findFunction(state.view.fid));
+    const g = id => document.getElementById(id);
+    if(g('f-date')) f.date = g('f-date').value || f.date;
+    if(g('f-name')) f.name = (g('f-name').value||'').trim();
+    if(g('f-pax'))  f.pax  = Math.max(0, parseInt(g('f-pax').value,10) || 0);
+    if(g('f-start'))f.startTime = (g('f-start').value||'').trim();
+    if(g('f-notes'))f.notes = (g('f-notes').value||'').trim();
+
+    const diet = [];
+    document.querySelectorAll('[data-diet]').forEach(inp => {
+      const v = (inp.value||'').trim();
+      if(v) diet.push(v);
+    });
+    f.dietary = diet;
+
+    f.courses = (f.courses||[]).map(c => {
+      const nameEl = document.querySelector('[data-course-name="'+c.id+'"]');
+      const timeEl = document.querySelector('[data-course-time="'+c.id+'"]');
+      const items = (c.items||[]).map(i => {
+        const lab = document.querySelector('[data-fi-label="'+i.id+'"]');
+        const kin = document.querySelector('[data-fi-kind="'+i.id+'"]');
+        const per = document.querySelector('[data-fi-per="'+i.id+'"]');
+        const qty = document.querySelector('[data-fi-qty="'+i.id+'"]');
+        const pp  = document.querySelector('[data-fi-perpax="'+i.id+'"]');
+        const out = Object.assign({}, i);
+        if(lab) out.label = (lab.value||'').trim();
+        if(kin) out.kind = kin.value;
+        if(per) out.per = Math.max(1, parseInt(per.value,10) || 1);
+        if(qty) out.qty = Math.max(0, parseInt(qty.value,10) || 0);
+        if(pp)  out.perPax = Math.max(0, parseInt(pp.value,10) || 0);
+        return out;
+      }).filter(i => i.label);
+      return Object.assign({}, c, {
+        name: nameEl ? (nameEl.value||'').trim() : c.name,
+        time: timeEl ? (timeEl.value||'').trim() : c.time,
+        items: items
+      });
+    }).filter(c => c.name);
+    return f;
+  }
+
+  function stashFn(f){
+    if(state.view.fid === 'new') state.fnDraft = f;
+    else { const cur = findFunction(state.view.fid); if(cur) Object.assign(cur, f); }
+    render();
+  }
+
+  document.querySelectorAll('[data-tier-pick]').forEach(b => {
+    b.addEventListener('click', ()=>{
+      const f = readFnDraft();
+      const id = b.dataset.tierPick;
+      f.tier = id;
+      const tier = state.tiers.find(x => x.id === id);
+      const hasContent = (f.courses||[]).some(c => (c.items||[]).length);
+      if(tier && (!hasContent || confirm('Replace the running order with the '+tier.label+' template?'))){
+        f.courses = coursesFromTier(tier);
+      }
+      stashFn(f);
+    });
+  });
+
+  const dietAdd = document.getElementById('diet-add');
+  if(dietAdd) dietAdd.addEventListener('click', ()=>{ const f = readFnDraft(); f.dietary.push(''); stashFn(f); });
+  document.querySelectorAll('[data-diet-del]').forEach(b => {
+    b.addEventListener('click', ()=>{
+      const f = readFnDraft();
+      f.dietary.splice(parseInt(b.dataset.dietDel,10), 1);
+      stashFn(f);
+    });
+  });
+
+  const courseAdd = document.getElementById('course-add');
+  if(courseAdd) courseAdd.addEventListener('click', ()=>{
+    const f = readFnDraft();
+    const used = (f.courses||[]).map(c=>c.name);
+    const next = COURSE_ORDER.find(n => used.indexOf(n) < 0) || '';
+    f.courses.push({ id:'c'+uid(), name: next, time:'', items:[] });
+    stashFn(f);
+  });
+  document.querySelectorAll('[data-course-del]').forEach(b => {
+    b.addEventListener('click', ()=>{
+      const f = readFnDraft();
+      f.courses = f.courses.filter(c => c.id !== b.dataset.courseDel);
+      stashFn(f);
+    });
+  });
+  document.querySelectorAll('[data-item-add]').forEach(b => {
+    b.addEventListener('click', ()=>{
+      const f = readFnDraft();
+      const c = f.courses.find(x => x.id === b.dataset.itemAdd);
+      if(c) c.items.push({ id:'i'+uid(), label:'', kind:'ratio', per:5, course:c.name });
+      stashFn(f);
+    });
+  });
+  document.querySelectorAll('[data-fi-del]').forEach(b => {
+    b.addEventListener('click', ()=>{
+      const f = readFnDraft();
+      f.courses.forEach(c => { c.items = c.items.filter(i => i.id !== b.dataset.fiDel); });
+      stashFn(f);
+    });
+  });
+  document.querySelectorAll('[data-fi-kind]').forEach(sel => {
+    sel.addEventListener('change', ()=> stashFn(readFnDraft()));
+  });
+
+  document.querySelectorAll('[data-fn-save]').forEach(b => {
+    b.addEventListener('click', async ()=>{
+      const f = readFnDraft();
+      if(!f.date){ showToast('Pick a date'); return; }
+      if(!f.name){ showToast('Give it a name'); return; }
+      b.disabled = true; b.textContent = 'Saving…';
+      if(b.dataset.fnSave === 'new'){
+        f.id = 'f'+uid();
+        state.functions.push(f);
+        state.fnDraft = null;
+      }
+      state.functions.sort((a,c)=> a.date < c.date ? -1 : a.date > c.date ? 1 : 0);
+      const ok = await pushFunctions();
+      if(!ok){ b.disabled = false; b.textContent = 'Save'; return; }
+      goto({name:'fnView', fid: f.id});
+      showToast('Function saved');
+    });
+  });
+
+  document.querySelectorAll('[data-fn-del]').forEach(b => {
+    b.addEventListener('click', async ()=>{
+      const f = findFunction(b.dataset.fnDel);
+      if(!f) return;
+      if(!confirm('Delete "'+(f.name||'this function')+'"? This cannot be undone.')) return;
+      state.functions = state.functions.filter(x => x.id !== f.id);
+      await pushFunctions();
+      goto({name:'functions'});
+      showToast('Function deleted');
+    });
+  });
+
+  // ---- Menu tiers ----
+  function readTiers(){
+    return state.tiers.map(tr => {
+      const lab = document.querySelector('[data-tier-label="'+tr.id+'"]');
+      const items = (tr.items||[]).map(i => {
+        const g = sel => document.querySelector(sel+'="'+i.id+'"]');
+        const l = g('[data-ti-label'), c = g('[data-ti-course'), k = g('[data-ti-kind');
+        const per = g('[data-ti-per'), qty = g('[data-ti-qty'), pp = g('[data-ti-perpax');
+        const out = Object.assign({}, i);
+        if(l) out.label = (l.value||'').trim();
+        if(c) out.course = (c.value||'').trim();
+        if(k) out.kind = k.value;
+        if(per) out.per = Math.max(1, parseInt(per.value,10) || 1);
+        if(qty) out.qty = Math.max(0, parseInt(qty.value,10) || 0);
+        if(pp)  out.perPax = Math.max(0, parseInt(pp.value,10) || 0);
+        return out;
+      }).filter(i => i.label);
+      return Object.assign({}, tr, { label: lab ? (lab.value||'').trim() || tr.label : tr.label, items: items });
+    });
+  }
+  document.querySelectorAll('[data-ti-add]').forEach(b => {
+    b.addEventListener('click', ()=>{
+      state.tiers = readTiers();
+      const tr = state.tiers.find(x => x.id === b.dataset.tiAdd);
+      if(tr) tr.items.push({ id:'i'+uid(), label:'', kind:'ratio', per:5, course:'Entrée' });
+      render();
+    });
+  });
+  document.querySelectorAll('[data-ti-del]').forEach(b => {
+    b.addEventListener('click', ()=>{
+      state.tiers = readTiers();
+      state.tiers.forEach(tr => { tr.items = tr.items.filter(i => i.id !== b.dataset.tiDel); });
+      render();
+    });
+  });
+  document.querySelectorAll('[data-ti-kind]').forEach(sel => {
+    sel.addEventListener('change', ()=>{ state.tiers = readTiers(); render(); });
+  });
+  document.querySelectorAll('[data-tier-del]').forEach(b => {
+    b.addEventListener('click', ()=>{
+      if(!confirm('Remove this tier?')) return;
+      state.tiers = readTiers().filter(tr => tr.id !== b.dataset.tierDel);
+      render();
+    });
+  });
+  const tierAdd = document.getElementById('tier-add');
+  if(tierAdd) tierAdd.addEventListener('click', ()=>{
+    state.tiers = readTiers();
+    state.tiers.push({ id:'t'+uid(), label:'$', items:[] });
+    render();
+  });
+  const tiersSave = document.getElementById('tiers-save');
+  if(tiersSave) tiersSave.addEventListener('click', async ()=>{
+    state.tiers = readTiers();
+    tiersSave.disabled = true; tiersSave.textContent = 'Saving…';
+    const ok = await pushTiers();
+    tiersSave.disabled = false; tiersSave.textContent = 'Save tiers';
+    showToast(ok ? 'Tiers saved' : 'No connection. Not saved.');
+    if(ok) render();
+  });
+
   // ---- Prep ----
   document.querySelectorAll('[data-tick]').forEach(b => {
     b.addEventListener('click', ()=> tickPrepLine(b.dataset.tick, b.dataset.done !== '1'));
@@ -3184,31 +3802,6 @@ function attachHandlers(){
     });
   }
 
-  document.querySelectorAll('[data-add-line]').forEach(b => {
-    b.addEventListener('click', async ()=>{
-      const id = b.dataset.addLine;
-      const already = (state.published ? state.published.lines : []).some(l => l.id === id);
-      if(already){ showToast('Already on the list'); return; }
-      savePrepItemEdits();
-      const line = { id: id, text: b.dataset.name, section: b.dataset.sec || 'Other', recipe: b.dataset.recipe || '' };
-      if(!line.text){ showToast('Give it a name first'); return; }
-      b.disabled = true;
-      const lines = (state.published ? state.published.lines.slice() : []).concat([line]);
-      try{
-        const res = await fetch(API + '/api/prep/published', {
-          method:'POST', headers: chefHeaders({'Content-Type':'application/json'}),
-          body: JSON.stringify({ lines: lines })
-        });
-        if(!res.ok) throw new Error();
-        state.published = { lines: lines, publishedAt: state.published ? state.published.publishedAt : Date.now() };
-        render();
-        showToast(line.text + ' added to the list');
-      }catch(e){
-        b.disabled = false;
-        showToast('No connection. Not added.');
-      }
-    });
-  });
 
   // ---- Prep items ----
   const pitemAdd = document.getElementById('pitem-add');
@@ -3233,8 +3826,25 @@ function attachHandlers(){
   document.querySelectorAll('[data-pitem]').forEach(inp => {
     inp.addEventListener('change', ()=>{ savePrepItemEdits(); savePrepItems(); });
   });
-  document.querySelectorAll('[data-pitem-sec]').forEach(inp => {
-    inp.addEventListener('change', ()=>{ savePrepItemEdits(); savePrepItems(); });
+  document.querySelectorAll('[data-psec]').forEach(b => {
+    b.addEventListener('click', ()=>{
+      savePrepItemEdits();
+      const it = state.prepItems.find(x => x.id === b.dataset.psec);
+      if(it) it.section = b.dataset.secname;
+      savePrepItems(); render();
+    });
+  });
+  document.querySelectorAll('[data-psec-new]').forEach(b => {
+    b.addEventListener('click', ()=>{
+      savePrepItemEdits();
+      const raw = (prompt('Name the new section') || '').trim().slice(0,60);
+      if(!raw) return;
+      const existing = prepSectionChoices().find(s => sameSection(s, raw));
+      const it = state.prepItems.find(x => x.id === b.dataset.psecNew);
+      if(existing && existing !== raw) showToast('Added to "'+existing+'"');
+      if(it) it.section = existing || raw;
+      savePrepItems(); render();
+    });
   });
 
   // ---- Recipes ----
@@ -3527,7 +4137,7 @@ async function clearOrder(id, silent){
 
 
 
-function refreshFromServer(){ fetchDevices(); fetchOrders(); publishCatalogue(false); fetchInvoices(); fetchRecipes(); refreshPrep(); pushPrepCatalogue(); }
+function refreshFromServer(){ fetchFunctions(); fetchDevices(); fetchOrders(); publishCatalogue(false); fetchInvoices(); fetchRecipes(); refreshPrep(); pushPrepCatalogue(); }
 
 try{ history.replaceState({view:{name:'home'}}, ''); }catch(e){}
 window.addEventListener('popstate', (e)=>{
