@@ -369,16 +369,23 @@ a.btn-block{display:block;}
 .fn-qty{flex:0 0 auto;min-width:34px;font-size:15px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--stamp);}
 .fn-label{flex:1;font-size:15px;font-weight:600;line-height:1.35;}
 .fn-time{font-weight:800;color:var(--stamp);letter-spacing:0;text-transform:none;font-size:11px;}
+.fn-note{font-size:11px;color:var(--muted);font-weight:600;}
 .fnc-head{display:flex;gap:8px;align-items:center;margin-bottom:8px;}
-.fnc-name{flex:1;font-family:inherit;font-size:15px;font-weight:700;padding:9px 10px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);min-width:0;}
+.fnc-name{flex:1;font-family:inherit;font-size:15px;font-weight:700;padding:9px 8px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);min-width:0;}
 .fnc-time{width:92px;font-family:inherit;font-size:14px;padding:9px 10px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);}
-.fni-row{display:flex;gap:6px;align-items:center;padding:7px 0;border-bottom:1px solid #F5F3EA;}
-.fni-row:last-of-type{border-bottom:none;}
-.fni-row input,.fni-row select{font-family:inherit;font-size:14px;padding:8px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);min-width:0;}
-.fni-label{flex:1;}
-.fni-course{width:86px;font-size:13px!important;}
-.fni-kind{width:88px;font-size:12.5px!important;}
-.fni-num{width:52px;text-align:center;font-weight:700;}
+.fni-block{padding:11px 0;border-bottom:1px solid #F5F3EA;}
+.fni-block:last-of-type{border-bottom:none;}
+.fni-block input,.fni-block select{font-family:inherit;font-size:14px;padding:9px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);min-width:0;}
+.fni-top{display:flex;gap:8px;align-items:center;}
+.fni-label{flex:1;font-weight:600;}
+.fni-rule{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px;}
+.fni-kind{font-size:13px!important;padding:8px 6px!important;}
+.fni-course-sel{font-size:13px!important;padding:8px 6px!important;}
+.fni-num{width:56px;text-align:center;font-weight:700;}
+.fni-unit{font-size:12.5px;color:var(--muted);font-weight:600;}
+.fni-preview{margin-top:8px;font-size:12.5px;color:var(--ink-soft);}
+.fni-preview strong{color:var(--stamp);font-weight:800;}
+.fni-dim{color:var(--muted);}
 .acc-row{display:flex;align-items:center;gap:12px;padding:14px 2px;border-bottom:1px solid #F5F3EA;}
 .acc-row:last-child{border-bottom:none;}
 .acc-main{flex:1;min-width:0;}
@@ -562,7 +569,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.1';
+const APP_VERSION = 'v3.2';
 
 let state = {
   suppliers: [], staff: [], roster: {}, timesheet: {}, invoices: {},
@@ -576,7 +583,7 @@ let state = {
   recipes: [], recipeSections: [], recipeSync: null, recipesLoaded: false,
   recipeSearch: '', recipeFilter: null,
   prepItems: [],            // standalone prep items, not backed by a recipe
-  prepSubs: [], published: null, prepDraft: null, prepSearch: '',
+  prepLines: [], prepSearch: '', prepPick: {},
   view: {name:"home"}
 };
 let ticketDateWord = 'tomorrow';
@@ -830,25 +837,41 @@ async function pushPrepCatalogue(){
   }catch(e){ return false; }
 }
 
-async function fetchPrepSubs(){
-  try{
-    const res = await fetch(API + '/api/prep/submissions', {cache:'no-store'});
-    const d = await res.json();
-    state.prepSubs = Array.isArray(d.submissions) ? d.submissions : [];
-  }catch(e){}
-}
 
 async function fetchPublished(){
   try{
-    const res = await fetch(API + '/api/prep/published', {cache:'no-store'});
+    const res = await fetch(API + '/api/prep/published', {cache:'no-store', headers: chefHeaders()});
     const d = await res.json();
-    if(d && Array.isArray(d.lines)){ d.lines = applyRecentTicks(d.lines); state.published = d; }
-    else state.published = null;
+    if(d && Array.isArray(d.lines)) state.prepLines = applyRecentTicks(d.lines);
   }catch(e){}
 }
 
+async function addPrepLines(lines, by){
+  try{
+    const res = await fetch(API + '/api/prep/published/add', {
+      method:'POST', headers: chefHeaders({'Content-Type':'application/json'}),
+      body: JSON.stringify({ by: by || 'Rabindra', lines: lines })
+    });
+    if(!res.ok) throw new Error();
+    await fetchPublished();
+    return true;
+  }catch(e){ showToast('No connection. Not added.'); return false; }
+}
+
+async function removePrepLine(id){
+  const before = state.prepLines.slice();
+  state.prepLines = state.prepLines.filter(l => l.id !== id);
+  render();
+  try{
+    const res = await fetch(API + '/api/prep/published/remove', {
+      method:'POST', headers: chefHeaders({'Content-Type':'application/json'}),
+      body: JSON.stringify({ id: id })
+    });
+    if(!res.ok) throw new Error();
+  }catch(e){ state.prepLines = before; render(); showToast('No connection. Not removed.'); }
+}
+
 async function refreshPrep(){
-  await fetchPrepSubs();
   await fetchPublished();
   if(state.view.name && state.view.name.indexOf('prep') === 0) render();
 }
@@ -873,10 +896,9 @@ function applyRecentTicks(lines){
 }
 
 async function tickPrepLine(lineId, done){
-  if(!state.published) return;
-  const line = state.published.lines.find(l => l.id === lineId);
+  const line = state.prepLines.find(l => l.id === lineId);
   if(!line) return;
-  const before = JSON.parse(JSON.stringify(state.published.lines));
+  const before = JSON.parse(JSON.stringify(state.prepLines));
   line.done = done;
   line.doneBy = done ? 'Rabindra' : '';
   line.doneAt = done ? Date.now() : 0;
@@ -884,7 +906,7 @@ async function tickPrepLine(lineId, done){
   render();
   try{
     const res = await fetch(API + '/api/prep/published/tick', {
-      method:'POST', headers:{'Content-Type':'application/json'},
+      method:'POST', headers: chefHeaders({'Content-Type':'application/json'}),
       body: JSON.stringify({ id: lineId, by: 'Rabindra', done: done })
     });
     if(!res.ok) throw new Error();
@@ -892,32 +914,12 @@ async function tickPrepLine(lineId, done){
     // read-back that KV may not have caught up with yet
     await res.json().catch(()=>({}));
   }catch(e){
-    state.published.lines = before;
+    state.prepLines = before;
     render();
     showToast('No connection. Not saved.');
   }
 }
 
-async function publishPrep(lines){
-  try{
-    const res = await fetch(API + '/api/prep/published', {
-      method:'POST', headers: chefHeaders({'Content-Type':'application/json'}),
-      body: JSON.stringify({ lines: lines })
-    });
-    if(!res.ok) throw new Error();
-    // published, so the submissions it came from are done with
-    await fetch(API + '/api/prep/submissions/clear', {
-      method:'POST', headers: chefHeaders({'Content-Type':'application/json'}),
-      body: JSON.stringify({ all: true })
-    }).catch(()=>{});
-    state.prepDraft = null;
-    await refreshPrep();
-    goto({name:'prep'});
-    showToast('Prep list published');
-  }catch(e){
-    showToast('No connection. Nothing was published.');
-  }
-}
 
 /* Sections are picked, not typed, so "Sauces" and "sauces" can't both exist. */
 function sameSection(a, b){
@@ -1047,26 +1049,26 @@ function codeFor(staffId){ return state.codes.find(c => c.staffId === staffId); 
 
 const TIER_SEED = [
   { id:'49', label:'$49', items:[
-    { id:'i49a', label:'Polenta',        kind:'ratio', per:5, course:'Entrée' },
-    { id:'i49b', label:'Salad',          kind:'ratio', per:5, course:'Entrée' },
+    { id:'i49a', label:'Polenta Chips',  kind:'ratio', per:5, course:'Entrée' },
+    { id:'i49b', label:'Salad',          kind:'round', per:5, course:'Main' },
     { id:'i49c', label:'Calamari',       kind:'ratio', per:5, course:'Entrée' },
-    { id:'i49d', label:'Unlimited pizza', kind:'text',        course:'Main' }
+    { id:'i49d', label:'Pizza',          kind:'round', per:5, course:'Main' }
   ]},
   { id:'59', label:'$59', items:[
     { id:'i59a', label:'Bruschetta',      kind:'ratio', per:4, course:'Starter' },
     { id:'i59b', label:'Cheese & Garlic', kind:'ratio', per:6, course:'Starter' },
-    { id:'i59c', label:'Polenta',         kind:'ratio', per:5, course:'Entrée' },
-    { id:'i59d', label:'Salad',           kind:'ratio', per:5, course:'Entrée' },
+    { id:'i59c', label:'Polenta Chips',   kind:'ratio', per:5, course:'Entrée' },
+    { id:'i59d', label:'Salad',           kind:'round', per:5, course:'Main' },
     { id:'i59e', label:'Calamari',        kind:'ratio', per:5, course:'Entrée' },
-    { id:'i59f', label:'Unlimited pizza', kind:'text',         course:'Main' }
+    { id:'i59f', label:'Pizza',           kind:'round', per:5, course:'Main' }
   ]},
   { id:'69', label:'$69', items:[
     { id:'i69a', label:'Bruschetta',      kind:'ratio', per:4, course:'Starter' },
     { id:'i69b', label:'Cheese & Garlic', kind:'ratio', per:6, course:'Starter' },
-    { id:'i69c', label:'Polenta',         kind:'ratio', per:5, course:'Entrée' },
-    { id:'i69d', label:'Salad',           kind:'ratio', per:5, course:'Entrée' },
+    { id:'i69c', label:'Polenta Chips',   kind:'ratio', per:5, course:'Entrée' },
+    { id:'i69d', label:'Salad',           kind:'round', per:5, course:'Main' },
     { id:'i69e', label:'Calamari',        kind:'ratio', per:5, course:'Entrée' },
-    { id:'i69f', label:'Unlimited pizza', kind:'text',         course:'Main' },
+    { id:'i69f', label:'Pizza',           kind:'round', per:5, course:'Main' },
     { id:'i69g', label:'Grand Tiramisu',  kind:'fixed', qty:36, perPax:50, course:'Dessert' }
   ]}
 ];
@@ -1094,6 +1096,10 @@ function addDaysKey(days){
 function fnQty(item, pax){
   if(!item) return '';
   if(item.kind === 'text') return '';
+  if(item.kind === 'round'){
+    const per = Math.max(1, item.per || 1);
+    return Math.ceil((pax||0) / per) + ' per round';
+  }
   if(item.kind === 'fixed'){
     if(!item.perPax) return String(item.qty || 0);
     return String((item.qty || 0) * Math.max(1, Math.ceil((pax||0) / item.perPax)));
@@ -1150,7 +1156,9 @@ async function fetchFunctions(){
     }
     state.fnLoaded = true;
     pruneFunctions();
-    if(state.view.name && state.view.name.indexOf('fn') === 0) render();
+    // never redraw over a form being filled in, or typing is lost
+    const editing = state.view.name === 'fnEdit' || state.view.name === 'fnTiers';
+    if(!editing && state.view.name && state.view.name.indexOf('fn') === 0) render();
   }catch(e){
     if(!state.tiers.length) state.tiers = TIER_SEED.slice();
   }
@@ -1699,7 +1707,7 @@ function render(){
   else if(v.name === "fnView") html += renderFunction(v.fid);
   else if(v.name === "fnEdit") html += renderFunctionEdit(v.fid);
   else if(v.name === "fnTiers") html += renderTiers();
-  else if(v.name === "prepBuild") html += renderPrepBuild();
+  else if(v.name === "prepAdd") html += renderPrepAdd();
   else if(v.name === "prepItems") html += renderPrepItems();
   else if(v.name === "recipes") html += renderRecipes();
   else if(v.name === "recipe") html += renderRecipe(v.rid);
@@ -1710,11 +1718,10 @@ function render(){
 }
 
 function prepTileSub(){
-  if(state.prepSubs.length) return state.prepSubs.length+' request'+(state.prepSubs.length===1?'':'s')+' waiting';
-  const lines = state.published ? state.published.lines : [];
-  if(!lines.length) return 'Nothing published';
-  const done = lines.filter(l=>l.done).length;
-  return done+' of '+lines.length+' done';
+  const lines = state.prepLines || [];
+  if(!lines.length) return 'Nothing on the list';
+  const todo = lines.filter(l=>!l.done).length;
+  return todo ? todo+' to do' : 'All done';
 }
 
 function renderHome(){
@@ -1742,7 +1749,7 @@ function renderHome(){
       { go:'functions', name:'Functions', hint:fnHint() },
       { go:'fnTiers',   name:'Menu Tiers', hint:'Templates and portion rules' }
     ]},
-    { key:'prep', title:'Prep', sub:'Prep list &amp; recipes', alert:!!state.prepSubs.length, items:[
+    { key:'prep', title:'Prep', sub:'Prep list &amp; recipes', alert:false, items:[
       { go:'prep',    name:'Prep List', hint:prepTileSub() },
       { go:'recipes', name:'Recipes',   hint:state.recipes.length ? state.recipes.length+' in the book' : 'Import your recipe book' }
     ]}
@@ -1960,6 +1967,14 @@ function renderFunctions(){
   `;
 }
 
+/* Shows what the rule actually produces, so the maths isn't a guess. */
+function fnPreview(item, pax){
+  if(!item || !item.label) return '';
+  if(item.kind === 'text') return escapeHtml(item.label)+' &mdash; no count';
+  const q = fnQty(item, pax || 0);
+  return '<strong>'+escapeHtml(q)+'</strong> '+escapeHtml(item.label);
+}
+
 function tierLabel(id){
   const tr = state.tiers.find(x => x.id === id);
   return tr ? tr.label : id;
@@ -1972,7 +1987,8 @@ function renderFunction(id){
   const courses = sortCourses(f.courses).map(c => {
     const items = (c.items||[]).map(i => {
       const q = fnQty(i, f.pax);
-      return `<div class="fn-item"><span class="fn-qty">${q?escapeHtml(q)+' &times;':'&mdash;'}</span><span class="fn-label">${escapeHtml(i.label)}</span></div>`;
+      const isRound = i.kind === 'round';
+      return `<div class="fn-item"><span class="fn-qty">${q?(isRound?escapeHtml(q.split(' ')[0]):escapeHtml(q)+' &times;'):'&mdash;'}</span><span class="fn-label">${escapeHtml(i.label)}${isRound?' <span class="fn-note">per round</span>':''}</span></div>`;
     }).join('');
     return `
       <div class="section-label">${escapeHtml(c.name)}${c.time?` <span class="fn-time">${escapeHtml(c.time)}</span>`:''}</div>
@@ -2021,22 +2037,31 @@ function renderFunctionEdit(id){
 
   const courseBlocks = sortCourses(f.courses).map(c => {
     const rows = (c.items||[]).map(i => `
-      <div class="fni-row" data-item-of="${escapeHtml(c.id)}">
-        <input class="fni-label" data-fi-label="${escapeHtml(i.id)}" value="${escapeHtml(i.label)}" placeholder="Dish">
-        <select class="fni-kind" data-fi-kind="${escapeHtml(i.id)}">
-          <option value="ratio" ${i.kind==='ratio'?'selected':''}>1 per…</option>
-          <option value="fixed" ${i.kind==='fixed'?'selected':''}>Fixed</option>
-          <option value="text"  ${i.kind==='text' ?'selected':''}>No count</option>
-        </select>
-        ${i.kind==='ratio'?`<input class="fni-num" data-fi-per="${escapeHtml(i.id)}" value="${i.per||5}" inputmode="numeric" aria-label="per how many people">`:''}
-        ${i.kind==='fixed'?`<input class="fni-num" data-fi-qty="${escapeHtml(i.id)}" value="${i.qty||0}" inputmode="numeric" aria-label="quantity">
-          <input class="fni-num" data-fi-perpax="${escapeHtml(i.id)}" value="${i.perPax||0}" inputmode="numeric" aria-label="per how many people, 0 for flat">`:''}
-        <button class="del-x" data-fi-del="${escapeHtml(i.id)}" aria-label="Remove">&times;</button>
+      <div class="fni-block">
+        <div class="fni-top">
+          <input class="fni-label" data-fi-label="${escapeHtml(i.id)}" value="${escapeHtml(i.label)}" placeholder="Dish name">
+          <button class="del-x" data-fi-del="${escapeHtml(i.id)}" aria-label="Remove">&times;</button>
+        </div>
+        <div class="fni-rule">
+          <select class="fni-kind" data-fi-kind="${escapeHtml(i.id)}">
+            <option value="ratio" ${i.kind==='ratio'?'selected':''}>1 serve per</option>
+            <option value="round" ${i.kind==='round'?'selected':''}>1 per round per</option>
+            <option value="fixed" ${i.kind==='fixed'?'selected':''}>Fixed amount</option>
+            <option value="text"  ${i.kind==='text' ?'selected':''}>No count</option>
+          </select>
+          ${(i.kind==='ratio'||i.kind==='round')?`<input class="fni-num" data-fi-per="${escapeHtml(i.id)}" value="${i.per||5}" inputmode="numeric" aria-label="per how many people"><span class="fni-unit">people</span>`:''}
+          ${i.kind==='fixed'?`<input class="fni-num" data-fi-qty="${escapeHtml(i.id)}" value="${i.qty||0}" inputmode="numeric" aria-label="quantity"><span class="fni-unit">per</span>
+            <input class="fni-num" data-fi-perpax="${escapeHtml(i.id)}" value="${i.perPax||0}" inputmode="numeric" aria-label="per how many people, 0 never scales"><span class="fni-unit">people</span>`:''}
+        </div>
+        <div class="fni-preview">${fnPreview(i, f.pax)}</div>
       </div>`).join('');
     return `
       <div class="form-card">
         <div class="fnc-head">
-          <input class="fnc-name" data-course-name="${escapeHtml(c.id)}" value="${escapeHtml(c.name)}" placeholder="Course">
+          <select class="fnc-name" data-course-name="${escapeHtml(c.id)}">
+            ${COURSE_ORDER.map(cn=>`<option value="${escapeHtml(cn)}" ${c.name===cn?'selected':''}>${escapeHtml(cn)}</option>`).join('')}
+            ${COURSE_ORDER.indexOf(c.name)<0 ? `<option value="${escapeHtml(c.name)}" selected>${escapeHtml(c.name)}</option>` : ''}
+          </select>
           <input class="fnc-time" data-course-time="${escapeHtml(c.id)}" value="${escapeHtml(c.time||'')}" placeholder="Time">
           <button class="del-x" data-course-del="${escapeHtml(c.id)}" aria-label="Remove course">&times;</button>
         </div>
@@ -2082,18 +2107,27 @@ function renderFunctionEdit(id){
 function renderTiers(){
   const blocks = state.tiers.map(tr => {
     const rows = (tr.items||[]).map(i => `
-      <div class="fni-row">
-        <input class="fni-label" data-ti-label="${escapeHtml(i.id)}" value="${escapeHtml(i.label)}" placeholder="Dish">
-        <input class="fni-course" data-ti-course="${escapeHtml(i.id)}" value="${escapeHtml(i.course||'')}" placeholder="Course">
-        <select class="fni-kind" data-ti-kind="${escapeHtml(i.id)}">
-          <option value="ratio" ${i.kind==='ratio'?'selected':''}>1 per…</option>
-          <option value="fixed" ${i.kind==='fixed'?'selected':''}>Fixed</option>
-          <option value="text"  ${i.kind==='text' ?'selected':''}>No count</option>
-        </select>
-        ${i.kind==='ratio'?`<input class="fni-num" data-ti-per="${escapeHtml(i.id)}" value="${i.per||5}" inputmode="numeric">`:''}
-        ${i.kind==='fixed'?`<input class="fni-num" data-ti-qty="${escapeHtml(i.id)}" value="${i.qty||0}" inputmode="numeric">
-          <input class="fni-num" data-ti-perpax="${escapeHtml(i.id)}" value="${i.perPax||0}" inputmode="numeric">`:''}
-        <button class="del-x" data-ti-del="${escapeHtml(i.id)}" aria-label="Remove">&times;</button>
+      <div class="fni-block">
+        <div class="fni-top">
+          <input class="fni-label" data-ti-label="${escapeHtml(i.id)}" value="${escapeHtml(i.label)}" placeholder="Dish name">
+          <button class="del-x" data-ti-del="${escapeHtml(i.id)}" aria-label="Remove">&times;</button>
+        </div>
+        <div class="fni-rule">
+          <select class="fni-course-sel" data-ti-course="${escapeHtml(i.id)}">
+            ${COURSE_ORDER.map(cn=>`<option value="${escapeHtml(cn)}" ${(i.course||'')===cn?'selected':''}>${escapeHtml(cn)}</option>`).join('')}
+            ${COURSE_ORDER.indexOf(i.course||'')<0 && i.course ? `<option value="${escapeHtml(i.course)}" selected>${escapeHtml(i.course)}</option>` : ''}
+          </select>
+          <select class="fni-kind" data-ti-kind="${escapeHtml(i.id)}">
+            <option value="ratio" ${i.kind==='ratio'?'selected':''}>1 serve per</option>
+            <option value="round" ${i.kind==='round'?'selected':''}>1 per round per</option>
+            <option value="fixed" ${i.kind==='fixed'?'selected':''}>Fixed amount</option>
+            <option value="text"  ${i.kind==='text' ?'selected':''}>No count</option>
+          </select>
+          ${(i.kind==='ratio'||i.kind==='round')?`<input class="fni-num" data-ti-per="${escapeHtml(i.id)}" value="${i.per||5}" inputmode="numeric"><span class="fni-unit">people</span>`:''}
+          ${i.kind==='fixed'?`<input class="fni-num" data-ti-qty="${escapeHtml(i.id)}" value="${i.qty||0}" inputmode="numeric"><span class="fni-unit">per</span>
+            <input class="fni-num" data-ti-perpax="${escapeHtml(i.id)}" value="${i.perPax||0}" inputmode="numeric"><span class="fni-unit">people</span>`:''}
+        </div>
+        <div class="fni-preview">${fnPreview(i, 50)} <span class="fni-dim">at 50pax</span></div>
       </div>`).join('');
     return `
       <div class="form-card">
@@ -2119,127 +2153,92 @@ function renderTiers(){
 /* ===== Prep screens (chef) ===== */
 
 function renderPrep(){
-  const subs = state.prepSubs.length;
-  const pub = state.published;
-  const lines = pub ? pub.lines : [];
-  const done = lines.filter(l => l.done).length;
+  const lines = state.prepLines || [];
+  const todo = lines.filter(l => !l.done);
+  const done = lines.filter(l => l.done);
 
-  const subBanner = subs ? `
-    <div class="waiting-strip" data-goto="prepBuild">${subs} prep request${subs===1?'':'s'} from ${escapeHtml(prepSubSummary())}<span class="chev">&rsaquo;</span></div>` : '';
+  const row = (l) => `
+    <div class="prep-item ${l.done?'is-done':''}">
+      <button class="prep-check ${l.done?'on':''}" data-tick="${escapeHtml(l.id)}" data-done="${l.done?'1':'0'}" aria-label="${l.done?'Mark not done':'Mark done'}">&#10003;</button>
+      <div class="prep-body">
+        <div class="prep-text">${escapeHtml(l.text)}</div>
+        <div class="prep-meta">${l.done
+          ? 'Completed by '+escapeHtml(l.doneBy||'someone')+(l.doneAt?' &middot; '+timeAgo(l.doneAt):'')
+          : 'Added by '+escapeHtml(l.by||'someone')}</div>
+      </div>
+      ${l.recipe && findRecipe(l.recipe) ? `<button class="chev-btn" data-open-recipe="${escapeHtml(l.recipe)}" data-from="prep" aria-label="Open ${escapeHtml(l.text)} recipe">&rsaquo;</button>` : ''}
+      ${l.done ? '' : `<button class="del-x" data-prep-remove="${escapeHtml(l.id)}" aria-label="Remove ${escapeHtml(l.text)}">&times;</button>`}
+    </div>`;
 
-  let body;
-  if(!pub || lines.length === 0){
-    body = `<div class="empty">Nothing published yet.<br>Build a list and publish it to the kitchen.</div>`;
-  } else {
+  const group = (list) => {
     let out = '', lastSec = null;
-    lines.forEach(l => {
+    list.forEach(l => {
       const sec = l.section || 'Other';
       if(sec !== lastSec){ lastSec = sec; out += `<div class="sec-head">${escapeHtml(sec)}</div>`; }
-      const hasR = l.recipe && findRecipe(l.recipe);
-      out += `
-        <div class="prep-item ${l.done?'is-done':''}">
-          <button class="prep-check ${l.done?'on':''}" data-tick="${escapeHtml(l.id)}" data-done="${l.done?'1':'0'}" aria-label="${l.done?'Mark not done':'Mark done'}">&#10003;</button>
-          <div class="prep-body">
-            <div class="prep-text">${escapeHtml(l.text)}</div>
-            ${l.done ? `<div class="prep-meta">Completed by ${escapeHtml(l.doneBy||'someone')}${l.doneAt?' &middot; '+timeAgo(l.doneAt):''}</div>` : ''}
-          </div>
-          ${hasR ? `<button class="chev-btn" data-open-recipe="${escapeHtml(l.recipe)}" data-from="prep" aria-label="Open ${escapeHtml(l.text)} recipe">&rsaquo;</button>` : ''}
-        </div>`;
+      out += row(l);
     });
-    body = out;
-  }
+    return out;
+  };
+
+  const todoSorted = todo.slice().sort((a,b)=>String(a.section||'Other').localeCompare(String(b.section||'Other')));
 
   return `
     <div class="crumb"><button data-goto="home">&larr; Home</button> / Prep</div>
-    ${subBanner}
-    ${pub && lines.length ? `<div class="pub-head"><span>Today's Prep List</span><span class="pub-meta">${done}/${lines.length} done &middot; published ${timeAgo(pub.publishedAt)}</span></div>` : ''}
-    <div class="card tight">${body}</div>
-    <div class="add-row"><button class="btn" data-goto="prepBuild">${lines.length ? 'Edit &amp; republish' : 'Build the list'}</button></div>
-    ${lines.length ? `<div class="add-row"><button class="btn btn-danger" id="prep-pub-clear">Clear the list</button></div>` : ''}
+    <div class="pub-head"><span>Prep List</span><span class="pub-meta">${todo.length} to do${done.length?' &middot; '+done.length+' done':''}</span></div>
+    <div class="card tight">${todo.length ? group(todoSorted) : '<div class="empty">Nothing on the list.<br>Add something below.</div>'}</div>
+    <div class="add-row"><button class="btn" data-goto="prepAdd">+ Add prep</button></div>
+
+    ${done.length ? `
+      <div class="section-label">Completed</div>
+      <div class="card tight">${done.slice().reverse().map(row).join('')}</div>
+      <div class="add-row"><button class="btn btn-danger" id="prep-clear-done">Clear completed</button></div>
+    ` : ''}
+
     <div class="sync-line"><button data-goto="prepItems">Manage prep items</button></div>
   `;
 }
 
-function prepSubSummary(){
-  const names = [];
-  state.prepSubs.forEach(s => { const n = (s.by||'Kitchen').trim(); if(names.indexOf(n) < 0) names.push(n); });
-  if(names.length <= 1) return names[0] || '';
-  if(names.length === 2) return names[0]+' and '+names[1];
-  return names.slice(0,-1).join(', ')+' and '+names[names.length-1];
-}
 
 /* The draft is a plain list of lines. Staff requests arrive pre-ticked so the
    default action is to publish what was asked for. */
-function ensurePrepDraft(){
-  if(state.prepDraft) return state.prepDraft;
-  const chosen = {};
-  const extras = [];
-  const cat = buildPrepCatalogue();
-  const byName = {};
-  cat.forEach(c => { byName[c.name.trim().toLowerCase()] = c; });
-
-  if(state.published && state.published.lines.length){
-    state.published.lines.forEach(l => {
-      const hit = byName[l.text.trim().toLowerCase()];
-      if(hit) chosen[hit.id] = true; else extras.push(l.text);
-    });
-  }
-  state.prepSubs.forEach(s => {
-    (s.items||[]).forEach(txt => {
-      const hit = byName[String(txt).trim().toLowerCase()];
-      if(hit) chosen[hit.id] = true;
-      else if(extras.indexOf(txt) < 0) extras.push(txt);
-    });
-    if(s.note && extras.indexOf(s.note) < 0) extras.push(s.note);
-  });
-  state.prepDraft = { chosen: chosen, extras: extras };
-  return state.prepDraft;
-}
-
-function renderPrepBuild(){
-  const d = ensurePrepDraft();
+function renderPrepAdd(){
   const cat = buildPrepCatalogue();
   const q = state.prepSearch.trim().toLowerCase();
   const list = q ? cat.filter(c => c.name.toLowerCase().indexOf(q) > -1) : cat;
-  const count = Object.keys(d.chosen).filter(k => d.chosen[k]).length + d.extras.length;
+  const onList = {};
+  (state.prepLines||[]).forEach(l => { if(!l.done) onList[String(l.text).toLowerCase()] = true; });
+  const picked = Object.keys(state.prepPick||{}).filter(k => state.prepPick[k]).length;
 
   let rows = '', lastSec = null;
   if(list.length === 0){
-    rows = `<div class="empty">${cat.length ? 'Nothing matches that.' : 'No prep items yet.<br>Import recipes or add items.'}</div>`;
+    rows = `<div class="empty">${cat.length ? 'Nothing matches that.' : 'No prep items yet.'}</div>`;
   } else {
     list.forEach(c => {
       const sec = c.section || 'Other';
       if(!q && sec !== lastSec){ lastSec = sec; rows += `<div class="sec-head">${escapeHtml(sec)}</div>`; }
+      const already = onList[c.name.toLowerCase()];
       rows += `
-        <div class="pick-row ${d.chosen[c.id]?'on':''}" data-pick="${escapeHtml(c.id)}">
+        <div class="pick-row ${state.prepPick[c.id]?'on':''} ${already?'already':''}" ${already?'':`data-pick="${escapeHtml(c.id)}"`}>
           <span class="pick-box">&#10003;</span>
           <span class="pick-name">${escapeHtml(c.name)}</span>
+          ${already?'<span class="pick-note">on the list</span>':''}
         </div>`;
     });
   }
 
-  const extraRows = d.extras.map((x, i) => `
-    <div class="ing-row">
-      <input class="ing-item" data-extra="${i}" value="${escapeHtml(x)}">
-      <button class="del-x" data-extra-del="${i}" aria-label="Remove">&times;</button>
-    </div>`).join('');
-
   return `
-    <div class="crumb"><button data-goto="prep">&larr; Cancel</button></div>
-    <h2 class="screen-title">Build the prep list</h2>
-    <p class="screen-sub">${state.prepSubs.length ? 'Staff requests are already ticked. Adjust and publish.' : 'Tick what needs doing today.'}</p>
+    <div class="crumb"><button data-goto="prep">&larr; Prep</button></div>
+    <h2 class="screen-title">Add prep</h2>
+    <p class="screen-sub">Goes straight on the list for everyone.</p>
     <div class="search-wrap ${state.prepSearch?'filled':''}">
       <input type="text" id="prep-search" placeholder="Search prep items" value="${escapeHtml(state.prepSearch)}" autocomplete="off">
       <button class="search-clear" id="prep-search-clear" aria-label="Clear">&times;</button>
     </div>
     <div class="card tight">${rows}</div>
     <div class="section-label">Anything else</div>
-    <div class="card tight">
-      <div id="extra-list">${extraRows || '<div class="empty">Nothing extra.</div>'}</div>
-    </div>
-    <div class="add-row"><button class="btn btn-ghost" id="extra-add">+ Add a one-off line</button></div>
+    <div class="card"><textarea id="prep-oneoff" rows="2" placeholder="A one-off line"></textarea></div>
     <div class="sticky-foot">
-      <button class="btn" id="prep-publish" ${count?'':'disabled'}>${count ? 'Publish '+count+' line'+(count===1?'':'s') : 'Nothing ticked yet'}</button>
+      <button class="btn" id="prep-add-go">${picked ? 'Add '+picked+' item'+(picked===1?'':'s') : 'Add to the list'}</button>
     </div>
   `;
 }
@@ -3599,8 +3598,11 @@ function attachHandlers(){
       stashFn(f);
     });
   });
-  document.querySelectorAll('[data-fi-kind]').forEach(sel => {
+  document.querySelectorAll('[data-fi-kind],[data-course-name]').forEach(sel => {
     sel.addEventListener('change', ()=> stashFn(readFnDraft()));
+  });
+  document.querySelectorAll('[data-fi-label],[data-fi-per],[data-fi-qty],[data-fi-perpax],#f-pax').forEach(inp => {
+    inp.addEventListener('change', ()=> stashFn(readFnDraft()));
   });
 
   document.querySelectorAll('[data-fn-save]').forEach(b => {
@@ -3669,8 +3671,11 @@ function attachHandlers(){
       render();
     });
   });
-  document.querySelectorAll('[data-ti-kind]').forEach(sel => {
+  document.querySelectorAll('[data-ti-kind],[data-ti-course]').forEach(sel => {
     sel.addEventListener('change', ()=>{ state.tiers = readTiers(); render(); });
+  });
+  document.querySelectorAll('[data-ti-label],[data-ti-per],[data-ti-qty],[data-ti-perpax]').forEach(inp => {
+    inp.addEventListener('change', ()=>{ state.tiers = readTiers(); render(); });
   });
   document.querySelectorAll('[data-tier-del]').forEach(b => {
     b.addEventListener('click', ()=>{
@@ -3700,39 +3705,32 @@ function attachHandlers(){
     b.addEventListener('click', ()=> tickPrepLine(b.dataset.tick, b.dataset.done !== '1'));
   });
 
-  const pubClear = document.getElementById('prep-pub-clear');
-  if(pubClear){
-    pubClear.addEventListener('click', async ()=>{
-      if(!confirm('Clear the published prep list for everyone?')) return;
-      pubClear.disabled = true;
+  const clearDone = document.getElementById('prep-clear-done');
+  if(clearDone){
+    clearDone.addEventListener('click', async ()=>{
+      const n = (state.prepLines||[]).filter(l=>l.done).length;
+      if(!confirm('Clear '+n+' completed item'+(n===1?'':'s')+' for everyone?')) return;
+      clearDone.disabled = true;
       try{
         const res = await fetch(API + '/api/prep/published/clear', {
-          method:'POST', headers: chefHeaders({'Content-Type':'application/json'}), body:'{}'
+          method:'POST', headers: chefHeaders({'Content-Type':'application/json'}), body: JSON.stringify({})
         });
         if(!res.ok) throw new Error();
-        state.published = null;
-        state.prepDraft = null;
+        state.prepLines = state.prepLines.filter(l => !l.done);
         render();
-        showToast('Prep list cleared');
-      }catch(e){ pubClear.disabled = false; showToast('No connection. Nothing was cleared.'); }
+        showToast('Completed items cleared');
+      }catch(e){ clearDone.disabled = false; showToast('No connection. Nothing was cleared.'); }
     });
   }
 
-  function readExtras(){
-    const out = [];
-    document.querySelectorAll('[data-extra]').forEach(inp => {
-      const v = (inp.value||'').trim();
-      if(v) out.push(v);
-    });
-    return out;
-  }
+  document.querySelectorAll('[data-prep-remove]').forEach(b => {
+    b.addEventListener('click', ()=> removePrepLine(b.dataset.prepRemove));
+  });
 
   document.querySelectorAll('[data-pick]').forEach(row => {
     row.addEventListener('click', ()=>{
-      const d = ensurePrepDraft();
-      d.extras = readExtras();
       const id = row.dataset.pick;
-      if(d.chosen[id]) delete d.chosen[id]; else d.chosen[id] = true;
+      if(state.prepPick[id]) delete state.prepPick[id]; else state.prepPick[id] = true;
       render();
     });
   });
@@ -3740,8 +3738,6 @@ function attachHandlers(){
   const pSearch = document.getElementById('prep-search');
   if(pSearch){
     pSearch.addEventListener('input', ()=>{
-      const d = ensurePrepDraft();
-      d.extras = readExtras();
       state.prepSearch = pSearch.value;
       const pos = pSearch.selectionStart;
       render();
@@ -3750,58 +3746,26 @@ function attachHandlers(){
     });
   }
   const pClear = document.getElementById('prep-search-clear');
-  if(pClear){
-    pClear.addEventListener('click', ()=>{
-      const d = ensurePrepDraft();
-      d.extras = readExtras();
-      state.prepSearch = '';
-      render();
-    });
-  }
+  if(pClear) pClear.addEventListener('click', ()=>{ state.prepSearch=''; render(); });
 
-  const extraAdd = document.getElementById('extra-add');
-  if(extraAdd){
-    extraAdd.addEventListener('click', ()=>{
-      const d = ensurePrepDraft();
-      d.extras = readExtras();
-      d.extras.push('');
-      render();
-      const inputs = document.querySelectorAll('[data-extra]');
-      if(inputs.length) inputs[inputs.length-1].focus();
-    });
-  }
-  document.querySelectorAll('[data-extra-del]').forEach(b => {
-    b.addEventListener('click', ()=>{
-      const d = ensurePrepDraft();
-      const ex = readExtras();
-      ex.splice(parseInt(b.dataset.extraDel,10), 1);
-      d.extras = ex;
-      render();
-    });
-  });
-
-  const doPublish = document.getElementById('prep-publish');
-  if(doPublish){
-    doPublish.addEventListener('click', ()=>{
-      const d = ensurePrepDraft();
-      d.extras = readExtras();
+  const addGo = document.getElementById('prep-add-go');
+  if(addGo){
+    addGo.addEventListener('click', async ()=>{
       const cat = buildPrepCatalogue();
-      const lines = [];
-      cat.forEach(c => {
-        if(!d.chosen[c.id]) return;
-        lines.push({ id: c.id, text: c.name, section: c.section || 'Other', recipe: c.recipe || '' });
-      });
-      d.extras.forEach((x, i) => {
-        if(!x.trim()) return;
-        lines.push({ id: 'x'+i+'-'+Math.random().toString(36).slice(2,6), text: x.trim(), section: 'Anything else', recipe: '' });
-      });
-      if(lines.length === 0){ showToast('Nothing ticked'); return; }
-      doPublish.disabled = true;
-      doPublish.textContent = 'Publishing…';
-      publishPrep(lines);
+      const lines = cat.filter(c => state.prepPick[c.id])
+        .map(c => ({ text:c.name, section:c.section||'Other', recipe:c.recipe||'' }));
+      const oneoff = document.getElementById('prep-oneoff');
+      const extra = oneoff ? (oneoff.value||'').trim() : '';
+      if(extra) lines.push({ text: extra, section:'Anything else', recipe:'' });
+      if(lines.length === 0){ showToast('Pick something first'); return; }
+      addGo.disabled = true; addGo.textContent = 'Adding…';
+      const ok = await addPrepLines(lines);
+      if(!ok){ addGo.disabled = false; addGo.textContent = 'Add to the list'; return; }
+      state.prepPick = {};
+      goto({name:'prep'});
+      showToast('Added to the list');
     });
   }
-
 
   // ---- Prep items ----
   const pitemAdd = document.getElementById('pitem-add');
