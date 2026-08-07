@@ -386,6 +386,7 @@ a.btn-block{display:block;}
 .fni-preview{margin-top:8px;font-size:12.5px;color:var(--ink-soft);}
 .fni-preview strong{color:var(--stamp);font-weight:800;}
 .fni-dim{color:var(--muted);}
+.mezze-qty{margin-top:4px;}
 .acc-row{display:flex;align-items:center;gap:12px;padding:14px 2px;border-bottom:1px solid #F5F3EA;}
 .acc-row:last-child{border-bottom:none;}
 .acc-main{flex:1;min-width:0;}
@@ -569,7 +570,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.2';
+const APP_VERSION = 'v3.3';
 
 let state = {
   suppliers: [], staff: [], roster: {}, timesheet: {}, invoices: {},
@@ -677,8 +678,8 @@ async function fetchInvoices(){
     const res = await fetch(API + '/api/invoices?week=' + encodeURIComponent(week), {
       cache:'no-store', headers: chefHeaders()
     });
-    if(res.status === 401){ state.invoiceSync = 'badkey'; render(); return; }
-    if(res.status === 503){ state.invoiceSync = 'noworkerkey'; render(); return; }
+    if(res.status === 401){ state.invoiceSync = 'badkey'; bgRender(); return; }
+    if(res.status === 503){ state.invoiceSync = 'noworkerkey'; bgRender(); return; }
     if(!res.ok) throw new Error();
     const data = await res.json();
     if(isDirty()){
@@ -696,7 +697,7 @@ async function fetchInvoices(){
       return;
     }
     state.invoiceSync = 'ok';
-    render();
+    bgRender();
   }catch(e){
     state.invoiceSync = 'offline';
   }
@@ -779,7 +780,7 @@ async function fetchRecipes(){
       saveRecipesLocal();
     }
     state.recipeSync = 'ok';
-    if(state.view.name && state.view.name.indexOf('recipe') === 0) render();
+    if(state.view.name && state.view.name.indexOf('recipe') === 0) bgRender();
   }catch(e){
     state.recipeSync = 'offline';
   }
@@ -842,7 +843,7 @@ async function fetchPublished(){
   try{
     const res = await fetch(API + '/api/prep/published', {cache:'no-store', headers: chefHeaders()});
     const d = await res.json();
-    if(d && Array.isArray(d.lines)) state.prepLines = applyRecentTicks(d.lines);
+    if(d && Array.isArray(d.lines)) state.prepLines = mergeFresh(applyRecentTicks(d.lines), state.prepLines);
   }catch(e){}
 }
 
@@ -853,7 +854,17 @@ async function addPrepLines(lines, by){
       body: JSON.stringify({ by: by || 'Rabindra', lines: lines })
     });
     if(!res.ok) throw new Error();
-    await fetchPublished();
+    const d = await res.json().catch(()=>({}));
+    /* Show them straight away rather than re-reading: a key written a moment
+       ago often isn't in KV's listing yet, which is why new lines only turned
+       up after leaving the screen and coming back. */
+    const ids = Array.isArray(d.added) ? d.added : [];
+    lines.forEach((l, i) => {
+      state.prepLines.push(Object.assign({}, l, {
+        id: ids[i] || ('tmp'+Math.random().toString(36).slice(2,8)),
+        by: by || 'Rabindra', at: Date.now(), done:false, doneBy:'', doneAt:0
+      }));
+    });
     return true;
   }catch(e){ showToast('No connection. Not added.'); return false; }
 }
@@ -873,7 +884,7 @@ async function removePrepLine(id){
 
 async function refreshPrep(){
   await fetchPublished();
-  if(state.view.name && state.view.name.indexOf('prep') === 0) render();
+  if(state.view.name && state.view.name.indexOf('prep') === 0) bgRender();
 }
 
 /* KV can take a moment to report a tick that was only just written, so a
@@ -884,6 +895,16 @@ const recentTicks = {};
    changes the same line it wins almost straight away. */
 const TICK_GRACE = 12000;
 function rememberTick(id, done, by){ recentTicks[id] = { done: done, by: by, at: Date.now() }; }
+
+/* Keeps anything added in the last few seconds that the server list hasn't
+   caught up with yet. Without this a new line blinks out again on next poll. */
+function mergeFresh(fromServer, local){
+  const seen = {};
+  fromServer.forEach(l => { seen[l.id] = true; });
+  const cutoff = Date.now() - TICK_GRACE;
+  (local||[]).forEach(l => { if(!seen[l.id] && (l.at||0) > cutoff) fromServer.push(l); });
+  return fromServer;
+}
 function applyRecentTicks(lines){
   const cutoff = Date.now() - TICK_GRACE;
   return (lines||[]).map(l => {
@@ -1049,27 +1070,27 @@ function codeFor(staffId){ return state.codes.find(c => c.staffId === staffId); 
 
 const TIER_SEED = [
   { id:'49', label:'$49', items:[
-    { id:'i49a', label:'Polenta Chips',  kind:'ratio', per:5, course:'Entrée' },
-    { id:'i49b', label:'Salad',          kind:'round', per:5, course:'Main' },
-    { id:'i49c', label:'Calamari',       kind:'ratio', per:5, course:'Entrée' },
-    { id:'i49d', label:'Pizza',          kind:'round', per:5, course:'Main' }
+    { id:'i49a', label:'Polenta Chips',  kind:'head', per:5, course:'Entrée' },
+    { id:'i49b', label:'Salad',          kind:'head', per:5, course:'Main' },
+    { id:'i49c', label:'Calamari',       kind:'head', per:5, course:'Entrée' },
+    { id:'i49d', label:'Pizza',          kind:'head', per:5, course:'Main' }
   ]},
   { id:'59', label:'$59', items:[
-    { id:'i59a', label:'Bruschetta',      kind:'ratio', per:4, course:'Starter' },
-    { id:'i59b', label:'Cheese & Garlic', kind:'ratio', per:6, course:'Starter' },
-    { id:'i59c', label:'Polenta Chips',   kind:'ratio', per:5, course:'Entrée' },
-    { id:'i59d', label:'Salad',           kind:'round', per:5, course:'Main' },
-    { id:'i59e', label:'Calamari',        kind:'ratio', per:5, course:'Entrée' },
-    { id:'i59f', label:'Pizza',           kind:'round', per:5, course:'Main' }
+    { id:'i59a', label:'Bruschetta',      kind:'head', per:4, course:'Starter' },
+    { id:'i59b', label:'Cheese & Garlic', kind:'head', per:6, course:'Starter' },
+    { id:'i59c', label:'Polenta Chips',   kind:'head', per:5, course:'Entrée' },
+    { id:'i59d', label:'Salad',           kind:'head', per:5, course:'Main' },
+    { id:'i59e', label:'Calamari',        kind:'head', per:5, course:'Entrée' },
+    { id:'i59f', label:'Pizza',           kind:'head', per:5, course:'Main' }
   ]},
   { id:'69', label:'$69', items:[
-    { id:'i69a', label:'Bruschetta',      kind:'ratio', per:4, course:'Starter' },
-    { id:'i69b', label:'Cheese & Garlic', kind:'ratio', per:6, course:'Starter' },
-    { id:'i69c', label:'Polenta Chips',   kind:'ratio', per:5, course:'Entrée' },
-    { id:'i69d', label:'Salad',           kind:'round', per:5, course:'Main' },
-    { id:'i69e', label:'Calamari',        kind:'ratio', per:5, course:'Entrée' },
-    { id:'i69f', label:'Pizza',           kind:'round', per:5, course:'Main' },
-    { id:'i69g', label:'Grand Tiramisu',  kind:'fixed', qty:36, perPax:50, course:'Dessert' }
+    { id:'i69a', label:'Bruschetta',      kind:'head', per:4, course:'Starter' },
+    { id:'i69b', label:'Cheese & Garlic', kind:'head', per:6, course:'Starter' },
+    { id:'i69c', label:'Polenta Chips',   kind:'head', per:5, course:'Entrée' },
+    { id:'i69d', label:'Salad',           kind:'head', per:5, course:'Main' },
+    { id:'i69e', label:'Calamari',        kind:'head', per:5, course:'Entrée' },
+    { id:'i69f', label:'Pizza',           kind:'head', per:5, course:'Main' },
+    { id:'i69g', label:'Grand Tiramisu',  kind:'set', qty:36, course:'Dessert' }
   ]}
 ];
 
@@ -1093,19 +1114,42 @@ function addDaysKey(days){
   return d.getFullYear()+'-'+m+'-'+day;
 }
 
+/* Two rules only:
+     head — one serve shared between N people
+     set  — a flat number of serves you type, whatever the head count
+
+   Head counts round to the nearest five first, because that is how the kitchen
+   portions: 32 people get 30 people's worth, 33 get 35. */
+function roundedPax(pax){
+  const n = Math.max(0, Number(pax) || 0);
+  return Math.round(n / 5) * 5;
+}
+
 function fnQty(item, pax){
   if(!item) return '';
-  if(item.kind === 'text') return '';
-  if(item.kind === 'round'){
-    const per = Math.max(1, item.per || 1);
-    return Math.ceil((pax||0) / per) + ' per round';
-  }
-  if(item.kind === 'fixed'){
-    if(!item.perPax) return String(item.qty || 0);
-    return String((item.qty || 0) * Math.max(1, Math.ceil((pax||0) / item.perPax)));
-  }
+  if(item.kind === 'set') return String(Math.max(0, Number(item.qty) || 0));
   const per = Math.max(1, item.per || 1);
-  return String(Math.ceil((pax||0) / per));
+  return String(Math.ceil(roundedPax(pax) / per));
+}
+
+function fnRuleText(item){
+  if(!item) return '';
+  return item.kind === 'set'
+    ? 'set amount'
+    : '1 per ' + Math.max(1, item.per || 1) + ' people';
+}
+
+/* Anything saved under the older rule names still reads correctly. */
+function normaliseItem(i){
+  const out = Object.assign({}, i);
+  if(out.kind === 'fixed' || out.kind === 'text'){
+    out.kind = 'set';
+    out.qty = Number(i.qty) || 0;
+  } else {
+    out.kind = 'head';
+    out.per = Math.max(1, Number(i.per) || 5);
+  }
+  return out;
 }
 
 function fnDateLabel(key){
@@ -1158,7 +1202,7 @@ async function fetchFunctions(){
     pruneFunctions();
     // never redraw over a form being filled in, or typing is lost
     const editing = state.view.name === 'fnEdit' || state.view.name === 'fnTiers';
-    if(!editing && state.view.name && state.view.name.indexOf('fn') === 0) render();
+    if(state.view.name && state.view.name.indexOf('fn') === 0) bgRender();
   }catch(e){
     if(!state.tiers.length) state.tiers = TIER_SEED.slice();
   }
@@ -1678,6 +1722,12 @@ function buildSendLink(supplier, message, subject){
   }
 }
 
+/* Screens where the user is typing. A background poll must never redraw these
+   or half-entered forms vanish — which is what wiped function names and pax. */
+const EDIT_VIEWS = ['fnEdit','fnTiers','recipeEdit','addSupplier','addProduct','editProduct','recipeImport','access','prepItems'];
+function isEditing(){ return EDIT_VIEWS.indexOf(state.view.name) > -1; }
+function bgRender(){ if(isEditing()) return; render(); }
+
 function render(){
   const app = document.getElementById('app');
   const v = state.view;
@@ -1970,9 +2020,11 @@ function renderFunctions(){
 /* Shows what the rule actually produces, so the maths isn't a guess. */
 function fnPreview(item, pax){
   if(!item || !item.label) return '';
-  if(item.kind === 'text') return escapeHtml(item.label)+' &mdash; no count';
   const q = fnQty(item, pax || 0);
-  return '<strong>'+escapeHtml(q)+'</strong> '+escapeHtml(item.label);
+  const rounded = item.kind !== 'set' && roundedPax(pax) !== Number(pax||0)
+    ? ' <span class="fni-dim">(counted as '+roundedPax(pax)+')</span>' : '';
+  return '<strong>'+escapeHtml(q)+'</strong> &times; '+escapeHtml(item.label)
+       + ' <span class="fni-dim">&middot; '+escapeHtml(fnRuleText(item))+'</span>' + rounded;
 }
 
 function tierLabel(id){
@@ -1984,11 +2036,14 @@ function renderFunction(id){
   const f = findFunction(id);
   if(!f) return `<div class="crumb"><button data-goto="functions">&larr; Functions</button></div><div class="empty">Function not found.</div>`;
 
+  const mezze = f.mezze ? `
+    <div class="section-label">Mezze</div>
+    <div class="card tight"><div class="fn-item"><span class="fn-qty">${f.mezze} &times;</span><span class="fn-label">Mezze board</span></div></div>` : '';
+
   const courses = sortCourses(f.courses).map(c => {
     const items = (c.items||[]).map(i => {
       const q = fnQty(i, f.pax);
-      const isRound = i.kind === 'round';
-      return `<div class="fn-item"><span class="fn-qty">${q?(isRound?escapeHtml(q.split(' ')[0]):escapeHtml(q)+' &times;'):'&mdash;'}</span><span class="fn-label">${escapeHtml(i.label)}${isRound?' <span class="fn-note">per round</span>':''}</span></div>`;
+      return `<div class="fn-item"><span class="fn-qty">${escapeHtml(q)} &times;</span><span class="fn-label">${escapeHtml(i.label)}</span></div>`;
     }).join('');
     return `
       <div class="section-label">${escapeHtml(c.name)}${c.time?` <span class="fn-time">${escapeHtml(c.time)}</span>`:''}</div>
@@ -2012,13 +2067,14 @@ function renderFunction(id){
     </div>
     ${diet}
     ${f.notes?`<div class="section-label">Notes</div><div class="card"><div class="rn-text">${escapeHtml(f.notes)}</div></div>`:''}
+    ${mezze}
     ${courses}
     <div class="add-row"><button class="btn" data-goto="fnEdit" data-fid="${escapeHtml(f.id)}">Edit function</button></div>
   `;
 }
 
 function blankFunction(){
-  return { id:'', date: addDaysKey(7), name:'', pax:0, tier:'', startTime:'', dietary:[], notes:'', courses:[] };
+  return { id:'', date: addDaysKey(7), name:'', pax:0, tier:'', startTime:'', dietary:[], notes:'', mezze:0, courses:[] };
 }
 
 function renderFunctionEdit(id){
@@ -2043,15 +2099,16 @@ function renderFunctionEdit(id){
           <button class="del-x" data-fi-del="${escapeHtml(i.id)}" aria-label="Remove">&times;</button>
         </div>
         <div class="fni-rule">
-          <select class="fni-kind" data-fi-kind="${escapeHtml(i.id)}">
-            <option value="ratio" ${i.kind==='ratio'?'selected':''}>1 serve per</option>
-            <option value="round" ${i.kind==='round'?'selected':''}>1 per round per</option>
-            <option value="fixed" ${i.kind==='fixed'?'selected':''}>Fixed amount</option>
-            <option value="text"  ${i.kind==='text' ?'selected':''}>No count</option>
+          <select class="fni-course-sel" data-fi-course="${escapeHtml(i.id)}">
+            ${COURSE_ORDER.map(cn=>`<option value="${escapeHtml(cn)}" ${(i.course||c.name)===cn?'selected':''}>${escapeHtml(cn)}</option>`).join('')}
           </select>
-          ${(i.kind==='ratio'||i.kind==='round')?`<input class="fni-num" data-fi-per="${escapeHtml(i.id)}" value="${i.per||5}" inputmode="numeric" aria-label="per how many people"><span class="fni-unit">people</span>`:''}
-          ${i.kind==='fixed'?`<input class="fni-num" data-fi-qty="${escapeHtml(i.id)}" value="${i.qty||0}" inputmode="numeric" aria-label="quantity"><span class="fni-unit">per</span>
-            <input class="fni-num" data-fi-perpax="${escapeHtml(i.id)}" value="${i.perPax||0}" inputmode="numeric" aria-label="per how many people, 0 never scales"><span class="fni-unit">people</span>`:''}
+          <select class="fni-kind" data-fi-kind="${escapeHtml(i.id)}">
+            <option value="head" ${i.kind!=='set'?'selected':''}>1 serve per</option>
+            <option value="set"  ${i.kind==='set'?'selected':''}>Set amount</option>
+          </select>
+          ${i.kind!=='set'
+            ? `<input class="fni-num" data-fi-per="${escapeHtml(i.id)}" value="${i.per||5}" inputmode="numeric" aria-label="per how many people"><span class="fni-unit">people</span>`
+            : `<input class="fni-num" data-fi-qty="${escapeHtml(i.id)}" value="${i.qty||0}" inputmode="numeric" aria-label="how many serves"><span class="fni-unit">serves</span>`}
         </div>
         <div class="fni-preview">${fnPreview(i, f.pax)}</div>
       </div>`).join('');
@@ -2086,6 +2143,12 @@ function renderFunctionEdit(id){
       <div class="chip-row">${tierChips}<button type="button" class="chip cat-chip cat-new" data-tier-pick="">None</button></div>
       <label>Notes</label>
       <textarea id="f-notes" rows="2" placeholder="Anything the kitchen should know">${escapeHtml(f.notes||'')}</textarea>
+      <label class="switch inline" title="Mezze boards are bought separately">
+        <input type="checkbox" id="f-mezze" ${f.mezze?'checked':''}>
+        <span class="switch-track"><span class="switch-knob"></span></span>
+        <span class="switch-label">Mezze boards</span>
+      </label>
+      <input class="fni-num mezze-qty" id="f-mezze-qty" value="${f.mezze||1}" inputmode="numeric" aria-label="How many mezze boards" ${f.mezze?'':'hidden'}>
     </div>
 
     <div class="section-label">Dietary requirements</div>
@@ -2118,14 +2181,12 @@ function renderTiers(){
             ${COURSE_ORDER.indexOf(i.course||'')<0 && i.course ? `<option value="${escapeHtml(i.course)}" selected>${escapeHtml(i.course)}</option>` : ''}
           </select>
           <select class="fni-kind" data-ti-kind="${escapeHtml(i.id)}">
-            <option value="ratio" ${i.kind==='ratio'?'selected':''}>1 serve per</option>
-            <option value="round" ${i.kind==='round'?'selected':''}>1 per round per</option>
-            <option value="fixed" ${i.kind==='fixed'?'selected':''}>Fixed amount</option>
-            <option value="text"  ${i.kind==='text' ?'selected':''}>No count</option>
+            <option value="head" ${i.kind!=='set'?'selected':''}>1 serve per</option>
+            <option value="set"  ${i.kind==='set'?'selected':''}>Set amount</option>
           </select>
-          ${(i.kind==='ratio'||i.kind==='round')?`<input class="fni-num" data-ti-per="${escapeHtml(i.id)}" value="${i.per||5}" inputmode="numeric"><span class="fni-unit">people</span>`:''}
-          ${i.kind==='fixed'?`<input class="fni-num" data-ti-qty="${escapeHtml(i.id)}" value="${i.qty||0}" inputmode="numeric"><span class="fni-unit">per</span>
-            <input class="fni-num" data-ti-perpax="${escapeHtml(i.id)}" value="${i.perPax||0}" inputmode="numeric"><span class="fni-unit">people</span>`:''}
+          ${i.kind!=='set'
+            ? `<input class="fni-num" data-ti-per="${escapeHtml(i.id)}" value="${i.per||5}" inputmode="numeric"><span class="fni-unit">people</span>`
+            : `<input class="fni-num" data-ti-qty="${escapeHtml(i.id)}" value="${i.qty||0}" inputmode="numeric"><span class="fni-unit">serves</span>`}
         </div>
         <div class="fni-preview">${fnPreview(i, 50)} <span class="fni-dim">at 50pax</span></div>
       </div>`).join('');
@@ -3520,13 +3581,13 @@ function attachHandlers(){
         const kin = document.querySelector('[data-fi-kind="'+i.id+'"]');
         const per = document.querySelector('[data-fi-per="'+i.id+'"]');
         const qty = document.querySelector('[data-fi-qty="'+i.id+'"]');
-        const pp  = document.querySelector('[data-fi-perpax="'+i.id+'"]');
+        const crs = document.querySelector('[data-fi-course="'+i.id+'"]');
         const out = Object.assign({}, i);
         if(lab) out.label = (lab.value||'').trim();
         if(kin) out.kind = kin.value;
         if(per) out.per = Math.max(1, parseInt(per.value,10) || 1);
         if(qty) out.qty = Math.max(0, parseInt(qty.value,10) || 0);
-        if(pp)  out.perPax = Math.max(0, parseInt(pp.value,10) || 0);
+        if(crs) out.course = crs.value;
         return out;
       }).filter(i => i.label);
       return Object.assign({}, c, {
@@ -3535,6 +3596,30 @@ function attachHandlers(){
         items: items
       });
     }).filter(c => c.name);
+
+    /* A dish can be reassigned to another course from its own row, so move any
+       that no longer belong where they sit. */
+    const moving = [];
+    f.courses.forEach(c => {
+      c.items = c.items.filter(i => {
+        if(!i.course || i.course === c.name) return true;
+        moving.push(i);
+        return false;
+      });
+    });
+    moving.forEach(i => {
+      let target = f.courses.find(c => c.name === i.course);
+      if(!target){
+        target = { id:'c'+uid(), name:i.course, time:'', items:[] };
+        f.courses.push(target);
+      }
+      target.items.push(i);
+    });
+    f.courses = f.courses.filter(c => c.items.length || COURSE_ORDER.indexOf(c.name) > -1);
+
+    const mz = document.getElementById('f-mezze');
+    const mzq = document.getElementById('f-mezze-qty');
+    if(mz){ f.mezze = mz.checked ? Math.max(1, parseInt(mzq ? mzq.value : '1', 10) || 1) : 0; }
     return f;
   }
 
@@ -3587,7 +3672,7 @@ function attachHandlers(){
     b.addEventListener('click', ()=>{
       const f = readFnDraft();
       const c = f.courses.find(x => x.id === b.dataset.itemAdd);
-      if(c) c.items.push({ id:'i'+uid(), label:'', kind:'ratio', per:5, course:c.name });
+      if(c) c.items.push({ id:'i'+uid(), label:'', kind:'head', per:5, course:c.name });
       stashFn(f);
     });
   });
@@ -3598,10 +3683,18 @@ function attachHandlers(){
       stashFn(f);
     });
   });
-  document.querySelectorAll('[data-fi-kind],[data-course-name]').forEach(sel => {
+  const mzToggle = document.getElementById('f-mezze');
+  if(mzToggle){
+    mzToggle.addEventListener('change', ()=>{
+      const q = document.getElementById('f-mezze-qty');
+      if(q){ q.hidden = !mzToggle.checked; if(mzToggle.checked) q.focus(); }
+    });
+  }
+
+  document.querySelectorAll('[data-fi-kind],[data-fi-course],[data-course-name]').forEach(sel => {
     sel.addEventListener('change', ()=> stashFn(readFnDraft()));
   });
-  document.querySelectorAll('[data-fi-label],[data-fi-per],[data-fi-qty],[data-fi-perpax],#f-pax').forEach(inp => {
+  document.querySelectorAll('[data-fi-label],[data-fi-per],[data-fi-qty],#f-pax').forEach(inp => {
     inp.addEventListener('change', ()=> stashFn(readFnDraft()));
   });
 
@@ -3643,14 +3736,13 @@ function attachHandlers(){
       const items = (tr.items||[]).map(i => {
         const g = sel => document.querySelector(sel+'="'+i.id+'"]');
         const l = g('[data-ti-label'), c = g('[data-ti-course'), k = g('[data-ti-kind');
-        const per = g('[data-ti-per'), qty = g('[data-ti-qty'), pp = g('[data-ti-perpax');
+        const per = g('[data-ti-per'), qty = g('[data-ti-qty');
         const out = Object.assign({}, i);
         if(l) out.label = (l.value||'').trim();
         if(c) out.course = (c.value||'').trim();
         if(k) out.kind = k.value;
         if(per) out.per = Math.max(1, parseInt(per.value,10) || 1);
         if(qty) out.qty = Math.max(0, parseInt(qty.value,10) || 0);
-        if(pp)  out.perPax = Math.max(0, parseInt(pp.value,10) || 0);
         return out;
       }).filter(i => i.label);
       return Object.assign({}, tr, { label: lab ? (lab.value||'').trim() || tr.label : tr.label, items: items });
@@ -3660,7 +3752,7 @@ function attachHandlers(){
     b.addEventListener('click', ()=>{
       state.tiers = readTiers();
       const tr = state.tiers.find(x => x.id === b.dataset.tiAdd);
-      if(tr) tr.items.push({ id:'i'+uid(), label:'', kind:'ratio', per:5, course:'Entrée' });
+      if(tr) tr.items.push({ id:'i'+uid(), label:'', kind:'head', per:5, course:'Entrée' });
       render();
     });
   });
@@ -3674,7 +3766,7 @@ function attachHandlers(){
   document.querySelectorAll('[data-ti-kind],[data-ti-course]').forEach(sel => {
     sel.addEventListener('change', ()=>{ state.tiers = readTiers(); render(); });
   });
-  document.querySelectorAll('[data-ti-label],[data-ti-per],[data-ti-qty],[data-ti-perpax]').forEach(inp => {
+  document.querySelectorAll('[data-ti-label],[data-ti-per],[data-ti-qty]').forEach(inp => {
     inp.addEventListener('change', ()=>{ state.tiers = readTiers(); render(); });
   });
   document.querySelectorAll('[data-tier-del]').forEach(b => {
@@ -4075,7 +4167,7 @@ async function fetchOrders(){
     const res = await fetch(API + '/api/orders', {cache:'no-store'});
     const data = await res.json();
     state.orders = Array.isArray(data.orders) ? data.orders : [];
-    render();
+    bgRender();
   }catch(e){ /* keep whatever we already had */ }
 }
 
