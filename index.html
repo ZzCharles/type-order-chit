@@ -307,7 +307,10 @@ a.btn-block{display:block;}
 .pill.warn{background:#F6EBDC;color:#8A5A16;}
 
 /* switch */
-.switch{display:inline-flex;align-items:center;gap:7px;cursor:pointer;flex:0 0 auto;}
+/* Written as a <label>, so it has to beat `.form-card label{display:block}`
+   further up — that override was collapsing the track onto its own text. */
+.switch,.form-card label.switch{display:inline-flex;align-items:center;gap:9px;cursor:pointer;flex:0 0 auto;
+  font-size:11px;text-transform:none;letter-spacing:0;margin:0;}
 .switch input{position:absolute;opacity:0;width:0;height:0;}
 .switch-track{width:38px;height:22px;border-radius:999px;background:#DEDBCC;position:relative;transition:background .2s ease;flex:0 0 auto;}
 .switch-knob{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(38,35,25,.28);transition:transform .22s cubic-bezier(.2,.7,.3,1);}
@@ -379,14 +382,18 @@ a.btn-block{display:block;}
 .fni-top{display:flex;gap:8px;align-items:center;}
 .fni-label{flex:1;font-weight:600;}
 .fni-rule{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px;}
-.fni-kind{font-size:13px!important;padding:8px 6px!important;}
-.fni-course-sel{font-size:13px!important;padding:8px 6px!important;}
-.fni-num{width:56px;text-align:center;font-weight:700;}
-.fni-unit{font-size:12.5px;color:var(--muted);font-weight:600;}
+.fni-kind{font-size:13px!important;padding:8px 4px!important;flex:0 1 auto;min-width:0;max-width:118px;}
+.fni-course-sel{font-size:13px!important;padding:8px 4px!important;flex:0 1 auto;min-width:0;max-width:96px;}
+.fni-amt{display:inline-flex;align-items:center;gap:5px;flex:0 0 auto;}
+.fni-num{width:52px!important;flex:0 0 52px;text-align:center;font-weight:700;}
+.fni-unit{font-size:12.5px;color:var(--muted);font-weight:600;white-space:nowrap;}
 .fni-preview{margin-top:8px;font-size:12.5px;color:var(--ink-soft);}
 .fni-preview strong{color:var(--stamp);font-weight:800;}
 .fni-dim{color:var(--muted);}
-.mezze-qty{margin-top:4px;}
+.mezze-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:16px 0 4px;padding-top:14px;border-top:1px solid var(--line);}
+.mezze-row .switch,.mezze-row label.switch{flex:1 1 auto;min-width:0;}
+.mezze-row .switch-label{white-space:nowrap;}
+.switch-track{position:relative;display:inline-block;}
 .acc-row{display:flex;align-items:center;gap:12px;padding:14px 2px;border-bottom:1px solid #F5F3EA;}
 .acc-row:last-child{border-bottom:none;}
 .acc-main{flex:1;min-width:0;}
@@ -570,7 +577,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.3';
+const APP_VERSION = 'v3.5';
 
 let state = {
   suppliers: [], staff: [], roster: {}, timesheet: {}, invoices: {},
@@ -1120,6 +1127,8 @@ function addDaysKey(days){
 
    Head counts round to the nearest five first, because that is how the kitchen
    portions: 32 people get 30 people's worth, 33 get 35. */
+const DEFAULT_PER = 5;   // must match the value shown in the input box
+
 function roundedPax(pax){
   const n = Math.max(0, Number(pax) || 0);
   return Math.round(n / 5) * 5;
@@ -1128,7 +1137,7 @@ function roundedPax(pax){
 function fnQty(item, pax){
   if(!item) return '';
   if(item.kind === 'set') return String(Math.max(0, Number(item.qty) || 0));
-  const per = Math.max(1, item.per || 1);
+  const per = Math.max(1, Number(item.per) || DEFAULT_PER);
   return String(Math.ceil(roundedPax(pax) / per));
 }
 
@@ -1136,19 +1145,30 @@ function fnRuleText(item){
   if(!item) return '';
   return item.kind === 'set'
     ? 'set amount'
-    : '1 per ' + Math.max(1, item.per || 1) + ' people';
+    : '1 per ' + Math.max(1, Number(item.per) || DEFAULT_PER) + ' people';
 }
 
 /* Anything saved under the older rule names still reads correctly. */
-function normaliseItem(i){
+function normaliseFunctions(){
+  (state.functions||[]).forEach(f => {
+    (f.courses||[]).forEach(c => { c.items = (c.items||[]).map(i => normaliseItem(i, c.name)); });
+  });
+  (state.tiers||[]).forEach(tr => { tr.items = (tr.items||[]).map(i => normaliseItem(i)); });
+}
+
+function normaliseItem(i, courseName){
   const out = Object.assign({}, i);
-  if(out.kind === 'fixed' || out.kind === 'text'){
+  if(out.kind === 'fixed' || out.kind === 'text' || out.kind === 'set'){
     out.kind = 'set';
-    out.qty = Number(i.qty) || 0;
+    out.qty = Math.max(0, Number(i.qty) || 0);
+    delete out.per;
   } else {
     out.kind = 'head';
-    out.per = Math.max(1, Number(i.per) || 5);
+    out.per = Math.max(1, Number(i.per) || DEFAULT_PER);
+    delete out.qty;
   }
+  delete out.perPax;
+  if(!out.course && courseName) out.course = courseName;
   return out;
 }
 
@@ -1174,7 +1194,7 @@ function coursesFromTier(tier){
   (tier.items||[]).forEach(i => {
     const c = i.course || 'Main';
     if(!byCourse[c]) byCourse[c] = [];
-    byCourse[c].push(Object.assign({}, i, { id: 'i'+Math.random().toString(36).slice(2,7) }));
+    byCourse[c].push(normaliseItem(Object.assign({}, i, { id: 'i'+Math.random().toString(36).slice(2,7) }), c));
   });
   const names = Object.keys(byCourse).sort((a,b)=>{
     const ia = COURSE_ORDER.indexOf(a), ib = COURSE_ORDER.indexOf(b);
@@ -1199,6 +1219,7 @@ async function fetchFunctions(){
       if(!Array.isArray(d.tiers) || !d.tiers.length) pushTiers();
     }
     state.fnLoaded = true;
+    normaliseFunctions();
     pruneFunctions();
     // never redraw over a form being filled in, or typing is lost
     const editing = state.view.name === 'fnEdit' || state.view.name === 'fnTiers';
@@ -2107,8 +2128,8 @@ function renderFunctionEdit(id){
             <option value="set"  ${i.kind==='set'?'selected':''}>Set amount</option>
           </select>
           ${i.kind!=='set'
-            ? `<input class="fni-num" data-fi-per="${escapeHtml(i.id)}" value="${i.per||5}" inputmode="numeric" aria-label="per how many people"><span class="fni-unit">people</span>`
-            : `<input class="fni-num" data-fi-qty="${escapeHtml(i.id)}" value="${i.qty||0}" inputmode="numeric" aria-label="how many serves"><span class="fni-unit">serves</span>`}
+            ? `<span class="fni-amt"><input class="fni-num" data-fi-per="${escapeHtml(i.id)}" value="${Number(i.per)||DEFAULT_PER}" inputmode="numeric" aria-label="per how many people"><span class="fni-unit">people</span></span>`
+            : `<span class="fni-amt"><input class="fni-num" data-fi-qty="${escapeHtml(i.id)}" value="${Number(i.qty)||0}" inputmode="numeric" aria-label="how many serves"><span class="fni-unit">serves</span></span>`}
         </div>
         <div class="fni-preview">${fnPreview(i, f.pax)}</div>
       </div>`).join('');
@@ -2143,12 +2164,17 @@ function renderFunctionEdit(id){
       <div class="chip-row">${tierChips}<button type="button" class="chip cat-chip cat-new" data-tier-pick="">None</button></div>
       <label>Notes</label>
       <textarea id="f-notes" rows="2" placeholder="Anything the kitchen should know">${escapeHtml(f.notes||'')}</textarea>
-      <label class="switch inline" title="Mezze boards are bought separately">
-        <input type="checkbox" id="f-mezze" ${f.mezze?'checked':''}>
-        <span class="switch-track"><span class="switch-knob"></span></span>
-        <span class="switch-label">Mezze boards</span>
-      </label>
-      <input class="fni-num mezze-qty" id="f-mezze-qty" value="${f.mezze||1}" inputmode="numeric" aria-label="How many mezze boards" ${f.mezze?'':'hidden'}>
+      <div class="mezze-row">
+        <label class="switch" for="f-mezze">
+          <input type="checkbox" id="f-mezze" ${f.mezze?'checked':''}>
+          <span class="switch-track"><span class="switch-knob"></span></span>
+          <span class="switch-label">Mezze boards</span>
+        </label>
+        <span class="fni-amt" id="f-mezze-wrap" ${f.mezze?'':'hidden'}>
+          <input class="fni-num" id="f-mezze-qty" value="${f.mezze||1}" inputmode="numeric" aria-label="How many mezze boards">
+          <span class="fni-unit">boards</span>
+        </span>
+      </div>
     </div>
 
     <div class="section-label">Dietary requirements</div>
@@ -2185,8 +2211,8 @@ function renderTiers(){
             <option value="set"  ${i.kind==='set'?'selected':''}>Set amount</option>
           </select>
           ${i.kind!=='set'
-            ? `<input class="fni-num" data-ti-per="${escapeHtml(i.id)}" value="${i.per||5}" inputmode="numeric"><span class="fni-unit">people</span>`
-            : `<input class="fni-num" data-ti-qty="${escapeHtml(i.id)}" value="${i.qty||0}" inputmode="numeric"><span class="fni-unit">serves</span>`}
+            ? `<span class="fni-amt"><input class="fni-num" data-ti-per="${escapeHtml(i.id)}" value="${Number(i.per)||DEFAULT_PER}" inputmode="numeric"><span class="fni-unit">people</span></span>`
+            : `<span class="fni-amt"><input class="fni-num" data-ti-qty="${escapeHtml(i.id)}" value="${Number(i.qty)||0}" inputmode="numeric"><span class="fni-unit">serves</span></span>`}
         </div>
         <div class="fni-preview">${fnPreview(i, 50)} <span class="fni-dim">at 50pax</span></div>
       </div>`).join('');
@@ -3686,17 +3712,24 @@ function attachHandlers(){
   const mzToggle = document.getElementById('f-mezze');
   if(mzToggle){
     mzToggle.addEventListener('change', ()=>{
+      const wrap = document.getElementById('f-mezze-wrap');
       const q = document.getElementById('f-mezze-qty');
-      if(q){ q.hidden = !mzToggle.checked; if(mzToggle.checked) q.focus(); }
+      if(wrap) wrap.hidden = !mzToggle.checked;
+      if(q && mzToggle.checked) q.focus();
     });
   }
 
   document.querySelectorAll('[data-fi-kind],[data-fi-course],[data-course-name]').forEach(sel => {
     sel.addEventListener('change', ()=> stashFn(readFnDraft()));
   });
-  document.querySelectorAll('[data-fi-label],[data-fi-per],[data-fi-qty],#f-pax').forEach(inp => {
+  document.querySelectorAll('[data-fi-label],[data-fi-per],[data-fi-qty]').forEach(inp => {
     inp.addEventListener('change', ()=> stashFn(readFnDraft()));
   });
+  // pax changes every quantity on screen, so redraw for it
+  const paxEl = document.getElementById('f-pax');
+  if(paxEl) paxEl.addEventListener('change', ()=> stashFn(readFnDraft()));
+  /* Date, name, start and notes are read straight off the form when you save,
+     so they must not trigger a redraw — that is what used to wipe them. */
 
   document.querySelectorAll('[data-fn-save]').forEach(b => {
     b.addEventListener('click', async ()=>{
@@ -3708,6 +3741,12 @@ function attachHandlers(){
         f.id = 'f'+uid();
         state.functions.push(f);
         state.fnDraft = null;
+      } else {
+        /* readFnDraft hands back a copy. Without writing it back, every edit to
+           an existing function was silently discarded on save. */
+        const cur = findFunction(b.dataset.fnSave);
+        if(cur) Object.assign(cur, f);
+        else { state.functions.push(f); }
       }
       state.functions.sort((a,c)=> a.date < c.date ? -1 : a.date > c.date ? 1 : 0);
       const ok = await pushFunctions();
