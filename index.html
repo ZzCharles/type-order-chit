@@ -588,7 +588,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.6';
+const APP_VERSION = 'v3.7';
 
 let state = {
   suppliers: [], staff: [], roster: {}, timesheet: {}, invoices: {},
@@ -823,9 +823,15 @@ function buildPrepCatalogue(){
   state.prepItems.forEach(i => items.push({ id: i.id, name: i.name, section: i.section || '', recipe: '' }));
   const order = state.recipeSections;
   items.sort((a,b)=>{
+    const sa = a.section || 'Other', sb = b.section || 'Other';
     const ia = order.indexOf(a.section), ib = order.indexOf(b.section);
-    const sa = ia < 0 ? 999 : ia, sb = ib < 0 ? 999 : ib;
-    if(sa !== sb) return sa - sb;
+    const ra = ia < 0 ? 999 : ia, rb = ib < 0 ? 999 : ib;
+    if(ra !== rb) return ra - rb;
+    /* Anything not in the recipe section order used to land in one bucket and
+       then sort by item name, which shuffled several sections together and made
+       the same heading appear over and over down the screen. Sorting those by
+       section name first keeps each one whole. */
+    if(ra === 999 && !sameSection(sa, sb)) return sa.localeCompare(sb,'en',{sensitivity:'base'});
     return String(a.name).localeCompare(String(b.name),'en',{sensitivity:'base'});
   });
   return items;
@@ -861,7 +867,7 @@ async function fetchPublished(){
   try{
     const res = await fetch(API + '/api/prep/published', {cache:'no-store', headers: chefHeaders()});
     const d = await res.json();
-    if(d && Array.isArray(d.lines)) state.prepLines = mergeFresh(applyRecentTicks(d.lines), state.prepLines);
+    if(d && Array.isArray(d.lines)) state.prepLines = dropCleared(mergeFresh(applyRecentTicks(d.lines), state.prepLines));
   }catch(e){}
 }
 
@@ -913,6 +919,16 @@ const recentTicks = {};
    changes the same line it wins almost straight away. */
 const TICK_GRACE = 12000;
 function rememberTick(id, done, by){ recentTicks[id] = { done: done, by: by, at: Date.now() }; }
+
+/* A delete takes a moment to show up in a listing too, so a poll landing just
+   after "Clear completed" can hand back lines that are already gone. These
+   tombstones hold them out for the same short window. */
+const clearedLines = {};
+function dropCleared(lines){
+  const cutoff = Date.now() - TICK_GRACE;
+  Object.keys(clearedLines).forEach(id => { if(clearedLines[id] < cutoff) delete clearedLines[id]; });
+  return (lines||[]).filter(l => !clearedLines[l.id]);
+}
 
 /* Keeps anything added in the last few seconds that the server list hasn't
    caught up with yet. Without this a new line blinks out again on next poll. */
@@ -1360,6 +1376,53 @@ function loadInvoices(){
 }
 
 function saveRoster(){ try{ localStorage.setItem(ROSTER_KEY, JSON.stringify(state.roster)); }catch(e){} }
+
+/* ===== Weekly roster reset =====
+   The roster is one blob that just persists, so last week rolls into this week.
+   That is right for regular shifts, but anyone rostered on a day they are not
+   available was covering - which cannot be assumed again. So on the first open
+   of a new week those entries drop out and the regular ones stay. */
+const ROSTER_WEEK_KEY = 'order-chit-roster-week';
+
+/* The Monday of the week the current service day falls in. Using the service
+   day means a 2am Sunday finish still counts as Sunday, not as Monday. */
+function weekStartKey(){
+  const d = new Date(serviceDateKey() + 'T12:00:00');
+  const dow = d.getDay();               // 0 Sun .. 6 Sat
+  const back = dow === 0 ? 6 : dow - 1; // wind back to Monday
+  d.setDate(d.getDate() - back);
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+
+/* Returns how many cover shifts were dropped, so the app can say so. */
+function pruneCoverShifts(){
+  let dropped = 0;
+  ROSTER_DAY_KEYS.forEach(day => {
+    const entries = state.roster[day] || {};
+    Object.keys(entries).forEach(staffId => {
+      const st = state.staff.find(s => s.id === staffId);
+      const available = st && st.avail && st.avail[day];
+      if(!available){ delete entries[staffId]; dropped++; }
+    });
+  });
+  if(dropped) saveRoster();
+  return dropped;
+}
+
+/* Runs once per week, on the first time the app is opened in a new week. */
+function rollRosterWeek(){
+  const week = weekStartKey();
+  let seen = null;
+  try{ seen = localStorage.getItem(ROSTER_WEEK_KEY); }catch(e){}
+  if(seen === week) return 0;
+  /* First ever run just records the week. Wiping cover shifts the moment this
+     ships, mid-week, would be a nasty surprise. */
+  const dropped = seen ? pruneCoverShifts() : 0;
+  try{ localStorage.setItem(ROSTER_WEEK_KEY, week); }catch(e){}
+  if(dropped) state.rosterRolled = dropped;
+  return dropped;
+}
+
 function loadRoster(){
   try{ const r = localStorage.getItem(ROSTER_KEY); state.roster = r ? JSON.parse(r) : {}; }
   catch(e){ state.roster = {}; }
@@ -1392,7 +1455,9 @@ function buildRosterText(){
       if(ra!==rb) return ra-rb;
       return (entries[a.id].start||'').localeCompare(entries[b.id].start||'');
     });
-    const lines = [ROSTER_DAY_FULL[k]];
+    /* Asterisks are WhatsApp's bold. This only ever goes to WhatsApp - if it
+       ever goes by SMS they will show up as literal asterisks. */
+    const lines = ['*' + ROSTER_DAY_FULL[k] + '*'];
     scheduled.forEach(st=>{
       const e = entries[st.id];
       const t = e.end ? `${fmtTime(e.start)} - ${fmtTime(e.end)}` : fmtTime(e.start);
@@ -1401,7 +1466,10 @@ function buildRosterText(){
     });
     blocks.push(lines.join('\n'));
   });
-  return blocks.join('\n\n');
+  if(blocks.length === 0) return '';
+  return 'Hey guys,\n\nPlease find the roster for next week:\n\n'
+    + blocks.join('\n\n')
+    + '\n\nThank you';
 }
 
 const TIMESHEET_KEY = 'order-chit-timesheet';
@@ -1616,6 +1684,7 @@ function loadData(){
   }
   loadStaff();
   loadRoster();
+  rollRosterWeek();
   loadTimesheet();
   loadInvoices();
   loadCategories();
@@ -2312,13 +2381,23 @@ function renderPrep(){
     let out = '', lastSec = null;
     list.forEach(l => {
       const sec = l.section || 'Other';
-      if(sec !== lastSec){ lastSec = sec; out += `<div class="sec-head">${escapeHtml(sec)}</div>`; }
+      if(!sameSection(sec, lastSec)){ lastSec = sec; out += `<div class="sec-head">${escapeHtml(sec)}</div>`; }
       out += row(l);
     });
     return out;
   };
 
-  const todoSorted = todo.slice().sort((a,b)=>String(a.section||'Other').localeCompare(String(b.section||'Other')));
+  /* Same ordering rule as the add screen, so a section sits in the same place
+     in both and never splits into repeated headings. */
+  const order = state.recipeSections;
+  const todoSorted = todo.slice().sort((a,b)=>{
+    const sa = a.section || 'Other', sb = b.section || 'Other';
+    const ia = order.indexOf(a.section), ib = order.indexOf(b.section);
+    const ra = ia < 0 ? 999 : ia, rb = ib < 0 ? 999 : ib;
+    if(ra !== rb) return ra - rb;
+    if(ra === 999 && !sameSection(sa, sb)) return sa.localeCompare(sb,'en',{sensitivity:'base'});
+    return String(a.text||'').localeCompare(String(b.text||''),'en',{sensitivity:'base'});
+  });
 
   return `
     <div class="crumb"><button data-goto="home">&larr; Home</button> / Prep</div>
@@ -2353,7 +2432,7 @@ function renderPrepAdd(){
   } else {
     list.forEach(c => {
       const sec = c.section || 'Other';
-      if(!q && sec !== lastSec){ lastSec = sec; rows += `<div class="sec-head">${escapeHtml(sec)}</div>`; }
+      if(!q && !sameSection(sec, lastSec)){ lastSec = sec; rows += `<div class="sec-head">${escapeHtml(sec)}</div>`; }
       const already = onList[c.name.toLowerCase()];
       rows += `
         <div class="pick-row ${state.prepPick[c.id]?'on':''} ${already?'already':''}" ${already?'':`data-pick="${escapeHtml(c.id)}"`}>
@@ -2386,10 +2465,24 @@ const PLUS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-
 const TICK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
 
 function renderPrepItems(){
-  const standalone = state.prepItems.slice().sort((a,b)=>String(a.name).localeCompare(String(b.name),'en',{sensitivity:'base'}));
-  const fromRecipes = state.recipes.filter(r => r.active);
+  /* One list instead of two. Recipe-backed rows are read-only here and open the
+     recipe; your own rows stay editable in place. */
+  const own = state.prepItems.map(i => ({ kind:'own', id:i.id, name:i.name||'', section:i.section||'' }));
+  const fromRecipes = state.recipes.filter(r => r.active)
+    .map(r => ({ kind:'recipe', id:r.id, name:r.name||'', section:r.section||'' }));
+  const all = own.concat(fromRecipes);
 
-  const sRows = standalone.length ? standalone.map(i => `
+  const order = state.recipeSections;
+  all.sort((a,b)=>{
+    const sa = a.section || 'Other', sb = b.section || 'Other';
+    const ia = order.indexOf(a.section), ib = order.indexOf(b.section);
+    const ra = ia < 0 ? 999 : ia, rb = ib < 0 ? 999 : ib;
+    if(ra !== rb) return ra - rb;
+    if(ra === 999 && !sameSection(sa, sb)) return sa.localeCompare(sb,'en',{sensitivity:'base'});
+    return String(a.name).localeCompare(String(b.name),'en',{sensitivity:'base'});
+  });
+
+  const ownRow = (i) => `
     <div class="pitem-row">
       <div class="ing-row">
         <input class="ing-item" data-pitem="${escapeHtml(i.id)}" value="${escapeHtml(i.name)}" placeholder="e.g. Break down chicken">
@@ -2399,30 +2492,32 @@ function renderPrepItems(){
         ${prepSectionChoices().map(sec => `<button type="button" class="chip cat-chip ${sameSection(sec, i.section)?'chip-on':''}" data-psec="${escapeHtml(i.id)}" data-secname="${escapeHtml(sec)}">${escapeHtml(sec)}</button>`).join('')}
         <button type="button" class="chip cat-chip cat-new" data-psec-new="${escapeHtml(i.id)}">+ New</button>
       </div>
-    </div>`).join('') : '<div class="empty">No standalone items.<br>Things like "break down chicken" that aren\'t recipes.</div>';
+    </div>`;
 
-  const rRows = fromRecipes.length ? fromRecipes.map(r => {
-    return `
+  const recipeRow = (i) => `
     <div class="prep-item">
       <div class="prep-body">
-        <div class="prep-text">${escapeHtml(r.name)}</div>
-        <div class="prep-meta">${escapeHtml(r.section||'Unsorted')}</div>
+        <div class="prep-text">${escapeHtml(i.name)}</div>
+        <div class="prep-meta">From recipe</div>
       </div>
-      <button class="icon-btn" data-goto="recipeEdit" data-rid="${escapeHtml(r.id)}" aria-label="Edit ${escapeHtml(r.name)}" title="Edit label">${PENCIL}</button>
-    </div>`; }).join('') : '<div class="empty">No active recipes.</div>';
+      <button class="icon-btn" data-goto="recipeEdit" data-rid="${escapeHtml(i.id)}" aria-label="Edit ${escapeHtml(i.name)}" title="Edit recipe">${PENCIL}</button>
+    </div>`;
+
+  let rows = '', lastSec = null;
+  all.forEach(i => {
+    const sec = i.section || 'Other';
+    if(!sameSection(sec, lastSec)){ lastSec = sec; rows += `<div class="sec-head">${escapeHtml(sec)}</div>`; }
+    rows += i.kind === 'own' ? ownRow(i) : recipeRow(i);
+  });
+  if(!all.length) rows = '<div class="empty">No prep items yet.<br>Add one below, or activate a recipe.</div>';
 
   return `
     <div class="crumb"><button data-goto="prep">&larr; Prep</button></div>
     <h2 class="screen-title">Prep items</h2>
-    <p class="screen-sub">This is what staff can pick from. Every active recipe is here automatically. Today's list is built from Prep &rarr; Build the list.</p>
-
-    <div class="section-label">Your own items</div>
-    <div class="card tight"><div id="pitem-list">${sRows}</div></div>
+    <p class="screen-sub">This is what staff can pick from. Every active recipe is here automatically. Today's list is built from Prep &rarr; Add prep.</p>
+    <div class="card tight"><div id="pitem-list">${rows}</div></div>
     <div class="add-row"><button class="btn btn-ghost" id="pitem-add">+ Add prep item</button></div>
-
-    <div class="section-label">From recipes (${fromRecipes.length})</div>
-    <div class="staff-legend" style="display:block;">Renaming one of these renames the recipe, so the two never drift apart. Hide a recipe to take it off this list.</div>
-    <div class="card tight">${rRows}</div>
+    <div class="staff-legend" style="display:block;">Rows with a pencil come from a recipe &mdash; renaming there keeps the two from drifting apart. Hide a recipe to take it off this list.</div>
   `;
 }
 
@@ -2654,8 +2749,14 @@ function renderRecipeImport(){
 }
 
 function renderRoster(){
+  const rolled = state.rosterRolled || 0;
+  const notice = rolled
+    ? `<div class="sent-banner"><span>New week &mdash; ${rolled} cover shift${rolled===1?'':'s'} removed</span>
+         <button id="roster-rolled-ok">Got it</button></div>`
+    : '';
   return `
     <div class="crumb"><button data-goto="home">&larr; Home</button> / Rostering</div>
+    ${notice}
     <div class="card menu-row" data-goto="staff">
       <div><div class="supplier-name">Staff &amp; Availability</div><div class="supplier-meta">Who can work which days</div></div>
       <div class="chev">&rsaquo;</div>
@@ -2668,6 +2769,8 @@ function renderRoster(){
       <div><div class="supplier-name">My Timesheet</div><div class="supplier-meta">Your hours, auto-totalled</div></div>
       <div class="chev">&rsaquo;</div>
     </div>
+    <div class="add-row"><button class="btn btn-ghost" id="roster-new-week">Start new week</button></div>
+    <div class="staff-legend" style="display:block;">This happens by itself each Monday. It clears anyone rostered on a day they're not available &mdash; those were cover shifts, so they don't carry over.</div>
   `;
 }
 
@@ -3910,17 +4013,30 @@ function attachHandlers(){
   const clearDone = document.getElementById('prep-clear-done');
   if(clearDone){
     clearDone.addEventListener('click', async ()=>{
-      const n = (state.prepLines||[]).filter(l=>l.done).length;
+      /* Take the ids once, up front. These are exactly the lines showing as
+         completed on screen, so what gets deleted is what you were looking at.
+         Anything ticked by someone else in the meantime simply stays. */
+      const ids = (state.prepLines||[]).filter(l=>l.done).map(l=>l.id);
+      const n = ids.length;
+      if(!n) return;
       if(!confirm('Clear '+n+' completed item'+(n===1?'':'s')+' for everyone?')) return;
       clearDone.disabled = true;
       try{
         const res = await fetch(API + '/api/prep/published/clear', {
-          method:'POST', headers: chefHeaders({'Content-Type':'application/json'}), body: JSON.stringify({})
+          method:'POST', headers: chefHeaders({'Content-Type':'application/json'}),
+          body: JSON.stringify({ ids: ids })
         });
         if(!res.ok) throw new Error();
-        state.prepLines = state.prepLines.filter(l => !l.done);
+        const d = await res.json().catch(()=>({}));
+        const gone = {}; ids.forEach(id => gone[id] = true);
+        state.prepLines = state.prepLines.filter(l => !gone[l.id]);
+        /* Stops a stale poll from resurrecting them while KV catches up with
+           the deletes. */
+        ids.forEach(id => { clearedLines[id] = Date.now(); });
         render();
-        showToast('Completed items cleared');
+        showToast(typeof d.cleared === 'number' && d.cleared < n
+          ? d.cleared+' of '+n+' cleared'
+          : 'Completed items cleared');
       }catch(e){ clearDone.disabled = false; showToast('No connection. Nothing was cleared.'); }
     });
   }
@@ -3928,6 +4044,23 @@ function attachHandlers(){
   document.querySelectorAll('[data-prep-remove]').forEach(b => {
     b.addEventListener('click', ()=> removePrepLine(b.dataset.prepRemove));
   });
+
+  const rosterRolledOk = document.getElementById('roster-rolled-ok');
+  if(rosterRolledOk){
+    rosterRolledOk.addEventListener('click', ()=>{ state.rosterRolled = 0; render(); });
+  }
+
+  const rosterNewWeek = document.getElementById('roster-new-week');
+  if(rosterNewWeek){
+    rosterNewWeek.addEventListener('click', ()=>{
+      if(!confirm('Clear cover shifts and start a new week?\n\nAnyone rostered on a day they are not available will be removed. Regular shifts stay.')) return;
+      const dropped = pruneCoverShifts();
+      try{ localStorage.setItem(ROSTER_WEEK_KEY, weekStartKey()); }catch(e){}
+      state.rosterRolled = 0;
+      render();
+      showToast(dropped ? dropped+' cover shift'+(dropped===1?'':'s')+' removed' : 'No cover shifts to clear');
+    });
+  }
 
   document.querySelectorAll('[data-pick]').forEach(row => {
     row.addEventListener('click', ()=>{
@@ -3974,11 +4107,15 @@ function attachHandlers(){
   if(pitemAdd){
     pitemAdd.addEventListener('click', ()=>{
       savePrepItemEdits();
-      state.prepItems.push({ id:'s:'+uid(), name:'', section:'' });
+      const newId = 's:'+uid();
+      state.prepItems.push({ id:newId, name:'', section:'' });
       savePrepItems();
       render();
-      const inputs = document.querySelectorAll('[data-pitem]');
-      if(inputs.length) inputs[inputs.length-1].focus();
+      /* Focus the row we just made, by id. It used to focus whichever input was
+         last in the list, and a blank name sorts to the top - so the cursor
+         landed on the item added before this one. */
+      const el = document.querySelector('[data-pitem="'+newId+'"]');
+      if(el){ el.focus(); el.scrollIntoView({block:'center'}); }
     });
   }
   document.querySelectorAll('[data-pitem-del]').forEach(b => {
