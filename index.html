@@ -517,6 +517,33 @@ a.btn-block{display:block;}
 .tf input[type=time]{position:absolute;inset:0;width:100%;height:100%;opacity:0;border:none;margin:0;padding:0;}
 </style>
 
+<style>
+/* ===== v3.8: this week / next week, cover shifts ===== */
+.rweek-row{margin:0 0 12px;}
+.rweek-btn{display:flex;flex-direction:column;align-items:center;gap:2px;padding:9px 6px;font-weight:700;letter-spacing:0.5px;}
+.rweek-range{font-size:10px;font-weight:500;letter-spacing:0;text-transform:none;opacity:.75;}
+.rday-week{font-size:10.5px;font-weight:700;letter-spacing:1px;color:var(--muted);margin-left:4px;}
+.rstaff-cover{border-style:dashed;border-color:var(--mustard);}
+
+/* ===== v3.8: recipe import review ===== */
+.imp-file{display:block;width:100%;font-family:inherit;font-size:13px;margin-top:4px;}
+.imp-summary{font-size:12px;color:var(--ink-soft);margin:2px 2px 10px;line-height:1.5;}
+.imp-row{display:flex;gap:10px;align-items:flex-start;padding:12px 2px;border-bottom:1px solid #F5F3EA;}
+.imp-row:last-child{border-bottom:none;}
+.imp-row.imp-off .imp-name{color:var(--muted);text-decoration:line-through;}
+.imp-row input[type=checkbox]{width:20px;height:20px;margin-top:1px;flex:0 0 auto;accent-color:var(--ink);}
+.imp-main{flex:1;min-width:0;}
+.imp-name{font-size:15px;font-weight:600;}
+.imp-status{font-size:11.5px;color:var(--muted);margin-top:2px;line-height:1.4;}
+.imp-status.imp-warn{color:var(--stamp);font-weight:700;}
+.imp-target{width:100%;margin-top:8px;font-family:inherit;font-size:12.5px;padding:8px;border:1px solid var(--line);border-radius:10px;background:#fff;color:var(--ink);}
+.imp-tag{display:inline-block;font-size:9.5px;font-weight:800;letter-spacing:0.8px;text-transform:uppercase;border-radius:999px;padding:2px 8px;margin-right:6px;background:#EDEBDF;color:var(--ink-soft);vertical-align:1px;}
+.imp-tag.new{background:#F0F5EE;color:#2F5F39;}
+.imp-tag.upd{background:#F6EBDC;color:#8A5A16;}
+.imp-alt{font-size:11.5px;color:var(--muted);text-align:center;margin-top:14px;}
+.imp-alt button{background:none;border:none;font-family:inherit;font-size:11.5px;color:var(--muted);text-decoration:underline;cursor:pointer;padding:2px;}
+</style>
+
 </head>
 <body>
 <div id="app"></div>
@@ -588,10 +615,10 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.7';
+const APP_VERSION = 'v3.8';
 
 let state = {
-  suppliers: [], staff: [], roster: {}, timesheet: {}, invoices: {},
+  suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
   orders: [],
   catalogueSynced: null,
   invoiceSync: null,
@@ -600,7 +627,7 @@ let state = {
   functions: [], tiers: [], fnLoaded: false, fnDraft: null,
   devices: [], codes: [], authEnforced: false, authLoaded: false,
   recipes: [], recipeSections: [], recipeSync: null, recipesLoaded: false,
-  recipeSearch: '', recipeFilter: null,
+  recipeSearch: '', recipeFilter: null, importPreview: null, importRaw: '',
   prepItems: [],            // standalone prep items, not backed by a recipe
   prepLines: [], prepSearch: '', prepPick: {},
   view: {name:"home"}
@@ -609,8 +636,9 @@ let ticketDateWord = 'tomorrow';
 let ticketDateMode = 'tomorrow';
 let rosterDay = 'wed';
 let rosterShowAll = false;
+let rosterWeek = 'this';   // which week Build Roster is editing: 'this' or 'next'
 const ROSTER_KEY = 'order-chit-roster';
-const STATIONS = ['Oven','Dough','Pasta','Toppings','KH'];
+const STATIONS = ['Oven','Dough','Pasta','Toppings','Finisher','KH'];
 const ROSTER_DAY_KEYS = ['wed','thu','fri','sat','sun'];
 const ROSTER_DAY_FULL = {wed:'Wednesday',thu:'Thursday',fri:'Friday',sat:'Saturday',sun:'Sunday'};
 
@@ -1375,14 +1403,78 @@ function loadInvoices(){
   catch(e){ state.invoices = {}; }
 }
 
-function saveRoster(){ try{ localStorage.setItem(ROSTER_KEY, JSON.stringify(state.roster)); }catch(e){} }
+/* Both weeks save together: every roster edit goes through here. */
+function saveRoster(){
+  try{
+    localStorage.setItem(ROSTER_KEY, JSON.stringify(state.roster));
+    localStorage.setItem(ROSTER_NEXT_KEY, JSON.stringify(state.rosterNext));
+  }catch(e){}
+}
 
-/* ===== Weekly roster reset =====
-   The roster is one blob that just persists, so last week rolls into this week.
-   That is right for regular shifts, but anyone rostered on a day they are not
-   available was covering - which cannot be assumed again. So on the first open
-   of a new week those entries drop out and the regular ones stay. */
+/* ===== This week / next week =====
+   Two rosters: the week being worked and the one being planned. Next week gets
+   planned before Monday, cover shifts included, so nothing may prune it early.
+   On the first open of a new week the planned roster becomes this week's, and a
+   fresh next week starts as a copy of it with the cover shifts left out - covers
+   are one-offs, the regular shifts are what carry. */
 const ROSTER_WEEK_KEY = 'order-chit-roster-week';
+const ROSTER_NEXT_KEY = 'order-chit-roster-next';
+
+function rosterFor(which){ return which === 'next' ? state.rosterNext : state.roster; }
+
+function emptyRoster(){ const r = {}; ROSTER_DAY_KEYS.forEach(d => { r[d] = {}; }); return r; }
+
+function cloneRoster(src){
+  const out = emptyRoster();
+  ROSTER_DAY_KEYS.forEach(d => {
+    const day = (src && src[d]) || {};
+    Object.keys(day).forEach(sid => { out[d][sid] = Object.assign({}, day[sid]); });
+  });
+  return out;
+}
+
+function isAvailable(staffId, day){
+  const st = state.staff.find(s => s.id === staffId);
+  return !!(st && st.avail && st.avail[day]);
+}
+
+/* Drops shifts on days the person isn't available. Returns how many went. */
+function stripCovers(roster){
+  let n = 0;
+  ROSTER_DAY_KEYS.forEach(day => {
+    const entries = roster[day] || {};
+    Object.keys(entries).forEach(sid => { if(!isAvailable(sid, day)){ delete entries[sid]; n++; } });
+  });
+  return n;
+}
+
+/* This week or next week as a short Wed-Sun range, e.g. "30 Sep - 4 Oct".
+   Service days are Wed to Sun, so that's the range shown. */
+function rosterWeekRange(which){
+  const mon = new Date(weekStartKey() + 'T12:00:00');
+  if(which === 'next') mon.setDate(mon.getDate() + 7);
+  const wed = new Date(mon); wed.setDate(mon.getDate() + 2);
+  const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
+  const f = d => d.getDate() + ' ' + d.toLocaleString('en-AU', {month:'short'});
+  return f(wed) + ' \u2013 ' + f(sun);
+}
+
+function weeksBetween(fromKey, toKey){
+  const a = new Date(fromKey + 'T12:00:00'), b = new Date(toKey + 'T12:00:00');
+  if(isNaN(a) || isNaN(b)) return 0;
+  return Math.round((b - a) / (7 * 24 * 3600 * 1000));
+}
+
+/* Moves the planned week into this week. A gap of two or more weeks means the
+   planned covers belonged to a week that has already gone, so they drop too. */
+function advanceRosterWeek(gap){
+  state.roster = cloneRoster(state.rosterNext);
+  if(gap >= 2) stripCovers(state.roster);
+  state.rosterNext = cloneRoster(state.roster);
+  const covers = stripCovers(state.rosterNext);
+  saveRoster();
+  return covers;
+}
 
 /* The Monday of the week the current service day falls in. Using the service
    day means a 2am Sunday finish still counts as Sunday, not as Monday. */
@@ -1394,39 +1486,40 @@ function weekStartKey(){
   return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
 }
 
-/* Returns how many cover shifts were dropped, so the app can say so. */
-function pruneCoverShifts(){
-  let dropped = 0;
-  ROSTER_DAY_KEYS.forEach(day => {
-    const entries = state.roster[day] || {};
-    Object.keys(entries).forEach(staffId => {
-      const st = state.staff.find(s => s.id === staffId);
-      const available = st && st.avail && st.avail[day];
-      if(!available){ delete entries[staffId]; dropped++; }
-    });
-  });
-  if(dropped) saveRoster();
-  return dropped;
-}
-
-/* Runs once per week, on the first time the app is opened in a new week. */
+/* Runs on open and whenever the app comes back to the front, and does nothing
+   unless the week has actually changed. Returns true if it moved the weeks. */
 function rollRosterWeek(){
   const week = weekStartKey();
   let seen = null;
   try{ seen = localStorage.getItem(ROSTER_WEEK_KEY); }catch(e){}
-  if(seen === week) return 0;
-  /* First ever run just records the week. Wiping cover shifts the moment this
-     ships, mid-week, would be a nasty surprise. */
-  const dropped = seen ? pruneCoverShifts() : 0;
+  if(seen === week) return false;
+  /* First ever run just records the week. A gap going backwards means the
+     phone's clock was wrong at some point, so don't shuffle anything. */
+  const gap = seen ? weeksBetween(seen, week) : 0;
+  let rolled = false;
+  if(gap > 0){
+    const covers = advanceRosterWeek(gap);
+    state.rosterRolled = { covers: covers };
+    rolled = true;
+  }
   try{ localStorage.setItem(ROSTER_WEEK_KEY, week); }catch(e){}
-  if(dropped) state.rosterRolled = dropped;
-  return dropped;
+  return rolled;
 }
 
 function loadRoster(){
-  try{ const r = localStorage.getItem(ROSTER_KEY); state.roster = r ? JSON.parse(r) : {}; }
-  catch(e){ state.roster = {}; }
+  let raw = null, rawNext = null;
+  try{ raw = localStorage.getItem(ROSTER_KEY); rawNext = localStorage.getItem(ROSTER_NEXT_KEY); }catch(e){}
+  try{ state.roster = raw ? JSON.parse(raw) : {}; }catch(e){ state.roster = {}; }
   ROSTER_DAY_KEYS.forEach(d=>{ if(!state.roster[d]) state.roster[d] = {}; });
+  /* First open after this update: there is no next week yet. It starts as a full
+     copy, covers and all - if the roster on this phone is already next week's
+     plan, stripping anything here would lose shifts that were deliberately set. */
+  try{ state.rosterNext = rawNext ? JSON.parse(rawNext) : null; }catch(e){ state.rosterNext = null; }
+  if(!state.rosterNext){
+    state.rosterNext = cloneRoster(state.roster);
+    saveRoster();
+  }
+  ROSTER_DAY_KEYS.forEach(d=>{ if(!state.rosterNext[d]) state.rosterNext[d] = {}; });
 }
 function fmtTime(hhmm, spaced){
   if(!hhmm) return '';
@@ -1444,10 +1537,11 @@ function timeFieldHTML(label, attr, id, val){
   return `<div class="rfield"><span>${label}</span><div class="tf"><span class="tf-val ${val?'':'tf-empty'}">${disp}</span><input type="time" ${attr}="${id}" value="${val||''}"></div></div>`;
 }
 function stationRank(s){ const i = STATIONS.indexOf(s); return i<0 ? 99 : i; }
-function buildRosterText(){
+function buildRosterText(which){
+  const roster = rosterFor(which);
   const blocks = [];
   ROSTER_DAY_KEYS.forEach(k=>{
-    const entries = state.roster[k] || {};
+    const entries = roster[k] || {};
     let scheduled = state.staff.filter(st=> entries[st.id] && entries[st.id].start);
     if(scheduled.length===0) return;
     scheduled = scheduled.slice().sort((a,b)=>{
@@ -1467,7 +1561,7 @@ function buildRosterText(){
     blocks.push(lines.join('\n'));
   });
   if(blocks.length === 0) return '';
-  return 'Hey guys,\n\nPlease find the roster for next week:\n\n'
+  return 'Hey guys,\n\nPlease find the roster for ' + (which === 'next' ? 'next week' : 'this week') + ':\n\n'
     + blocks.join('\n\n')
     + '\n\nThank you';
 }
@@ -1591,16 +1685,6 @@ const seed = [
     ],
     template: defaultTemplate("sms")
   },
-  { id:"s5", name:"Deni Foods", contactType:"email", contact:"orders@denifoods.com.au", address:"",
-    products:[
-      {id:"p35", name:"Fior di Latte", unit:"kg", qty:0, inc:2},
-      {id:"p36", name:"Fresh Lasagna Sheets", unit:"kg", qty:0, inc:1},
-      {id:"p37", name:"Gastronomi Gnocchi", unit:"kg", qty:0, inc:1},
-      {id:"p38", name:"Squid Ink Spaghetti", unit:"kg", qty:0, inc:1},
-      {id:"p39", name:"Calamarata Pasta", unit:"kg", qty:0, inc:1}
-    ],
-    template: defaultTemplate("email")
-  },
   { id:"s6", name:"Pino's", contactType:"sms", contact:"+61415742587", address:"",
     products:[
       {id:"p40", name:"Pepperoni", unit:"box", qty:0, inc:1}
@@ -1613,13 +1697,70 @@ const seed = [
     template: defaultTemplate("email")
   },
   { id:"s8", name:"Two Providores", contactType:"email", contact:"orders@twoprovidores.com.au", address:"",
-    products:[],
+    products:[
+      {id:"p35", name:"Fior di Latte", unit:"kg", qty:0, inc:2},
+      {id:"p36", name:"Fresh Lasagna Sheets", unit:"kg", qty:0, inc:1},
+      {id:"p37", name:"Gastronomi Gnocchi", unit:"kg", qty:0, inc:1},
+      {id:"p38", name:"Squid Ink Spaghetti", unit:"kg", qty:0, inc:1},
+      {id:"p39", name:"Calamarata Pasta", unit:"kg", qty:0, inc:1}
+    ],
     template: defaultTemplate("email")
   }
 ];
 
 function uid(){ return Math.random().toString(36).slice(2,9); }
 function formatQty(q){ return String(Math.round(q*100)/100); }
+
+/* ===== Deni Foods -> Two Providores (Sep 2026) =====
+   Runs once, on its own flag, never through SEED_VERSION - that would wipe every
+   product edit on the phone. Products move with their ids, so staff orders,
+   the staff app catalogue and Repeat Last Order all keep pointing at them. */
+const DENI_MOVE_KEY = 'order-chit-deni-moved';
+function moveDeniToTwoProvidores(){
+  let done = false;
+  try{ done = localStorage.getItem(DENI_MOVE_KEY) === '1'; }catch(e){}
+  if(done) return null;
+  const isDeni = s => s && (s.id === 's5' || /\bdeni\b/i.test(s.name || ''));
+  const deni = state.suppliers.find(isDeni);
+  let result = null;
+  if(deni){
+    let two = state.suppliers.find(s => s !== deni && (s.id === 's8' || /two\s*prov/i.test(s.name || '')));
+    if(!two){
+      const tpl = seed.find(s => s.id === 's8');
+      two = { id: state.suppliers.some(s => s.id === 's8') ? 's' + uid() : 's8', name: tpl.name,
+              contactType: tpl.contactType, contact: tpl.contact, address: '',
+              products: [], template: JSON.parse(JSON.stringify(tpl.template)) };
+      state.suppliers.push(two);
+    }
+    if(!Array.isArray(two.products)) two.products = [];
+    const have = {};
+    two.products.forEach(p => { have[String(p.name || '').trim().toLowerCase()] = true; });
+    let moved = 0, skipped = 0;
+    (deni.products || []).forEach(p => {
+      const k = String(p.name || '').trim().toLowerCase();
+      if(have[k]){ skipped++; return; }
+      have[k] = true;
+      two.products.push(p);
+      moved++;
+    });
+    /* Deni's last order becomes part of Two Providores' so Repeat Last Order
+       still brings those products back. Existing Two Providores entries win. */
+    const dl = getLastOrder(deni.id);
+    if(dl && Object.keys(dl).length){
+      const tl = getLastOrder(two.id) || {};
+      Object.keys(dl).forEach(pid => {
+        if(!(pid in tl) && two.products.some(p => p.id === pid)) tl[pid] = dl[pid];
+      });
+      try{ localStorage.setItem(lastOrderKey(two.id), JSON.stringify(tl)); }catch(e){}
+    }
+    try{ localStorage.removeItem(lastOrderKey(deni.id)); localStorage.removeItem(lastSentKey(deni.id)); }catch(e){}
+    state.suppliers = state.suppliers.filter(s => s !== deni);
+    saveData();
+    result = { moved: moved, skipped: skipped, to: two.name };
+  }
+  try{ localStorage.setItem(DENI_MOVE_KEY, '1'); }catch(e){}
+  return result;
+}
 
 function ordinal(day){
   const suf = (day>3 && day<21) ? 'th' : ['th','st','nd','rd'][day%10 > 3 ? 0 : day%10];
@@ -1689,11 +1830,13 @@ function loadData(){
   loadInvoices();
   loadCategories();
   backfillCategories();
+  const deniMove = moveDeniToTwoProvidores();
   loadRecipesLocal();
   clearImportedHints();
   loadPrepItems();
   mergePrepSections();
   render();
+  if(deniMove) showToast('Deni Foods removed \u2014 ' + deniMove.moved + ' product' + (deniMove.moved===1?'':'s') + ' moved to ' + deniMove.to);
 }
 
 function saveData(){
@@ -1822,6 +1965,7 @@ function animate(fn){
 
 function goto(view){
   if(!(view.name === 'recipeEdit' && view.rid === 'new')) state.recipeDraft = null;
+  if(view.name !== state.view.name && (view.name === 'recipeImport' || state.view.name === 'recipeImport')){ state.importPreview = null; state.importRaw = ''; }
   if(!(view.name === 'fnEdit' && view.fid === 'new')) state.fnDraft = null;
   state.view = view; try{ history.pushState({view}, ''); }catch(e){} animate(render);
 }
@@ -2734,26 +2878,197 @@ function renderRecipeEdit(id){
   `;
 }
 
+/* ===== Recipe import: add & update =====
+   Replace-all wipes the book, and with it every hide/show setting, handy hint
+   and edit made in the app - and it can change the ids the prep list points at.
+   This path only adds or updates, shows every change first, and keeps each
+   matched recipe's id, name, section and staff setting. */
+function normRecipeName(s){ return String(s||'').toLowerCase().replace(/&/g,' and ').replace(/[^a-z0-9]+/g,''); }
+
+function cleanIncomingRecipe(r){
+  r = r || {};
+  return {
+    id: String(r.id||'').trim(),
+    name: String(r.name||'').trim(),
+    section: String(r.section||'').trim(),
+    active: r.active !== false,
+    batch: String(r.batch || r.yield || '').trim(),
+    ingredients: Array.isArray(r.ingredients) ? r.ingredients.map(i => ({
+      qty: isFinite(Number(i && i.qty)) ? Number(i.qty) : 0,
+      unit: String((i && i.unit) || 'g').trim(),
+      item: String((i && i.item) || '').trim()
+    })).filter(i => i.item) : [],
+    method: Array.isArray(r.method) ? r.method.map(s=>String(s).trim()).filter(Boolean) : [],
+    notes: String(r.notes||'').trim(),
+    allergens: Array.isArray(r.allergens) ? r.allergens.map(s=>String(s).trim()).filter(Boolean) : [],
+    aliases: Array.isArray(r.aliases) ? r.aliases.map(s=>String(s).trim()).filter(Boolean) : []
+  };
+}
+
+function ingKey(r){
+  return JSON.stringify((r.ingredients||[]).map(i =>
+    [Number(i.qty)||0, String(i.unit||'').trim().toLowerCase(), String(i.item||'').trim().toLowerCase()]));
+}
+function methodKey(r){ return JSON.stringify((r.method||[]).map(s => String(s).trim())); }
+function importSame(ex, inc){
+  return ingKey(ex) === ingKey(inc) && methodKey(ex) === methodKey(inc) && (!inc.notes || inc.notes === (ex.notes||''));
+}
+
+/* Matches each incoming recipe to one already in the book: same id, then same
+   name, then any alias the file lists. One book recipe can only be claimed once. */
+function buildImportPreview(data){
+  const list = Array.isArray(data) ? data : (data && Array.isArray(data.recipes) ? data.recipes : []);
+  const incoming = list.map(cleanIncomingRecipe).filter(r => r.name);
+  const byId = {}, byName = {};
+  state.recipes.forEach(r => { byId[r.id] = r; const k = normRecipeName(r.name); if(!byName[k]) byName[k] = r; });
+  const claimed = {};
+  const rows = incoming.map(inc => {
+    let hit = null;
+    const tryOne = r => { if(!hit && r && !claimed[r.id]) hit = r; };
+    if(inc.id) tryOne(byId[inc.id]);
+    tryOne(byName[normRecipeName(inc.name)]);
+    inc.aliases.forEach(a => tryOne(byName[normRecipeName(a)]));
+    if(hit) claimed[hit.id] = true;
+    return { recipe: inc, target: hit ? hit.id : '', on: !(hit && importSame(hit, inc)) };
+  });
+  const order = (data && Array.isArray(data.sections)) ? data.sections.map(s => String(s).trim()).filter(Boolean) : [];
+  return { rows: rows, sectionOrder: order };
+}
+
+function importClashes(p){
+  const count = {};
+  p.rows.forEach(r => { if(r.on && r.target) count[r.target] = (count[r.target]||0) + 1; });
+  return count;
+}
+
+function importRowInfo(row, clashes){
+  const inc = row.recipe;
+  const ex = row.target ? findRecipe(row.target) : null;
+  if(!ex) return { tag:'new', label:'New', text: inc.section ? 'Goes in ' + inc.section : 'New recipe' };
+  if(row.on && clashes[ex.id] > 1) return { tag:'upd', label:'Clash', warn:true, text:'Another ticked row also updates "' + ex.name + '" \u2014 pick one' };
+  if(importSame(ex, inc)) return { tag:'same', label:'Same', text:'Already matches "' + ex.name + '" \u2014 nothing to change' };
+  const parts = [];
+  if(ingKey(ex) !== ingKey(inc)) parts.push('ingredients');
+  if(methodKey(ex) !== methodKey(inc)) parts.push('method');
+  if(inc.notes && inc.notes !== (ex.notes||'')) parts.push(ex.notes ? 'handy hints (yours get replaced)' : 'handy hints');
+  const named = normRecipeName(ex.name) === normRecipeName(inc.name) ? '' : ', keeps the name "' + ex.name + '"';
+  return { tag:'upd', label:'Update', text:'Updates "' + ex.name + '"' + (parts.length ? ': ' + parts.join(', ') : '') + named };
+}
+
 function renderRecipeImport(){
-  return `
+  const n = state.recipes.length;
+  const head = `
     <div class="crumb"><button data-goto="recipes">&larr; Recipes</button></div>
-    <h2 class="screen-title">Import recipes</h2>
-    <p class="screen-sub">Paste the whole JSON file. This replaces every recipe currently in the book.</p>
+    <h2 class="screen-title">Import recipes</h2>`;
+  const p = state.importPreview;
+
+  if(!p){
+    return head + `
+    <p class="screen-sub">Load a recipe file. You'll see everything it adds or updates before anything is saved, and nothing already in the book is deleted.</p>
     <div class="form-card">
-      <label>JSON</label>
-      <textarea id="import-json" rows="8" placeholder='{"sections":[...],"recipes":[...]}'></textarea>
-      <div class="form-actions"><button class="btn" id="import-go">Replace all recipes</button></div>
+      <label>Recipe file</label>
+      <input type="file" id="import-file" class="imp-file">
+      <label>Or paste it</label>
+      <textarea id="import-json" rows="6" placeholder='{"sections":[...],"recipes":[...]}'>${escapeHtml(state.importRaw||'')}</textarea>
+      <div class="form-actions"><button class="btn" id="import-check">Check changes</button></div>
     </div>
-    <div class="sync-line">Currently ${state.recipes.length} recipe${state.recipes.length===1?'':'s'} in the book.</div>
+    <div class="sync-line">Currently ${n} recipe${n===1?'':'s'} in the book.</div>
+    <div class="imp-alt"><button id="import-go">Replace the whole book instead</button></div>
+  `;
+  }
+
+  const clashes = importClashes(p);
+  const opts = state.recipes.slice().sort((a,b)=>String(a.name).localeCompare(String(b.name),'en',{sensitivity:'base'}));
+  let nNew = 0, nUpd = 0, nSame = 0, nOff = 0, nClash = 0;
+  const rows = p.rows.map((row, idx) => {
+    const info = importRowInfo(row, clashes);
+    if(!row.on){ nOff++; if(info.tag === 'same') nSame++; }
+    else if(info.warn) nClash++;
+    else if(info.tag === 'new') nNew++;
+    else if(info.tag === 'upd') nUpd++;
+    const sel = `<select class="imp-target" data-imp-target="${idx}" aria-label="What ${escapeHtml(row.recipe.name)} does">
+        <option value="" ${row.target?'':'selected'}>Add as a new recipe</option>
+        ${opts.map(r => `<option value="${escapeHtml(r.id)}" ${row.target===r.id?'selected':''}>Update: ${escapeHtml(r.name)}</option>`).join('')}
+      </select>`;
+    return `
+      <div class="imp-row ${row.on?'':'imp-off'}">
+        <input type="checkbox" data-imp-on="${idx}" ${row.on?'checked':''} aria-label="Include ${escapeHtml(row.recipe.name)}">
+        <div class="imp-main">
+          <div class="imp-name">${escapeHtml(row.recipe.name)}</div>
+          <div class="imp-status ${info.warn?'imp-warn':''}"><span class="imp-tag ${info.tag}">${info.label}</span>${escapeHtml(info.text)}</div>
+          ${sel}
+        </div>
+      </div>`;
+  }).join('');
+  const todo = nNew + nUpd;
+  const summary = [nNew ? nNew + ' new' : '', nUpd ? nUpd + ' to update' : '',
+    nSame ? nSame + ' already the same' : '', (nOff - nSame) ? (nOff - nSame) + ' unticked' : '',
+    nClash ? nClash + ' clashing' : ''].filter(Boolean).join(' \u00b7 ');
+
+  return head + `
+    <p class="screen-sub">Tick what should go in. Unticked recipes, and everything else in the book, stay exactly as they are. Updated recipes keep their name, section and staff setting.</p>
+    <div class="imp-summary">${escapeHtml(p.rows.length + ' in the file: ' + (summary || 'nothing to do'))}</div>
+    <div class="card tight">${rows || '<div class="empty">No recipes found in that file.</div>'}</div>
+    <div class="oi-actions">
+      <button class="btn btn-ghost" id="import-cancel">Cancel</button>
+      <button class="btn" id="import-apply" ${todo && !nClash ? '' : 'disabled style="opacity:.45"'}>${nClash ? 'Fix clashes first' : 'Apply ' + todo + ' change' + (todo===1?'':'s')}</button>
+    </div>
   `;
 }
 
+function applyImportPreview(){
+  const p = state.importPreview;
+  if(!p) return;
+  if(Object.values(importClashes(p)).some(c => c > 1)){ showToast('Two rows update the same recipe'); return; }
+  const today = localDateKey(new Date());
+  let added = 0, updated = 0;
+  p.rows.forEach(row => {
+    if(!row.on) return;
+    const inc = row.recipe;
+    const ings = inc.ingredients.map(i => ({ qty: i.qty, unit: i.unit, item: i.item }));
+    const ex = row.target ? findRecipe(row.target) : null;
+    if(ex){
+      if(importSame(ex, inc)) return;
+      ex.ingredients = ings;
+      ex.method = inc.method.slice();
+      if(inc.notes) ex.notes = inc.notes;
+      if(inc.batch) ex.batch = inc.batch;
+      if(inc.allergens.length) ex.allergens = inc.allergens.slice();
+      ex.updated = today;
+      updated++;
+    } else {
+      const id = (inc.id && !findRecipe(inc.id)) ? inc.id : recipeSlug(inc.name);
+      state.recipes.push({ id: id, name: inc.name, section: inc.section, active: inc.active, batch: inc.batch,
+        ingredients: ings, method: inc.method.slice(), notes: inc.notes, allergens: inc.allergens.slice(), updated: today });
+      added++;
+    }
+  });
+  /* Sections the book doesn't have yet go on the end, in the file's order. */
+  const missing = [];
+  state.recipes.forEach(r => { if(r.section && state.recipeSections.indexOf(r.section) < 0 && missing.indexOf(r.section) < 0) missing.push(r.section); });
+  const order = p.sectionOrder || [];
+  missing.sort((a,b) => { const ia = order.indexOf(a), ib = order.indexOf(b); return (ia<0?999:ia) - (ib<0?999:ib); });
+  missing.forEach(s => state.recipeSections.push(s));
+  state.importPreview = null;
+  state.importRaw = '';
+  state.recipesLoaded = true;
+  saveRecipes();
+  goto({name:'recipes'});
+  const bits = [added ? added + ' added' : '', updated ? updated + ' updated' : ''].filter(Boolean).join(', ');
+  showToast(bits || 'Nothing changed');
+}
+
+function rosterRolledBanner(){
+  const rolled = state.rosterRolled;
+  if(!rolled) return '';
+  const c = rolled.covers || 0;
+  const extra = c ? ` ${c} cover shift${c===1?'':'s'} left out of the new next week.` : '';
+  return `<div class="sent-banner"><span>New week &mdash; the roster you planned is now this week's.${extra}</span>
+         <button id="roster-rolled-ok">Got it</button></div>`;
+}
+
 function renderRoster(){
-  const rolled = state.rosterRolled || 0;
-  const notice = rolled
-    ? `<div class="sent-banner"><span>New week &mdash; ${rolled} cover shift${rolled===1?'':'s'} removed</span>
-         <button id="roster-rolled-ok">Got it</button></div>`
-    : '';
+  const notice = rosterRolledBanner();
   return `
     <div class="crumb"><button data-goto="home">&larr; Home</button> / Rostering</div>
     ${notice}
@@ -2762,15 +3077,14 @@ function renderRoster(){
       <div class="chev">&rsaquo;</div>
     </div>
     <div class="card menu-row" data-goto="rosterBuild">
-      <div><div class="supplier-name">Build Roster</div><div class="supplier-meta">Assign shifts &amp; times per day</div></div>
+      <div><div class="supplier-name">Build Roster</div><div class="supplier-meta">This week &amp; next week, shifts and stations</div></div>
       <div class="chev">&rsaquo;</div>
     </div>
     <div class="card menu-row" data-goto="timesheet">
       <div><div class="supplier-name">My Timesheet</div><div class="supplier-meta">Your hours, auto-totalled</div></div>
       <div class="chev">&rsaquo;</div>
     </div>
-    <div class="add-row"><button class="btn btn-ghost" id="roster-new-week">Start new week</button></div>
-    <div class="staff-legend" style="display:block;">This happens by itself each Monday. It clears anyone rostered on a day they're not available &mdash; those were cover shifts, so they don't carry over.</div>
+    <div class="staff-legend" style="display:block;margin-top:14px;">Each Monday, <strong>next week</strong> becomes <strong>this week</strong> by itself. The new next week starts as a copy of it, minus cover shifts &mdash; those are one-offs, so they don't carry over.</div>
   `;
 }
 
@@ -2814,21 +3128,32 @@ function renderTimesheet(){
 }
 
 function renderRosterBuild(){
+  const roster = rosterFor(rosterWeek);
+  const weekWord = rosterWeek === 'next' ? 'next week' : 'this week';
+  const weekTabs = [['this','This week'],['next','Next week']].map(([k,lbl]) =>
+    `<button type="button" class="toggle-btn rweek-btn ${rosterWeek===k?'active':''}" data-rweek="${k}">${lbl}<span class="rweek-range">${rosterWeekRange(k)}</span></button>`).join('');
   const dayTabs = [['wed','Wed'],['thu','Thu'],['fri','Fri'],['sat','Sat'],['sun','Sun']];
   const tabs = dayTabs.map(([k,lbl])=>`<button class="rday-tab ${rosterDay===k?'active':''}" data-rday="${k}">${lbl}</button>`).join('');
-  const entries = state.roster[rosterDay] || {};
-  const avail = state.staff.filter(st=> st.avail && st.avail[rosterDay]);
-  const offStaff = state.staff.filter(st=> !(st.avail && st.avail[rosterDay]));
+  const entries = roster[rosterDay] || {};
+  const isOn = st => !!(entries[st.id] && entries[st.id].start);
+  const canWork = st => !!(st.avail && st.avail[rosterDay]);
+  /* Anyone with a shift that day is always listed, available or not. A cover
+     shift used to sit behind "show all", so it looked like it had vanished. */
+  const listed = state.staff.filter(st => canWork(st) || isOn(st));
+  const offStaff = state.staff.filter(st => !canWork(st) && !isOn(st));
 
-  function staffBlock(st, isOff){
+  function staffBlock(st){
     const e = entries[st.id] || {};
     const scheduled = !!e.start;
+    const off = !canWork(st);
+    const badge = off ? ` <span class="off-badge">${scheduled ? 'cover' : 'off-day'}</span>` : '';
+    const cls = off ? (scheduled ? 'rstaff-cover' : 'rstaff-off') : '';
     const stationOpts = ['<option value="">No station</option>']
       .concat(STATIONS.map(s=>`<option value="${s}" ${e.station===s?'selected':''}>${s}</option>`)).join('');
     return `
-      <div class="rstaff ${isOff?'rstaff-off':''}">
+      <div class="rstaff ${cls}">
         <div class="rstaff-top">
-          <span class="rstaff-name">${escapeHtml(st.name)}${isOff?' <span class="off-badge">off-day</span>':''}</span>
+          <span class="rstaff-name">${escapeHtml(st.name)}${badge}</span>
           ${scheduled?`<button class="rstaff-clear" data-rclear="${st.id}">clear</button>`:''}
         </div>
         <div class="rstaff-controls">
@@ -2840,26 +3165,32 @@ function renderRosterBuild(){
     `;
   }
 
-  let availHtml = avail.map(st=>staffBlock(st,false)).join('');
-  if(avail.length===0) availHtml = `<div class="empty">Nobody's set to work ${ROSTER_DAY_FULL[rosterDay]}.<br>Set availability in Staff, or use "show all" below.</div>`;
+  let listedHtml = listed.map(staffBlock).join('');
+  if(listed.length===0) listedHtml = `<div class="empty">Nobody's set to work ${ROSTER_DAY_FULL[rosterDay]}.<br>Set availability in Staff, or use "show all" below.</div>`;
 
   let offHtml = '';
   if(rosterShowAll && offStaff.length){
-    offHtml = `<div class="roff-divider">Covering an off-day</div>` + offStaff.map(st=>staffBlock(st,true)).join('');
+    offHtml = `<div class="roff-divider">Covering an off-day</div>` + offStaff.map(staffBlock).join('');
   }
   const showAllBtn = offStaff.length ? `<div class="add-row" style="margin-top:6px;"><button class="btn btn-ghost" data-rtoggle-all="1">${rosterShowAll?'Hide off-day staff':'+ Show all staff'}</button></div>` : '';
+  const copyWeek = rosterWeek === 'next'
+    ? `<div class="add-row"><button class="btn btn-ghost" id="roster-from-this">Start next week from this week</button></div>`
+    : '';
 
   return `
     <div class="crumb"><button data-goto="roster">&larr; Rostering</button> / Build Roster</div>
+    ${rosterRolledBanner()}
+    <div class="toggle-row rweek-row">${weekTabs}</div>
     <div class="rday-tabs">${tabs}</div>
-    <div class="rday-title">${ROSTER_DAY_FULL[rosterDay]}</div>
-    ${availHtml}
+    <div class="rday-title">${ROSTER_DAY_FULL[rosterDay]} <span class="rday-week">${weekWord}</span></div>
+    ${listedHtml}
     ${offHtml}
     ${showAllBtn}
-    <div style="margin-top:18px;"><button class="btn btn-block" id="roster-publish">Publish Roster &rarr;</button></div>
+    <div style="margin-top:18px;"><button class="btn btn-block" id="roster-publish">Publish ${rosterWeek==='next'?'Next':'This'} Week &rarr;</button></div>
     <div style="margin-top:10px;"><button class="btn btn-ghost btn-block" id="roster-copy">Copy Roster Text</button></div>
     <textarea class="copybox" id="roster-copy-area" style="display:none;" readonly></textarea>
-    <div class="fallback-note">Publish opens your share sheet &mdash; pick your notes or messaging app. Times, stations &amp; the whole week are included.</div>
+    ${copyWeek}
+    <div class="fallback-note">Publish opens your share sheet &mdash; pick your notes or messaging app. Times, stations &amp; the whole of ${weekWord} are included.</div>
   `;
 }
 
@@ -3391,14 +3722,22 @@ function attachHandlers(){
     el.addEventListener('click', ()=> showToast('Coming in the next update'));
   });
   const rerenderKeepScroll = ()=>{ const y=window.scrollY; render(); window.scrollTo(0,y); };
+  document.querySelectorAll('[data-rweek]').forEach(el=>{
+    el.addEventListener('click', ()=>{ rosterWeek = el.dataset.rweek === 'next' ? 'next' : 'this'; rosterShowAll = false; render(); });
+  });
   document.querySelectorAll('[data-rday]').forEach(el=>{
     el.addEventListener('click', ()=>{ rosterDay = el.dataset.rday; rosterShowAll = false; render(); });
   });
+  /* Every edit goes to whichever week is on screen. */
+  const rosterDayObj = ()=>{
+    const r = rosterFor(rosterWeek);
+    if(!r[rosterDay]) r[rosterDay] = {};
+    return r[rosterDay];
+  };
   document.querySelectorAll('[data-rstart]').forEach(el=>{
     el.addEventListener('change', ()=>{
       const sid = el.dataset.rstart;
-      if(!state.roster[rosterDay]) state.roster[rosterDay] = {};
-      const day = state.roster[rosterDay];
+      const day = rosterDayObj();
       if(!el.value){ delete day[sid]; }
       else { if(!day[sid]) day[sid] = {start:'',end:'',station:''}; day[sid].start = el.value; }
       saveRoster(); rerenderKeepScroll();
@@ -3406,28 +3745,36 @@ function attachHandlers(){
   });
   document.querySelectorAll('[data-rend]').forEach(el=>{
     el.addEventListener('change', ()=>{
-      const sid = el.dataset.rend; const day = state.roster[rosterDay];
-      if(day && day[sid]){ day[sid].end = el.value; saveRoster(); }
+      const sid = el.dataset.rend; const day = rosterDayObj();
+      if(day[sid]){ day[sid].end = el.value; saveRoster(); }
     });
   });
   document.querySelectorAll('[data-rstation]').forEach(el=>{
     el.addEventListener('change', ()=>{
-      const sid = el.dataset.rstation; const day = state.roster[rosterDay];
-      if(day && day[sid]){ day[sid].station = el.value; saveRoster(); }
+      const sid = el.dataset.rstation; const day = rosterDayObj();
+      if(day[sid]){ day[sid].station = el.value; saveRoster(); }
     });
   });
   document.querySelectorAll('[data-rclear]').forEach(el=>{
     el.addEventListener('click', ()=>{
       const sid = el.dataset.rclear;
-      if(state.roster[rosterDay]) delete state.roster[rosterDay][sid];
+      delete rosterDayObj()[sid];
       saveRoster(); rerenderKeepScroll();
     });
   });
   const rtoggle = document.querySelector('[data-rtoggle-all]');
   if(rtoggle) rtoggle.addEventListener('click', ()=>{ rosterShowAll = !rosterShowAll; rerenderKeepScroll(); });
+  const rFromThis = document.getElementById('roster-from-this');
+  if(rFromThis) rFromThis.addEventListener('click', ()=>{
+    if(!confirm("Replace next week with this week's roster?\n\nRegular shifts copy across. Cover shifts don't, and anything you've already set for next week is overwritten.")) return;
+    state.rosterNext = cloneRoster(state.roster);
+    const n = stripCovers(state.rosterNext);
+    saveRoster(); rerenderKeepScroll();
+    showToast(n ? 'Copied, '+n+' cover shift'+(n===1?'':'s')+' left out' : "Copied this week's roster");
+  });
   const rpub = document.getElementById('roster-publish');
   if(rpub) rpub.addEventListener('click', ()=>{
-    const text = buildRosterText();
+    const text = buildRosterText(rosterWeek);
     if(!text){ showToast('Roster is empty'); return; }
     if(navigator.share){ navigator.share({text}).catch(()=>{}); }
     else {
@@ -3440,7 +3787,7 @@ function attachHandlers(){
   });
   const rcopy = document.getElementById('roster-copy');
   if(rcopy) rcopy.addEventListener('click', ()=>{
-    const text = buildRosterText();
+    const text = buildRosterText(rosterWeek);
     if(!text){ showToast('Roster is empty'); return; }
     navigator.clipboard.writeText(text).then(()=>showToast('Roster copied')).catch(()=>{
       const area = document.getElementById('roster-copy-area');
@@ -4047,19 +4394,7 @@ function attachHandlers(){
 
   const rosterRolledOk = document.getElementById('roster-rolled-ok');
   if(rosterRolledOk){
-    rosterRolledOk.addEventListener('click', ()=>{ state.rosterRolled = 0; render(); });
-  }
-
-  const rosterNewWeek = document.getElementById('roster-new-week');
-  if(rosterNewWeek){
-    rosterNewWeek.addEventListener('click', ()=>{
-      if(!confirm('Clear cover shifts and start a new week?\n\nAnyone rostered on a day they are not available will be removed. Regular shifts stay.')) return;
-      const dropped = pruneCoverShifts();
-      try{ localStorage.setItem(ROSTER_WEEK_KEY, weekStartKey()); }catch(e){}
-      state.rosterRolled = 0;
-      render();
-      showToast(dropped ? dropped+' cover shift'+(dropped===1?'':'s')+' removed' : 'No cover shifts to clear');
-    });
+    rosterRolledOk.addEventListener('click', ()=>{ state.rosterRolled = null; render(); });
   }
 
   document.querySelectorAll('[data-pick]').forEach(row => {
@@ -4310,6 +4645,69 @@ function attachHandlers(){
     });
   });
 
+  /* ---- Import: add & update, with a review step ---- */
+  function readImportJSON(raw){
+    raw = String(raw||'').trim();
+    if(!raw){ showToast('Load or paste the recipe file first'); return null; }
+    let data;
+    try{ data = JSON.parse(raw); }catch(e){ showToast('That is not valid JSON'); return null; }
+    const p = buildImportPreview(data);
+    if(!p.rows.length){ showToast('No recipes found in that file'); return null; }
+    return p;
+  }
+  /* Background syncs can redraw this screen, so whatever is pasted lives in
+     state, not just in the box. */
+  const importBox = document.getElementById('import-json');
+  if(importBox) importBox.addEventListener('input', ()=>{ state.importRaw = importBox.value; });
+  const importCheck = document.getElementById('import-check');
+  if(importCheck){
+    importCheck.addEventListener('click', ()=>{
+      const raw = document.getElementById('import-json').value;
+      state.importRaw = raw;
+      const p = readImportJSON(raw);
+      if(!p) return;
+      state.importPreview = p;
+      render(); window.scrollTo(0,0);
+    });
+  }
+  const importFile = document.getElementById('import-file');
+  if(importFile){
+    importFile.addEventListener('change', ()=>{
+      const f = importFile.files && importFile.files[0];
+      if(!f) return;
+      const reader = new FileReader();
+      reader.onload = ()=>{
+        state.importRaw = String(reader.result||'');
+        const p = readImportJSON(state.importRaw);
+        if(!p){ render(); return; }
+        state.importPreview = p;
+        render(); window.scrollTo(0,0);
+      };
+      reader.onerror = ()=> showToast('Could not read that file');
+      reader.readAsText(f);
+    });
+  }
+  document.querySelectorAll('[data-imp-on]').forEach(el=>{
+    el.addEventListener('change', ()=>{
+      const row = state.importPreview && state.importPreview.rows[parseInt(el.dataset.impOn,10)];
+      if(row){ row.on = el.checked; rerenderKeepScroll(); }
+    });
+  });
+  document.querySelectorAll('[data-imp-target]').forEach(el=>{
+    el.addEventListener('change', ()=>{
+      const row = state.importPreview && state.importPreview.rows[parseInt(el.dataset.impTarget,10)];
+      if(!row) return;
+      row.target = el.value;
+      const ex = row.target ? findRecipe(row.target) : null;
+      row.on = !(ex && importSame(ex, row.recipe));
+      rerenderKeepScroll();
+    });
+  });
+  const importCancel = document.getElementById('import-cancel');
+  if(importCancel) importCancel.addEventListener('click', ()=>{ state.importPreview = null; render(); window.scrollTo(0,0); });
+  const importApply = document.getElementById('import-apply');
+  if(importApply) importApply.addEventListener('click', ()=>{ importApply.disabled = true; applyImportPreview(); });
+
   const importGo = document.getElementById('import-go');
   if(importGo){
     importGo.addEventListener('click', ()=>{
@@ -4319,7 +4717,7 @@ function attachHandlers(){
       try{ data = JSON.parse(raw); }catch(e){ showToast('That is not valid JSON'); return; }
       const incoming = Array.isArray(data) ? data : data.recipes;
       if(!Array.isArray(incoming) || incoming.length === 0){ showToast('No recipes found in that JSON'); return; }
-      if(state.recipes.length && !confirm('Replace all '+state.recipes.length+' recipes with '+incoming.length+' from this file?')) return;
+      if(state.recipes.length && !confirm('Replace all '+state.recipes.length+' recipes with '+incoming.length+' from this file?\n\nEvery recipe not in the file is deleted, along with any edits, handy hints and staff settings made in the app.')) return;
 
       state.recipes = incoming.map(r => ({
         id: String(r.id || '').trim() || recipeSlug(r.name),
@@ -4452,7 +4850,11 @@ loadData();
 refreshFromServer();
 
 document.addEventListener('visibilitychange', ()=>{
-  if(document.visibilityState === 'visible') refreshFromServer();
+  if(document.visibilityState !== 'visible') return;
+  /* A phone can keep the app alive in the background from Sunday night to
+     Tuesday, so the Monday roll can't only happen on a cold start. */
+  if(rollRosterWeek()) bgRender();
+  refreshFromServer();
 });
 
 if('serviceWorker' in navigator){
