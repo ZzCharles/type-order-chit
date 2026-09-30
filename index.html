@@ -530,6 +530,13 @@ a.btn-block{display:block;}
   .tf input[type=time]:focus{opacity:1;background:#fff;border:1px solid var(--ink);border-radius:11px;padding:0 8px;font-family:inherit;font-size:14px;font-weight:600;color:var(--ink);text-align:center;}
 }
 
+/* ===== v3.8.2: the whole box opens the time picker =====
+   On a laptop only the little clock at the right-hand end of a time box opens
+   the picker - a click anywhere else just lands in the hour. That clock is
+   stretched, invisibly, over the whole box so any click opens the picker.
+   Phones already open theirs from anywhere on the box. */
+.tf input[type=time]::-webkit-calendar-picker-indicator{position:absolute;inset:0;width:auto;height:auto;margin:0;padding:0;opacity:0;cursor:pointer;background:none;}
+
 /* ===== v3.8: recipe import review ===== */
 .imp-file{display:block;width:100%;font-family:inherit;font-size:13px;margin-top:4px;}
 .imp-summary{font-size:12px;color:var(--ink-soft);margin:2px 2px 10px;line-height:1.5;}
@@ -620,10 +627,10 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.8.1';
+const APP_VERSION = 'v3.8.2';
 
 let state = {
-  suppliers: [], staff: [], roster: {}, rosterNext: {}, rosterLast: {}, tsWeeks: {}, invoices: {},
+  suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
   orders: [],
   catalogueSynced: null,
   invoiceSync: null,
@@ -1413,7 +1420,6 @@ function saveRoster(){
   try{
     localStorage.setItem(ROSTER_KEY, JSON.stringify(state.roster));
     localStorage.setItem(ROSTER_NEXT_KEY, JSON.stringify(state.rosterNext));
-    localStorage.setItem(ROSTER_LAST_KEY, JSON.stringify(state.rosterLast));
   }catch(e){}
 }
 
@@ -1425,9 +1431,6 @@ function saveRoster(){
    are one-offs, the regular shifts are what carry. */
 const ROSTER_WEEK_KEY = 'order-chit-roster-week';
 const ROSTER_NEXT_KEY = 'order-chit-roster-next';
-/* The week just worked. Monday moves this week on, but the timesheet for the
-   week that finished still needs its shifts. */
-const ROSTER_LAST_KEY = 'order-chit-roster-last';
 
 function rosterFor(which){ return which === 'next' ? state.rosterNext : state.roster; }
 
@@ -1457,12 +1460,11 @@ function stripCovers(roster){
   return n;
 }
 
-/* Last, this or next week as a short Wed-Sun range, e.g. "30 Sep - 4 Oct".
+/* This week or next week as a short Wed-Sun range, e.g. "30 Sep - 4 Oct".
    Service days are Wed to Sun, so that's the range shown. */
 function rosterWeekRange(which){
   const mon = new Date(weekStartKey() + 'T12:00:00');
   if(which === 'next') mon.setDate(mon.getDate() + 7);
-  if(which === 'last') mon.setDate(mon.getDate() - 7);
   const wed = new Date(mon); wed.setDate(mon.getDate() + 2);
   const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
   const f = d => d.getDate() + ' ' + d.toLocaleString('en-AU', {month:'short'});
@@ -1478,10 +1480,6 @@ function weeksBetween(fromKey, toKey){
 /* Moves the planned week into this week. A gap of two or more weeks means the
    planned covers belonged to a week that has already gone, so they drop too. */
 function advanceRosterWeek(gap){
-  /* Keep the week that just finished. After a gap, the last planned week is
-     the nearest thing to it; three or more weeks out, its covers are stale. */
-  if(gap === 1) state.rosterLast = cloneRoster(state.roster);
-  else { state.rosterLast = cloneRoster(state.rosterNext); if(gap >= 3) stripCovers(state.rosterLast); }
   state.roster = cloneRoster(state.rosterNext);
   if(gap >= 2) stripCovers(state.roster);
   state.rosterNext = cloneRoster(state.roster);
@@ -1521,8 +1519,8 @@ function rollRosterWeek(){
 }
 
 function loadRoster(){
-  let raw = null, rawNext = null, rawLast = null;
-  try{ raw = localStorage.getItem(ROSTER_KEY); rawNext = localStorage.getItem(ROSTER_NEXT_KEY); rawLast = localStorage.getItem(ROSTER_LAST_KEY); }catch(e){}
+  let raw = null, rawNext = null;
+  try{ raw = localStorage.getItem(ROSTER_KEY); rawNext = localStorage.getItem(ROSTER_NEXT_KEY); }catch(e){}
   try{ state.roster = raw ? JSON.parse(raw) : {}; }catch(e){ state.roster = {}; }
   ROSTER_DAY_KEYS.forEach(d=>{ if(!state.roster[d]) state.roster[d] = {}; });
   /* First open after this update: there is no next week yet. It starts as a full
@@ -1534,14 +1532,6 @@ function loadRoster(){
     saveRoster();
   }
   ROSTER_DAY_KEYS.forEach(d=>{ if(!state.rosterNext[d]) state.rosterNext[d] = {}; });
-  /* No record of last week on this phone yet: this week's roster is the closest
-     thing to it, since shifts carry from week to week. */
-  try{ state.rosterLast = rawLast ? JSON.parse(rawLast) : null; }catch(e){ state.rosterLast = null; }
-  if(!state.rosterLast){
-    state.rosterLast = cloneRoster(state.roster);
-    saveRoster();
-  }
-  ROSTER_DAY_KEYS.forEach(d=>{ if(!state.rosterLast[d]) state.rosterLast[d] = {}; });
 }
 function fmtTime(hhmm, spaced){
   if(!hhmm) return '';
@@ -1596,48 +1586,66 @@ function buildRosterText(which){
     + '\n\nThank you';
 }
 
-/* ===== Timesheet, per week =====
-   Edits are kept per week (by its Monday date), so fixing last week's hours
-   never leaks into this week. Before v3.8.1 there was one set of edits with no
-   week; that old key is left untouched as a backup. */
-const TIMESHEET_KEY = 'order-chit-timesheet';
-const TS_WEEKS_KEY = 'order-chit-timesheet-weeks';
-let tsWeek = null;   // 'last' or 'this'; chosen the first time the timesheet opens
+/* ===== Timesheet =====
+   One timesheet, not tied to a week. It is a copy of the roster taken the
+   first time it opens or when Reset to roster is tapped, and after that it
+   only changes when it's edited - Monday's roster handover leaves it alone. */
+const TIMESHEET_KEY = 'order-chit-timesheet';          // v3.8 and earlier: edits over the live roster
+const TS_WEEKS_KEY = 'order-chit-timesheet-weeks';     // v3.8.1: edits kept per week
+const TS_SHEET_KEY = 'order-chit-timesheet-sheet';     // from v3.8.2: the whole timesheet
+const OLD_ROSTER_LAST_KEY = 'order-chit-roster-last';  // v3.8.1's copy of the week just worked
 
 function shiftDateKey(key, days){ const d = new Date(key + 'T12:00:00'); d.setDate(d.getDate() + days); return localDateKey(d); }
-function tsWeekKey(which){ return which === 'last' ? shiftDateKey(weekStartKey(), -7) : weekStartKey(); }
-function tsRosterFor(which){ return (which === 'last' ? state.rosterLast : state.roster) || {}; }
-function tsWeekLabel(which){ return which === 'last' ? 'last week' : 'this week'; }
+function isPlainObj(o){ return !!o && typeof o === 'object' && !Array.isArray(o); }
+function readStoredJSON(key){ try{ const r = localStorage.getItem(key); return r ? JSON.parse(r) : null; }catch(e){ return null; } }
 
-/* Monday and Tuesday are for sorting out the week that just finished. */
-function defaultTsWeek(){
-  const dow = new Date(serviceDateKey() + 'T12:00:00').getDay();
-  return (dow === 1 || dow === 2) ? 'last' : 'this';
+/* Every day filled in: an edit if there is one, otherwise the roster's start
+   with a 9pm finish, otherwise off. */
+function timesheetFromRoster(roster, edits){
+  const rid = rabindraId();
+  const out = {};
+  ROSTER_DAY_KEYS.forEach(day => {
+    const ov = isPlainObj(edits) ? edits[day] : null;
+    if(isPlainObj(ov)){ out[day] = { start: ov.start||'', end: ov.end||'' }; return; }
+    const r = roster && roster[day] && rid && roster[day][rid];
+    const start = (r && r.start) || '';
+    out[day] = { start: start, end: start ? '21:00' : '' };
+  });
+  return out;
 }
 
-function saveTimesheet(){ try{ localStorage.setItem(TS_WEEKS_KEY, JSON.stringify(state.tsWeeks)); }catch(e){} }
+function saveTimesheet(){ try{ localStorage.setItem(TS_SHEET_KEY, JSON.stringify(state.timesheet)); }catch(e){} }
+
 function loadTimesheet(){
-  let raw = null, legacy = null;
-  try{ raw = localStorage.getItem(TS_WEEKS_KEY); legacy = localStorage.getItem(TIMESHEET_KEY); }catch(e){}
-  try{ state.tsWeeks = raw ? JSON.parse(raw) : null; }catch(e){ state.tsWeeks = null; }
-  if(!state.tsWeeks || typeof state.tsWeeks !== 'object' || Array.isArray(state.tsWeeks)){
-    state.tsWeeks = {};
-    /* The old edits were being made for the week just worked. */
-    let old = null;
-    try{ old = legacy ? JSON.parse(legacy) : null; }catch(e){ old = null; }
-    if(old && typeof old === 'object' && !Array.isArray(old) && Object.keys(old).length) state.tsWeeks[tsWeekKey('last')] = old;
-    saveTimesheet();
+  const sheet = readStoredJSON(TS_SHEET_KEY);
+  if(isPlainObj(sheet)){
+    state.timesheet = {};
+    ROSTER_DAY_KEYS.forEach(d => { const e = isPlainObj(sheet[d]) ? sheet[d] : {}; state.timesheet[d] = { start: e.start||'', end: e.end||'' }; });
+    return;
   }
-  /* Only last week and this week are ever shown, so nothing older is kept. */
-  const keep = [tsWeekKey('last'), tsWeekKey('this')];
-  let pruned = false;
-  Object.keys(state.tsWeeks).forEach(k => { if(keep.indexOf(k) < 0){ delete state.tsWeeks[k]; pruned = true; } });
-  if(pruned) saveTimesheet();
+  /* First open of v3.8.2: keep what the old timesheet was showing. v3.8.1 kept
+     last week and this week apart - this week's wins if it was edited, else
+     last week's, filled from the roster that week actually had. Before that
+     there was one set of edits over this week's roster. The old keys are
+     left untouched as a backup. */
+  const has = o => isPlainObj(o) && Object.keys(o).length > 0;
+  const weeks = readStoredJSON(TS_WEEKS_KEY);
+  let edits = null, roster = state.roster;
+  if(isPlainObj(weeks)){
+    const thisK = weekStartKey(), lastK = shiftDateKey(thisK, -7);
+    if(has(weeks[thisK])) edits = weeks[thisK];
+    else if(has(weeks[lastK])){
+      edits = weeks[lastK];
+      const rl = readStoredJSON(OLD_ROSTER_LAST_KEY);
+      if(isPlainObj(rl)) roster = rl;
+    }
+  }
+  if(!edits){ const legacy = readStoredJSON(TIMESHEET_KEY); if(has(legacy)) edits = legacy; }
+  state.timesheet = timesheetFromRoster(roster, edits);
+  saveTimesheet();
 }
-function setTsDay(which, day, val){
-  const k = tsWeekKey(which);
-  if(!state.tsWeeks[k] || typeof state.tsWeeks[k] !== 'object') state.tsWeeks[k] = {};
-  state.tsWeeks[k][day] = val;
+function setTsDay(day, val){
+  state.timesheet[day] = { start: val.start||'', end: val.end||'' };
   saveTimesheet();
 }
 function rabindraId(){
@@ -1654,24 +1662,19 @@ function hoursBetween(startHHMM, endHHMM){
   return mins/60;
 }
 function fmtNum(x){ return String(parseFloat(x.toFixed(2))); }
-function effectiveTs(day, rid, which){
-  which = which || tsWeek || 'this';
-  const ov = (state.tsWeeks[tsWeekKey(which)] || {})[day];
-  if(ov) return { start: ov.start||'', end: ov.end||'' };
-  const r = tsRosterFor(which);
-  const rs = (r[day] && rid && r[day][rid] && r[day][rid].start) || '';
-  return { start: rs, end: rs ? '21:00' : '' };
+function effectiveTs(day){
+  const e = (state.timesheet && state.timesheet[day]) || {};
+  return { start: e.start||'', end: e.end||'' };
 }
-function buildTimesheetText(which){
-  which = which || tsWeek || 'this';
+function buildTimesheetText(){
   const rid = rabindraId();
   const meObj = state.staff.find(s=>s.id===rid);
   const name = meObj ? meObj.name : 'Rabindra';
   const dayLabels = [['wed','Wed'],['thu','Thu'],['fri','Fri'],['sat','Sat'],['sun','Sun']];
-  const lines = [name+' ('+rosterWeekRange(which)+'):', ''];
+  const lines = [name+':', ''];
   let total = 0, any = false;
   dayLabels.forEach(([k,lbl])=>{
-    const e = effectiveTs(k, rid, which);
+    const e = effectiveTs(k);
     if(!e.start) return;
     any = true;
     if(e.end){
@@ -3174,7 +3177,7 @@ function refreshTimesheetDom(){
   ROSTER_DAY_KEYS.forEach(day => {
     const row = document.querySelector('.ts-day[data-ts-day="'+day+'"]');
     if(!row) return;
-    const e = effectiveTs(day, rid, tsWeek);
+    const e = effectiveTs(day);
     if(e.start && e.end) total += hoursBetween(e.start, e.end);
     const lbl = row.querySelector('.ts-hours');
     if(lbl) lbl.textContent = tsHoursLabel(e);
@@ -3190,15 +3193,10 @@ function refreshTimesheetDom(){
 }
 
 function renderTimesheet(){
-  if(!tsWeek) tsWeek = defaultTsWeek();
-  const which = tsWeek;
-  const rid = rabindraId();
   const dayRows = [['wed','Wednesday'],['thu','Thursday'],['fri','Friday'],['sat','Saturday'],['sun','Sunday']];
-  const weekTabs = [['last','Last week'],['this','This week']].map(([k,lbl]) =>
-    `<button type="button" class="toggle-btn rweek-btn ${which===k?'active':''}" data-tsweek="${k}">${lbl}<span class="rweek-range">${rosterWeekRange(k)}</span></button>`).join('');
   let total = 0;
   const rows = dayRows.map(([k,full])=>{
-    const e = effectiveTs(k, rid, which);
+    const e = effectiveTs(k);
     if(e.start && e.end) total += hoursBetween(e.start, e.end);
     const hoursLabel = tsHoursLabel(e);
     return `
@@ -3216,8 +3214,7 @@ function renderTimesheet(){
   }).join('');
   return `
     <div class="crumb"><button data-goto="roster">&larr; Rostering</button> / My Timesheet</div>
-    <div class="toggle-row rweek-row">${weekTabs}</div>
-    <div class="staff-legend">Start times come from ${tsWeekLabel(which)}'s roster; end defaults to <strong>9pm</strong>. Adjust either after a shift &mdash; hours total automatically. Leave a day blank if you didn't work it.</div>
+    <div class="staff-legend">Stays as you leave it until you tap <strong>Reset to roster</strong>, which fills it in from this week's roster with a <strong>9pm</strong> finish. Adjust after a shift &mdash; hours total automatically. Leave a day blank if you didn't work it.</div>
     ${rows}
     <div class="ts-total">Total hours: <strong id="ts-total-val">${fmtNum(total)} hrs</strong></div>
     <div style="margin-top:16px;"><button class="btn btn-block" id="ts-submit">Submit Timesheet &rarr;</button></div>
@@ -3840,8 +3837,13 @@ function attachHandlers(){
      report focus as elsewhere while it hops between hour and minute, so the
      key presses are what say someone is typing, not where focus sits. */
   const typingIn = (el)=> el.dataset.typing === '1';
+  /* A laptop's picker stays open while the hour, minutes and am/pm are chosen
+     one after another, so a redraw mid-way would shut it after the first pick.
+     While the box still has focus on a laptop, the redraw waits for it to be
+     left - the same as typing. */
+  const laptopPicking = (el)=> !!(window.matchMedia && window.matchMedia('(hover:hover) and (pointer:fine)').matches) && document.activeElement === el;
   const redrawAfterTime = (el)=>{
-    if(typingIn(el)){
+    if(typingIn(el) || laptopPicking(el)){
       if(el.dataset.redrawOnBlur !== '1'){
         el.dataset.redrawOnBlur = '1';
         el.addEventListener('blur', ()=> rerenderKeepScroll(), {once:true});
@@ -3931,33 +3933,32 @@ function attachHandlers(){
     });
   });
   const rid = rabindraId();
-  document.querySelectorAll('[data-tsweek]').forEach(el=>{
-    el.addEventListener('click', ()=>{ tsWeek = el.dataset.tsweek === 'last' ? 'last' : 'this'; render(); });
-  });
   document.querySelectorAll('[data-ts-start]').forEach(el=>{
     const day = el.dataset.tsStart;
-    el.addEventListener('focus', ()=>{ if(!typingIn(el)) el.dataset.endAtFocus = effectiveTs(day, rid, tsWeek).end || ''; });
+    el.addEventListener('focus', ()=>{ if(!typingIn(el)) el.dataset.endAtFocus = effectiveTs(day).end || ''; });
     el.addEventListener('change', ()=>{
-      const cur = effectiveTs(day, rid, tsWeek);
-      const end = typingIn(el) ? (el.dataset.endAtFocus || '') : (el.value ? cur.end : '');
-      setTsDay(tsWeek, day, { start: el.value, end: end });
+      const cur = effectiveTs(day);
+      /* A day that was off gets the usual 9pm finish once it has a start. */
+      const end = !el.value ? (typingIn(el) ? (el.dataset.endAtFocus || '') : '')
+        : ((typingIn(el) ? el.dataset.endAtFocus : cur.end) || '21:00');
+      setTsDay(day, { start: el.value, end: end });
       refreshTimesheetDom();
     });
     el.addEventListener('blur', ()=>{
-      if(el.dataset.typing === '1' && !el.value){ setTsDay(tsWeek, day, { start: '', end: '' }); refreshTimesheetDom(); }
+      if(el.dataset.typing === '1' && !el.value){ setTsDay(day, { start: '', end: '' }); refreshTimesheetDom(); }
     });
   });
   document.querySelectorAll('[data-ts-end]').forEach(el=>{
     el.addEventListener('change', ()=>{
       const day = el.dataset.tsEnd;
-      const cur = effectiveTs(day, rid, tsWeek);
-      setTsDay(tsWeek, day, { start: cur.start, end: el.value });
+      const cur = effectiveTs(day);
+      setTsDay(day, { start: cur.start, end: el.value });
       refreshTimesheetDom();
     });
   });
   const tsSubmit = document.getElementById('ts-submit');
   if(tsSubmit) tsSubmit.addEventListener('click', ()=>{
-    const text = buildTimesheetText(tsWeek);
+    const text = buildTimesheetText();
     if(!text){ showToast('Timesheet is empty'); return; }
     if(navigator.share){ navigator.share({text}).catch(()=>{}); }
     else {
@@ -3970,7 +3971,7 @@ function attachHandlers(){
   });
   const tsCopy = document.getElementById('ts-copy');
   if(tsCopy) tsCopy.addEventListener('click', ()=>{
-    const text = buildTimesheetText(tsWeek);
+    const text = buildTimesheetText();
     if(!text){ showToast('Timesheet is empty'); return; }
     navigator.clipboard.writeText(text).then(()=>showToast('Timesheet copied')).catch(()=>{
       const area = document.getElementById('ts-copy-area');
@@ -3980,9 +3981,8 @@ function attachHandlers(){
   });
   const tsReset = document.getElementById('ts-reset');
   if(tsReset) tsReset.addEventListener('click', ()=>{
-    const wk = tsWeekLabel(tsWeek);
-    if(confirm('Reset ' + wk + "'s timesheet to match " + wk + "'s roster? This clears your adjustments for " + wk + ' only.')){
-      delete state.tsWeeks[tsWeekKey(tsWeek)]; saveTimesheet(); render(); showToast('Reset to roster');
+    if(confirm("Fill the timesheet in from this week's roster? This clears your adjustments.")){
+      state.timesheet = timesheetFromRoster(state.roster, null); saveTimesheet(); render(); showToast('Reset to roster');
     }
   });
   bindContactToggle();
