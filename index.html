@@ -525,6 +525,11 @@ a.btn-block{display:block;}
 .rday-week{font-size:10.5px;font-weight:700;letter-spacing:1px;color:var(--muted);margin-left:4px;}
 .rstaff-cover{border-style:dashed;border-color:var(--mustard);}
 
+/* ===== v3.8.1: laptops see the real time box while typing into it ===== */
+@media (hover:hover) and (pointer:fine){
+  .tf input[type=time]:focus{opacity:1;background:#fff;border:1px solid var(--ink);border-radius:11px;padding:0 8px;font-family:inherit;font-size:14px;font-weight:600;color:var(--ink);text-align:center;}
+}
+
 /* ===== v3.8: recipe import review ===== */
 .imp-file{display:block;width:100%;font-family:inherit;font-size:13px;margin-top:4px;}
 .imp-summary{font-size:12px;color:var(--ink-soft);margin:2px 2px 10px;line-height:1.5;}
@@ -615,10 +620,10 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.8';
+const APP_VERSION = 'v3.8.1';
 
 let state = {
-  suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
+  suppliers: [], staff: [], roster: {}, rosterNext: {}, rosterLast: {}, tsWeeks: {}, invoices: {},
   orders: [],
   catalogueSynced: null,
   invoiceSync: null,
@@ -1408,6 +1413,7 @@ function saveRoster(){
   try{
     localStorage.setItem(ROSTER_KEY, JSON.stringify(state.roster));
     localStorage.setItem(ROSTER_NEXT_KEY, JSON.stringify(state.rosterNext));
+    localStorage.setItem(ROSTER_LAST_KEY, JSON.stringify(state.rosterLast));
   }catch(e){}
 }
 
@@ -1419,6 +1425,9 @@ function saveRoster(){
    are one-offs, the regular shifts are what carry. */
 const ROSTER_WEEK_KEY = 'order-chit-roster-week';
 const ROSTER_NEXT_KEY = 'order-chit-roster-next';
+/* The week just worked. Monday moves this week on, but the timesheet for the
+   week that finished still needs its shifts. */
+const ROSTER_LAST_KEY = 'order-chit-roster-last';
 
 function rosterFor(which){ return which === 'next' ? state.rosterNext : state.roster; }
 
@@ -1448,11 +1457,12 @@ function stripCovers(roster){
   return n;
 }
 
-/* This week or next week as a short Wed-Sun range, e.g. "30 Sep - 4 Oct".
+/* Last, this or next week as a short Wed-Sun range, e.g. "30 Sep - 4 Oct".
    Service days are Wed to Sun, so that's the range shown. */
 function rosterWeekRange(which){
   const mon = new Date(weekStartKey() + 'T12:00:00');
   if(which === 'next') mon.setDate(mon.getDate() + 7);
+  if(which === 'last') mon.setDate(mon.getDate() - 7);
   const wed = new Date(mon); wed.setDate(mon.getDate() + 2);
   const sun = new Date(mon); sun.setDate(mon.getDate() + 6);
   const f = d => d.getDate() + ' ' + d.toLocaleString('en-AU', {month:'short'});
@@ -1468,6 +1478,10 @@ function weeksBetween(fromKey, toKey){
 /* Moves the planned week into this week. A gap of two or more weeks means the
    planned covers belonged to a week that has already gone, so they drop too. */
 function advanceRosterWeek(gap){
+  /* Keep the week that just finished. After a gap, the last planned week is
+     the nearest thing to it; three or more weeks out, its covers are stale. */
+  if(gap === 1) state.rosterLast = cloneRoster(state.roster);
+  else { state.rosterLast = cloneRoster(state.rosterNext); if(gap >= 3) stripCovers(state.rosterLast); }
   state.roster = cloneRoster(state.rosterNext);
   if(gap >= 2) stripCovers(state.roster);
   state.rosterNext = cloneRoster(state.roster);
@@ -1507,8 +1521,8 @@ function rollRosterWeek(){
 }
 
 function loadRoster(){
-  let raw = null, rawNext = null;
-  try{ raw = localStorage.getItem(ROSTER_KEY); rawNext = localStorage.getItem(ROSTER_NEXT_KEY); }catch(e){}
+  let raw = null, rawNext = null, rawLast = null;
+  try{ raw = localStorage.getItem(ROSTER_KEY); rawNext = localStorage.getItem(ROSTER_NEXT_KEY); rawLast = localStorage.getItem(ROSTER_LAST_KEY); }catch(e){}
   try{ state.roster = raw ? JSON.parse(raw) : {}; }catch(e){ state.roster = {}; }
   ROSTER_DAY_KEYS.forEach(d=>{ if(!state.roster[d]) state.roster[d] = {}; });
   /* First open after this update: there is no next week yet. It starts as a full
@@ -1520,6 +1534,14 @@ function loadRoster(){
     saveRoster();
   }
   ROSTER_DAY_KEYS.forEach(d=>{ if(!state.rosterNext[d]) state.rosterNext[d] = {}; });
+  /* No record of last week on this phone yet: this week's roster is the closest
+     thing to it, since shifts carry from week to week. */
+  try{ state.rosterLast = rawLast ? JSON.parse(rawLast) : null; }catch(e){ state.rosterLast = null; }
+  if(!state.rosterLast){
+    state.rosterLast = cloneRoster(state.roster);
+    saveRoster();
+  }
+  ROSTER_DAY_KEYS.forEach(d=>{ if(!state.rosterLast[d]) state.rosterLast[d] = {}; });
 }
 function fmtTime(hhmm, spaced){
   if(!hhmm) return '';
@@ -1535,6 +1557,14 @@ function fmtTime12(hhmm){ const s = fmtTime(hhmm, true); return s.replace('am','
 function timeFieldHTML(label, attr, id, val){
   const disp = val ? fmtTime12(val) : 'Set';
   return `<div class="rfield"><span>${label}</span><div class="tf"><span class="tf-val ${val?'':'tf-empty'}">${disp}</span><input type="time" ${attr}="${id}" value="${val||''}"></div></div>`;
+}
+/* The time box itself is invisible and sits over this text, so the text has to
+   follow the box whenever it changes. */
+function syncTimeField(el){
+  const span = el && el.parentNode ? el.parentNode.querySelector('.tf-val') : null;
+  if(!span) return;
+  span.textContent = el.value ? fmtTime12(el.value) : 'Set';
+  span.classList.toggle('tf-empty', !el.value);
 }
 function stationRank(s){ const i = STATIONS.indexOf(s); return i<0 ? 99 : i; }
 function buildRosterText(which){
@@ -1566,11 +1596,49 @@ function buildRosterText(which){
     + '\n\nThank you';
 }
 
+/* ===== Timesheet, per week =====
+   Edits are kept per week (by its Monday date), so fixing last week's hours
+   never leaks into this week. Before v3.8.1 there was one set of edits with no
+   week; that old key is left untouched as a backup. */
 const TIMESHEET_KEY = 'order-chit-timesheet';
-function saveTimesheet(){ try{ localStorage.setItem(TIMESHEET_KEY, JSON.stringify(state.timesheet)); }catch(e){} }
+const TS_WEEKS_KEY = 'order-chit-timesheet-weeks';
+let tsWeek = null;   // 'last' or 'this'; chosen the first time the timesheet opens
+
+function shiftDateKey(key, days){ const d = new Date(key + 'T12:00:00'); d.setDate(d.getDate() + days); return localDateKey(d); }
+function tsWeekKey(which){ return which === 'last' ? shiftDateKey(weekStartKey(), -7) : weekStartKey(); }
+function tsRosterFor(which){ return (which === 'last' ? state.rosterLast : state.roster) || {}; }
+function tsWeekLabel(which){ return which === 'last' ? 'last week' : 'this week'; }
+
+/* Monday and Tuesday are for sorting out the week that just finished. */
+function defaultTsWeek(){
+  const dow = new Date(serviceDateKey() + 'T12:00:00').getDay();
+  return (dow === 1 || dow === 2) ? 'last' : 'this';
+}
+
+function saveTimesheet(){ try{ localStorage.setItem(TS_WEEKS_KEY, JSON.stringify(state.tsWeeks)); }catch(e){} }
 function loadTimesheet(){
-  try{ const r = localStorage.getItem(TIMESHEET_KEY); state.timesheet = r ? JSON.parse(r) : {}; }
-  catch(e){ state.timesheet = {}; }
+  let raw = null, legacy = null;
+  try{ raw = localStorage.getItem(TS_WEEKS_KEY); legacy = localStorage.getItem(TIMESHEET_KEY); }catch(e){}
+  try{ state.tsWeeks = raw ? JSON.parse(raw) : null; }catch(e){ state.tsWeeks = null; }
+  if(!state.tsWeeks || typeof state.tsWeeks !== 'object' || Array.isArray(state.tsWeeks)){
+    state.tsWeeks = {};
+    /* The old edits were being made for the week just worked. */
+    let old = null;
+    try{ old = legacy ? JSON.parse(legacy) : null; }catch(e){ old = null; }
+    if(old && typeof old === 'object' && !Array.isArray(old) && Object.keys(old).length) state.tsWeeks[tsWeekKey('last')] = old;
+    saveTimesheet();
+  }
+  /* Only last week and this week are ever shown, so nothing older is kept. */
+  const keep = [tsWeekKey('last'), tsWeekKey('this')];
+  let pruned = false;
+  Object.keys(state.tsWeeks).forEach(k => { if(keep.indexOf(k) < 0){ delete state.tsWeeks[k]; pruned = true; } });
+  if(pruned) saveTimesheet();
+}
+function setTsDay(which, day, val){
+  const k = tsWeekKey(which);
+  if(!state.tsWeeks[k] || typeof state.tsWeeks[k] !== 'object') state.tsWeeks[k] = {};
+  state.tsWeeks[k][day] = val;
+  saveTimesheet();
 }
 function rabindraId(){
   const r = state.staff.find(s => (s.name||'').trim().toLowerCase()==='rabindra');
@@ -1586,21 +1654,24 @@ function hoursBetween(startHHMM, endHHMM){
   return mins/60;
 }
 function fmtNum(x){ return String(parseFloat(x.toFixed(2))); }
-function effectiveTs(day, rid){
-  const ov = state.timesheet && state.timesheet[day];
+function effectiveTs(day, rid, which){
+  which = which || tsWeek || 'this';
+  const ov = (state.tsWeeks[tsWeekKey(which)] || {})[day];
   if(ov) return { start: ov.start||'', end: ov.end||'' };
-  const rs = (state.roster[day] && rid && state.roster[day][rid] && state.roster[day][rid].start) || '';
+  const r = tsRosterFor(which);
+  const rs = (r[day] && rid && r[day][rid] && r[day][rid].start) || '';
   return { start: rs, end: rs ? '21:00' : '' };
 }
-function buildTimesheetText(){
+function buildTimesheetText(which){
+  which = which || tsWeek || 'this';
   const rid = rabindraId();
   const meObj = state.staff.find(s=>s.id===rid);
   const name = meObj ? meObj.name : 'Rabindra';
   const dayLabels = [['wed','Wed'],['thu','Thu'],['fri','Fri'],['sat','Sat'],['sun','Sun']];
-  const lines = [name+':', ''];
+  const lines = [name+' ('+rosterWeekRange(which)+'):', ''];
   let total = 0, any = false;
   dayLabels.forEach(([k,lbl])=>{
-    const e = effectiveTs(k, rid);
+    const e = effectiveTs(k, rid, which);
     if(!e.start) return;
     any = true;
     if(e.end){
@@ -3090,19 +3161,48 @@ function renderRoster(){
 
 const ROSTER_DAYS = [['wed','W'],['thu','T'],['fri','F'],['sat','S'],['sun','S']];
 
-function renderTimesheet(){
+function tsHoursLabel(e){
+  return (e.start && e.end) ? `${fmtNum(hoursBetween(e.start, e.end))} hrs` : (e.start ? 'set end' : 'off');
+}
+
+/* Updates the timesheet where it stands instead of redrawing it. A redraw
+   throws away the box being typed into, which on a laptop meant one digit
+   went in and the rest were lost. */
+function refreshTimesheetDom(){
   const rid = rabindraId();
-  const meObj = state.staff.find(s=>s.id===rid);
-  const name = meObj ? meObj.name : 'Rabindra';
+  let total = 0;
+  ROSTER_DAY_KEYS.forEach(day => {
+    const row = document.querySelector('.ts-day[data-ts-day="'+day+'"]');
+    if(!row) return;
+    const e = effectiveTs(day, rid, tsWeek);
+    if(e.start && e.end) total += hoursBetween(e.start, e.end);
+    const lbl = row.querySelector('.ts-hours');
+    if(lbl) lbl.textContent = tsHoursLabel(e);
+    [['[data-ts-start]', e.start], ['[data-ts-end]', e.end]].forEach(([sel, v]) => {
+      const inp = row.querySelector(sel);
+      if(!inp) return;
+      if(document.activeElement !== inp && inp.value !== v) inp.value = v;
+      syncTimeField(inp);
+    });
+  });
+  const t = document.getElementById('ts-total-val');
+  if(t) t.textContent = fmtNum(total) + ' hrs';
+}
+
+function renderTimesheet(){
+  if(!tsWeek) tsWeek = defaultTsWeek();
+  const which = tsWeek;
+  const rid = rabindraId();
   const dayRows = [['wed','Wednesday'],['thu','Thursday'],['fri','Friday'],['sat','Saturday'],['sun','Sunday']];
+  const weekTabs = [['last','Last week'],['this','This week']].map(([k,lbl]) =>
+    `<button type="button" class="toggle-btn rweek-btn ${which===k?'active':''}" data-tsweek="${k}">${lbl}<span class="rweek-range">${rosterWeekRange(k)}</span></button>`).join('');
   let total = 0;
   const rows = dayRows.map(([k,full])=>{
-    const e = effectiveTs(k, rid);
-    const h = (e.start && e.end) ? hoursBetween(e.start, e.end) : 0;
-    if(e.start && e.end) total += h;
-    const hoursLabel = (e.start && e.end) ? `${fmtNum(h)} hrs` : (e.start ? 'set end' : 'off');
+    const e = effectiveTs(k, rid, which);
+    if(e.start && e.end) total += hoursBetween(e.start, e.end);
+    const hoursLabel = tsHoursLabel(e);
     return `
-      <div class="ts-day">
+      <div class="ts-day" data-ts-day="${k}">
         <div class="ts-day-head">
           <span class="ts-day-name">${full}</span>
           <span class="ts-hours">${hoursLabel}</span>
@@ -3116,9 +3216,10 @@ function renderTimesheet(){
   }).join('');
   return `
     <div class="crumb"><button data-goto="roster">&larr; Rostering</button> / My Timesheet</div>
-    <div class="staff-legend">Start times come from your roster; end defaults to <strong>9pm</strong>. Adjust either after a shift &mdash; hours total automatically. Leave a day blank if you didn't work it.</div>
+    <div class="toggle-row rweek-row">${weekTabs}</div>
+    <div class="staff-legend">Start times come from ${tsWeekLabel(which)}'s roster; end defaults to <strong>9pm</strong>. Adjust either after a shift &mdash; hours total automatically. Leave a day blank if you didn't work it.</div>
     ${rows}
-    <div class="ts-total">Total hours: <strong>${fmtNum(total)} hrs</strong></div>
+    <div class="ts-total">Total hours: <strong id="ts-total-val">${fmtNum(total)} hrs</strong></div>
     <div style="margin-top:16px;"><button class="btn btn-block" id="ts-submit">Submit Timesheet &rarr;</button></div>
     <div style="margin-top:10px;"><button class="btn btn-ghost btn-block" id="ts-copy">Copy Timesheet Text</button></div>
     <textarea class="copybox" id="ts-copy-area" style="display:none;" readonly></textarea>
@@ -3722,6 +3823,33 @@ function attachHandlers(){
     el.addEventListener('click', ()=> showToast('Coming in the next update'));
   });
   const rerenderKeepScroll = ()=>{ const y=window.scrollY; render(); window.scrollTo(0,y); };
+
+  /* ---- Time boxes ----
+     A phone picker hands over a whole time at once. A laptop types it a digit
+     at a time and every digit counts as a change, so redrawing the screen on
+     each one threw the box away after the first key. The text now follows
+     every keystroke, and any redraw waits until the box is left. */
+  document.querySelectorAll('.tf input[type=time]').forEach(el=>{
+    el.addEventListener('keydown', ()=>{ el.dataset.typing = '1'; });
+    el.addEventListener('input', ()=> syncTimeField(el));
+    /* Cleared after the box's own blur handlers have had their look. */
+    el.addEventListener('blur', ()=>{ setTimeout(()=>{ el.dataset.typing = ''; }, 0); });
+  });
+  /* Half-typed times read as blank on a laptop (the "0" of "09"), so a blank
+     only counts as clearing the box once the box is left. The browser can
+     report focus as elsewhere while it hops between hour and minute, so the
+     key presses are what say someone is typing, not where focus sits. */
+  const typingIn = (el)=> el.dataset.typing === '1';
+  const redrawAfterTime = (el)=>{
+    if(typingIn(el)){
+      if(el.dataset.redrawOnBlur !== '1'){
+        el.dataset.redrawOnBlur = '1';
+        el.addEventListener('blur', ()=> rerenderKeepScroll(), {once:true});
+      }
+      return;
+    }
+    rerenderKeepScroll();
+  };
   document.querySelectorAll('[data-rweek]').forEach(el=>{
     el.addEventListener('click', ()=>{ rosterWeek = el.dataset.rweek === 'next' ? 'next' : 'this'; rosterShowAll = false; render(); });
   });
@@ -3735,18 +3863,25 @@ function attachHandlers(){
     return r[rosterDay];
   };
   document.querySelectorAll('[data-rstart]').forEach(el=>{
+    el.addEventListener('blur', ()=>{
+      if(el.dataset.typing === '1' && !el.value){
+        const day = rosterDayObj();
+        if(day[el.dataset.rstart]){ delete day[el.dataset.rstart]; saveRoster(); }
+      }
+    });
     el.addEventListener('change', ()=>{
       const sid = el.dataset.rstart;
       const day = rosterDayObj();
-      if(!el.value){ delete day[sid]; }
+      if(!el.value){ if(!typingIn(el)) delete day[sid]; }
       else { if(!day[sid]) day[sid] = {start:'',end:'',station:''}; day[sid].start = el.value; }
-      saveRoster(); rerenderKeepScroll();
+      saveRoster(); syncTimeField(el); redrawAfterTime(el);
     });
   });
   document.querySelectorAll('[data-rend]').forEach(el=>{
     el.addEventListener('change', ()=>{
       const sid = el.dataset.rend; const day = rosterDayObj();
       if(day[sid]){ day[sid].end = el.value; saveRoster(); }
+      syncTimeField(el);
     });
   });
   document.querySelectorAll('[data-rstation]').forEach(el=>{
@@ -3796,25 +3931,33 @@ function attachHandlers(){
     });
   });
   const rid = rabindraId();
+  document.querySelectorAll('[data-tsweek]').forEach(el=>{
+    el.addEventListener('click', ()=>{ tsWeek = el.dataset.tsweek === 'last' ? 'last' : 'this'; render(); });
+  });
   document.querySelectorAll('[data-ts-start]').forEach(el=>{
+    const day = el.dataset.tsStart;
+    el.addEventListener('focus', ()=>{ if(!typingIn(el)) el.dataset.endAtFocus = effectiveTs(day, rid, tsWeek).end || ''; });
     el.addEventListener('change', ()=>{
-      const day = el.dataset.tsStart;
-      const cur = effectiveTs(day, rid);
-      state.timesheet[day] = { start: el.value, end: el.value ? cur.end : '' };
-      saveTimesheet(); rerenderKeepScroll();
+      const cur = effectiveTs(day, rid, tsWeek);
+      const end = typingIn(el) ? (el.dataset.endAtFocus || '') : (el.value ? cur.end : '');
+      setTsDay(tsWeek, day, { start: el.value, end: end });
+      refreshTimesheetDom();
+    });
+    el.addEventListener('blur', ()=>{
+      if(el.dataset.typing === '1' && !el.value){ setTsDay(tsWeek, day, { start: '', end: '' }); refreshTimesheetDom(); }
     });
   });
   document.querySelectorAll('[data-ts-end]').forEach(el=>{
     el.addEventListener('change', ()=>{
       const day = el.dataset.tsEnd;
-      const cur = effectiveTs(day, rid);
-      state.timesheet[day] = { start: cur.start, end: el.value };
-      saveTimesheet(); rerenderKeepScroll();
+      const cur = effectiveTs(day, rid, tsWeek);
+      setTsDay(tsWeek, day, { start: cur.start, end: el.value });
+      refreshTimesheetDom();
     });
   });
   const tsSubmit = document.getElementById('ts-submit');
   if(tsSubmit) tsSubmit.addEventListener('click', ()=>{
-    const text = buildTimesheetText();
+    const text = buildTimesheetText(tsWeek);
     if(!text){ showToast('Timesheet is empty'); return; }
     if(navigator.share){ navigator.share({text}).catch(()=>{}); }
     else {
@@ -3827,7 +3970,7 @@ function attachHandlers(){
   });
   const tsCopy = document.getElementById('ts-copy');
   if(tsCopy) tsCopy.addEventListener('click', ()=>{
-    const text = buildTimesheetText();
+    const text = buildTimesheetText(tsWeek);
     if(!text){ showToast('Timesheet is empty'); return; }
     navigator.clipboard.writeText(text).then(()=>showToast('Timesheet copied')).catch(()=>{
       const area = document.getElementById('ts-copy-area');
@@ -3837,8 +3980,9 @@ function attachHandlers(){
   });
   const tsReset = document.getElementById('ts-reset');
   if(tsReset) tsReset.addEventListener('click', ()=>{
-    if(confirm('Reset the timesheet to match your current roster? This clears your adjustments.')){
-      state.timesheet = {}; saveTimesheet(); render(); showToast('Reset to roster');
+    const wk = tsWeekLabel(tsWeek);
+    if(confirm('Reset ' + wk + "'s timesheet to match " + wk + "'s roster? This clears your adjustments for " + wk + ' only.')){
+      delete state.tsWeeks[tsWeekKey(tsWeek)]; saveTimesheet(); render(); showToast('Reset to roster');
     }
   });
   bindContactToggle();
