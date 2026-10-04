@@ -627,7 +627,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.8.2';
+const APP_VERSION = 'v3.8.4';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -1704,32 +1704,82 @@ function defaultTemplate(contactType){
   };
 }
 
+/* Aziz's catalogue (Oct 2026), from Rabindra's product list.
+   [id, name, unit, staff-app section, ...older names it may have on the phone]
+   Products that already existed keep their ids, so staff orders and Repeat
+   Last Order still point at them. Units for new items are first guesses. */
+const AZIZ_PRODUCTS = [
+  ["p5", "Beef Mince", "kg", "Protein"],
+  ["p6", "Beef Cheeks", "kg", "Protein"],
+  ["p8", "Pork Mince", "kg", "Protein"],
+  ["p11", "Pork Belly (Boneless)", "kg", "Protein", "Pork Belly (no bone)"],
+  ["p9", "Italian-Style Thick Sausage Mix", "kg", "Protein", "Italian Style Thick Sausages Mix"],
+  ["p7", "Kransky Sausage", "pkt", "Protein"],
+  ["p4", "Speck", "pkt", "Protein"],
+  ["p10", "Mortadella", "kg", "Protein"],
+  ["p2", "Raw Frozen Prawns", "pkt", "Protein"],
+  ["p3", "Lolli Squid", "box", "Protein", "Loligo Squid", "Lolligo Squid"],
+  ["p35", "Fior di Latte", "kg", "Dairy"],
+  ["az01", "Mozzarella", "kg", "Dairy"],
+  ["az02", "Parmesan", "kg", "Dairy"],
+  ["az03", "Ricotta", "kg", "Dairy"],
+  ["az04", "Feta", "kg", "Dairy"],
+  ["az05", "Mascarpone", "kg", "Dairy"],
+  ["az06", "Pure Cream", "L", "Dairy"],
+  ["az07", "Full Cream Milk", "L", "Dairy"],
+  ["az08", "Unsalted Butter", "kg", "Dairy"],
+  ["p36", "Fresh Lasagne Sheets", "kg", "Dry Goods", "Fresh Lasagna Sheets"],
+  ["p37", "Gnocchi", "kg", "Dry Goods", "Gastronomi Gnocchi"],
+  ["p38", "Squid Ink Spaghetti", "kg", "Dry Goods"],
+  ["p39", "Calamarata Pasta", "kg", "Dry Goods"],
+  ["az09", "Rigatoni", "kg", "Dry Goods"],
+  ["az10", "Tempura Flour", "bag", "Dry Goods"],
+  ["az11", "Semolina", "bag", "Dry Goods"],
+  ["az12", "Caster Sugar", "bag", "Dry Goods"],
+  ["az13", "Brown Sugar", "bag", "Dry Goods"],
+  ["az14", "Malt Powder", "tub", "Dry Goods"],
+  ["az15", "Savoiardi / Biscotti Fingers", "pkt", "Dry Goods"],
+  ["az16", "Vanilla Paste", "jar", "Dry Goods"],
+  ["az17", "Nestle Top n Fill Caramel", "tin", "Dry Goods"],
+  ["az18", "Honey", "tub", "Dry Goods"],
+  ["az19", "Maple Syrup", "bottle", "Dry Goods"],
+  ["az20", "Olive Oil", "tin", "Dry Goods"],
+  ["az21", "Pomace Oil", "tin", "Dry Goods"],
+  ["az22", "Aged White Balsamic Vinegar Europantry", "bottle", "Dry Goods"],
+  ["az23", "Chardonnay Vinegar", "bottle", "Dry Goods"],
+  ["az24", "Red Wine Vinegar", "bottle", "Dry Goods"],
+  ["az25", "Apple Cider Vinegar", "bottle", "Dry Goods"],
+  ["az26", "Mayonnaise", "tub", "Dry Goods"],
+  ["az27", "Dijon Mustard", "jar", "Dry Goods"],
+  ["az28", "Tomato Sauce / Ketchup", "bottle", "Dry Goods"],
+  ["az29", "Liquid Smoke", "bottle", "Dry Goods"],
+  ["az30", "Truffle Paste", "jar", "Dry Goods"],
+  ["az31", "Hot Calabrian Chilli Paste Muraca", "jar", "Dry Goods"],
+  ["az32", "Pizza Sauce Base", "tin", "Dry Goods"],
+  ["az33", "Tinned Tomatoes", "tin", "Dry Goods"],
+  ["az34", "Kalamata Olives Pitted", "tub", "Dry Goods"],
+  ["az35", "Sicilian Olives Pitted", "tub", "Dry Goods"],
+  ["az36", "Durra Pickled Peppers", "jar", "Dry Goods"],
+  ["az37", "Roasted Red Peppers", "tin", "Dry Goods"],
+  ["az38", "Panino Mixed Marinated Pitted Olives", "tub", "Dry Goods"],
+  ["az39", "Table Salt", "bag", "Dry Goods"],
+  ["az40", "Sea Salt", "bag", "Dry Goods"],
+  ["az41", "Celery Salt", "pkt", "Dry Goods"],
+  ["az42", "Smoked Paprika", "pkt", "Dry Goods"],
+  ["az43", "Dried Oregano", "pkt", "Dry Goods"],
+  ["az44", "Moroccan Spice", "pkt", "Dry Goods"],
+  ["az45", "Fennel Seeds", "pkt", "Dry Goods"],
+  ["az46", "Kibbled Black Peppers", "pkt", "Dry Goods"],
+  ["az47", "Chilli Flakes", "pkt", "Dry Goods"],
+  ["az48", "Dough Balls 350g Buvetti", "ctn", "Frozen"]
+];
+
 const seed = [
   { id:"s1", name:"Highland Poultry", contactType:"sms", contact:"0406316174", address:"",
     products:[
       {id:"p1", name:"Chicken Thigh", unit:"kg", qty:0, inc:5}
     ],
     template: defaultTemplate("sms")
-  },
-  { id:"s2", name:"Southern Fresh", contactType:"email", contact:"Orders@southernfresh.com.au", address:"",
-    products:[
-      {id:"p2", name:"Raw Frozen Prawns", unit:"pkt", qty:0, inc:1},
-      {id:"p3", name:"Loligo Squid", unit:"box", qty:0, inc:1}
-    ],
-    template: defaultTemplate("email")
-  },
-  { id:"s3", name:"Dick Stone", contactType:"email", contact:"orders@dickstone.com.au", address:"",
-    products:[
-      {id:"p4", name:"Speck", unit:"pkt", qty:0, inc:1},
-      {id:"p5", name:"Beef Mince", unit:"kg", qty:0, inc:1},
-      {id:"p6", name:"Beef Cheeks", unit:"kg", qty:0, inc:1},
-      {id:"p7", name:"Kransky Sausage", unit:"pkt", qty:0, inc:1},
-      {id:"p8", name:"Pork Mince", unit:"kg", qty:0, inc:1},
-      {id:"p9", name:"Italian Style Thick Sausages Mix", unit:"kg", qty:0, inc:1},
-      {id:"p10", name:"Mortadella", unit:"kg", qty:0, inc:1},
-      {id:"p11", name:"Pork Belly (no bone)", unit:"kg", qty:0, inc:1}
-    ],
-    template: defaultTemplate("email")
   },
   { id:"s4", name:"Michael's Fresh", contactType:"sms", contact:"0426606439", address:"",
     products:[
@@ -1766,19 +1816,9 @@ const seed = [
     template: { mode:"freeform", greeting:"", orderLine:"", signoff:"", subject:"", dateDefault:"Wednesday", usualDay:"Wednesday",
       body:"Hi Michael,\n\nCould we please get {qty} {unit} of pepperoni on {date} please?\n\nThank you" }
   },
-  { id:"s7", name:"Sydney Freezers", contactType:"email", contact:"orders@sydneyfreezers.com.au", address:"",
-    products:[],
-    template: defaultTemplate("email")
-  },
-  { id:"s8", name:"Two Providores", contactType:"email", contact:"orders@twoprovidores.com.au", address:"",
-    products:[
-      {id:"p35", name:"Fior di Latte", unit:"kg", qty:0, inc:2},
-      {id:"p36", name:"Fresh Lasagna Sheets", unit:"kg", qty:0, inc:1},
-      {id:"p37", name:"Gastronomi Gnocchi", unit:"kg", qty:0, inc:1},
-      {id:"p38", name:"Squid Ink Spaghetti", unit:"kg", qty:0, inc:1},
-      {id:"p39", name:"Calamarata Pasta", unit:"kg", qty:0, inc:1}
-    ],
-    template: defaultTemplate("email")
+  { id:"s9", name:"Aziz Supplier", contactType:"sms", contact:"0401565860", address:"",
+    products: AZIZ_PRODUCTS.map(a => ({ id:a[0], name:a[1], unit:a[2], qty:0, inc: a[0]==='p35' ? 2 : 1, cat:a[3] })),
+    template: Object.assign(defaultTemplate("sms"), { greeting:"Hi mate," })
   }
 ];
 
@@ -1834,6 +1874,103 @@ function moveDeniToTwoProvidores(){
   }
   try{ localStorage.setItem(DENI_MOVE_KEY, '1'); }catch(e){}
   return result;
+}
+
+/* ===== Everything except chicken and produce -> Aziz (Oct 2026) =====
+   Same rules as the Deni move: once, on its own flag, never SEED_VERSION.
+   Highland Poultry and Michael's Fresh stay. Every other supplier's products
+   move to Aziz with their ids, so staff orders, the staff app catalogue and
+   Repeat Last Order keep working. */
+const AZIZ_MOVE_KEY = 'order-chit-aziz-moved';
+const RETIRED_KEY = 'order-chit-retired-suppliers';
+function rememberRetired(list){
+  let map = {};
+  try{ map = JSON.parse(localStorage.getItem(RETIRED_KEY) || '{}') || {}; }catch(e){ map = {}; }
+  list.forEach(s => { if(s && s.id) map[s.id] = s.name || ''; });
+  try{ localStorage.setItem(RETIRED_KEY, JSON.stringify(map)); }catch(e){}
+}
+function retiredName(id){
+  try{ return (JSON.parse(localStorage.getItem(RETIRED_KEY) || '{}') || {})[id] || ''; }catch(e){ return ''; }
+}
+function normProductName(s){ return String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,''); }
+
+const AZIZ_V2_KEY = 'order-chit-aziz-v2';
+function moveAllToAziz(){
+  let done = false;
+  try{ done = localStorage.getItem(AZIZ_V2_KEY) === '1'; }catch(e){}
+  if(done) return null;
+  const isPinos = s => s.id === 's6' || /pino/i.test(s.name || '');
+  const isKept = s => s.id === 's1' || s.id === 's4' || /highland/i.test(s.name || '') || /michael/i.test(s.name || '') || isPinos(s);
+  const isAziz = s => /\baziz\b/i.test(s.name || '');
+
+  /* If the first Aziz version already ran on this phone it took Pino's away.
+     Bring Pino's back, with its pepperoni and its own message. */
+  if(!state.suppliers.some(isPinos) && /pino/i.test(JSON.stringify(Object.values((()=>{ try{ return JSON.parse(localStorage.getItem(RETIRED_KEY)||'{}')||{}; }catch(e){ return {}; } })())))){
+    const tpl = seed.find(s => s.id === 's6');
+    const pin = JSON.parse(JSON.stringify(tpl));
+    if(state.suppliers.some(s => s.id === 's6')) pin.id = 's' + uid();
+    state.suppliers.forEach(s => {
+      const hit = (s.products||[]).find(p => p.id === 'p40' || /pepperoni/i.test(p.name || ''));
+      if(hit){ s.products = s.products.filter(p => p !== hit); pin.products = [hit]; }
+    });
+    state.suppliers.push(pin);
+  }
+
+  let aziz = state.suppliers.find(isAziz);
+  const created = !aziz;
+  if(!aziz){
+    /* Same message as the other SMS suppliers, just opening with "Hi mate," */
+    const mf = state.suppliers.find(s => s.id === 's4' || /michael/i.test(s.name || ''));
+    const tpl = (mf && mf.contactType === 'sms' && mf.template && mf.template.mode === 'list')
+      ? JSON.parse(JSON.stringify(mf.template)) : defaultTemplate('sms');
+    tpl.greeting = 'Hi mate,';
+    aziz = { id: state.suppliers.some(s => s.id === 's9') ? 's' + uid() : 's9', name: 'Aziz Supplier',
+             contactType: 'sms', contact: '0401565860', address: '', products: [], template: tpl };
+    state.suppliers.push(aziz);
+  }
+  const leaving = state.suppliers.filter(s => !isKept(s) && s !== aziz);
+
+  /* Everything Aziz could inherit: his own products plus the leaving suppliers'. */
+  const pool = (aziz.products || []).slice();
+  leaving.forEach(s => (s.products || []).forEach(p => pool.push(p)));
+  const used = new Set();
+  const take = (ids, names) => {
+    let hit = pool.find(p => !used.has(p) && ids.indexOf(p.id) > -1);
+    if(!hit) hit = pool.find(p => !used.has(p) && names.indexOf(normProductName(p.name)) > -1);
+    if(hit) used.add(hit);
+    return hit;
+  };
+  let added = 0, kept = 0;
+  aziz.products = AZIZ_PRODUCTS.map(a => {
+    const names = a.slice(1, 2).concat(a.slice(4)).map(normProductName);
+    const old = take([a[0]], names);
+    if(old){ kept++; return Object.assign(old, { name: a[1], cat: a[3] }); }
+    added++;
+    const clash = state.suppliers.some(s => (s.products||[]).some(p => p.id === a[0]));
+    return { id: clash ? 'p' + uid() : a[0], name: a[1], unit: a[2], qty: 0, inc: a[0]==='p35' ? 2 : 1, cat: a[3] };
+  });
+  const dropped = pool.filter(p => !used.has(p)).map(p => p.name);
+
+  /* Repeat Last Order: carry across anything that's still one of Aziz's products. */
+  const ids = new Set(aziz.products.map(p => p.id));
+  const al = {};
+  [aziz].concat(leaving).forEach(s => {
+    const ol = getLastOrder(s.id);
+    if(ol) Object.keys(ol).forEach(pid => { if(ids.has(pid) && !(pid in al)) al[pid] = ol[pid]; });
+  });
+  try{ localStorage.setItem(lastOrderKey(aziz.id), JSON.stringify(al)); }catch(e){}
+  leaving.forEach(s => { try{ localStorage.removeItem(lastOrderKey(s.id)); localStorage.removeItem(lastSentKey(s.id)); }catch(e){} });
+
+  /* Staff app sections the new products use. */
+  ['Dairy','Frozen'].forEach(c => { if(categories.indexOf(c) < 0) categories.push(c); });
+  saveCategories();
+
+  rememberRetired(leaving);
+  state.suppliers = state.suppliers.filter(s => leaving.indexOf(s) < 0);
+  saveData();
+  try{ localStorage.setItem(AZIZ_V2_KEY, '1'); localStorage.setItem(AZIZ_MOVE_KEY, '1'); }catch(e){}
+  if(dropped.length){ try{ localStorage.setItem('order-chit-aziz-dropped', JSON.stringify(dropped)); }catch(e){} }
+  return (created || leaving.length || added) ? { removed: leaving.length, added: added, kept: kept, dropped: dropped } : null;
 }
 
 function ordinal(day){
@@ -1905,12 +2042,14 @@ function loadData(){
   loadCategories();
   backfillCategories();
   const deniMove = moveDeniToTwoProvidores();
+  const azizMove = moveAllToAziz();
   loadRecipesLocal();
   clearImportedHints();
   loadPrepItems();
   mergePrepSections();
   render();
-  if(deniMove) showToast('Deni Foods removed \u2014 ' + deniMove.moved + ' product' + (deniMove.moved===1?'':'s') + ' moved to ' + deniMove.to);
+  if(azizMove) showToast('Aziz set up \u2014 ' + (azizMove.kept + azizMove.added) + ' products' + (azizMove.removed ? ', ' + azizMove.removed + ' supplier' + (azizMove.removed===1?'':'s') + ' removed' : ''));
+  else if(deniMove) showToast('Deni Foods removed \u2014 ' + deniMove.moved + ' product' + (deniMove.moved===1?'':'s') + ' moved to ' + deniMove.to);
 }
 
 function saveData(){
@@ -2240,6 +2379,27 @@ function renderInvoices(){
       </div>
     `;
   }).join('');
+  /* Invoices already logged this week for a supplier that's since been removed
+     still count and still show, they just can't take new amounts. */
+  const orphanRows = Object.keys(weekInvoices).filter(sid => !findSupplier(sid) && (weekInvoices[sid]||[]).length).map(sid => {
+    const entries = weekInvoices[sid];
+    const supplierTotal = entries.reduce((sum, e) => sum + e.amount, 0);
+    totalWeek += supplierTotal;
+    const entriesHtml = entries.map((e, idx) => `
+      <div class="invoice-entry">
+        <span class="invoice-amount">$${e.amount.toFixed(2)}</span>
+        <span class="invoice-date">${escapeHtml(e.date || invoiceDate(e))}</span>
+        <button class="invoice-del" data-invoice-del="${escapeHtml(sid)}" data-index="${idx}">&times;</button>
+      </div>
+    `).join('');
+    return `
+      <div class="card">
+        <div class="invoice-header"><span class="supplier-name">${escapeHtml(retiredName(sid) || 'Removed supplier')}</span></div>
+        ${entriesHtml}
+        <div class="invoice-supplier-total">Supplier total: $${supplierTotal.toFixed(2)}</div>
+      </div>
+    `;
+  }).join('');
   const hasAny = totalWeek > 0 || Object.keys(weekInvoices).length > 0;
 
   if(!getChefKey()){
@@ -2265,6 +2425,7 @@ function renderInvoices(){
     <div class="staff-legend" style="display:block;">Week beginning ${new Date(weekKey+'T00:00:00').toLocaleDateString('en-AU',{weekday:'long',day:'numeric',month:'short'})} &middot; resets Tuesday midnight</div>
     ${banner}
     ${supplierRows}
+    ${orphanRows}
     <div class="grand-total-card">Weekly spend: $${totalWeek.toFixed(2)}</div>
     <div class="add-row"><button class="btn btn-ghost" data-goto="addSupplier">+ Add Supplier</button></div>
     ${hasAny ? `<div class="add-row"><button class="btn btn-danger" id="inv-clear">Clear this week</button></div>` : ''}
@@ -4052,6 +4213,7 @@ function attachHandlers(){
   if(delSupBtn){
     delSupBtn.addEventListener('click', ()=>{
       if(confirm('Delete this supplier and all its products?')){
+        rememberRetired(state.suppliers.filter(s=>s.id===delSupBtn.dataset.delSupplier));
         state.suppliers = state.suppliers.filter(s=>s.id!==delSupBtn.dataset.delSupplier);
         saveData();
         goto({name:"list"});
