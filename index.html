@@ -627,7 +627,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.9.0';
+const APP_VERSION = 'v3.9.1';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -2242,7 +2242,7 @@ function buildSendLink(supplier, message, subject){
 
 /* Screens where the user is typing. A background poll must never redraw these
    or half-entered forms vanish — which is what wiped function names and pax. */
-const EDIT_VIEWS = ['fnEdit','fnTiers','recipeEdit','addSupplier','addProduct','editProduct','recipeImport','access','prepItems'];
+const EDIT_VIEWS = ['fnEdit','fnTiers','recipeEdit','addSupplier','addProduct','editProduct','recipeImport','access','prepItems','voiceTeach'];
 function isEditing(){ return EDIT_VIEWS.indexOf(state.view.name) > -1; }
 function bgRender(){ if(isEditing()) return; render(); }
 
@@ -2281,6 +2281,8 @@ function render(){
   else if(v.name === "recipe") html += renderRecipe(v.rid);
   else if(v.name === "recipeEdit") html += renderRecipeEdit(v.rid);
   else if(v.name === "recipeImport") html += renderRecipeImport();
+  // v3.9.1: the Voice screens are drawn by voice.js
+  else if(v.name === "voice" || v.name === "voiceTeach") html += typeof renderVoice === 'function' ? renderVoice(v.name) : `<div class="empty">Voice didn’t load. Reload The Pass.</div>`;
   app.innerHTML = html;
   attachHandlers();
   // v3.9.0: the voice mic hides where you type (voice.js; absent if it didn't load)
@@ -2349,7 +2351,19 @@ function renderHome(){
       </div>`;
   }).join('');
 
-  return `<div class="home-tabs">${waiting}${body}</div>`;
+  // v3.9.1: the Voice screen (voice.js); no card if voice didn't load
+  const voiceCard = typeof renderVoice === 'function' ? `
+      <div class="group">
+        <button class="tab-card" data-goto="voice">
+          <div class="tab-main">
+            <div class="tab-title">Voice</div>
+            <div class="tab-sub">Learned words &amp; heard log</div>
+          </div>
+          <div class="chev">&rsaquo;</div>
+        </button>
+      </div>` : '';
+
+  return `<div class="home-tabs">${waiting}${body}${voiceCard}</div>`;
 }
 
 function fnHint(){
@@ -5178,7 +5192,7 @@ if('serviceWorker' in navigator){
 }
 </script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="voice-brain.js?v=3.9.0"></script>
-<script src="voice.js?v=3.9.0"></script>
+<script src="voice-brain.js?v=3.9.1"></script>
+<script src="voice.js?v=3.9.1"></script>
 </body>
 </html>

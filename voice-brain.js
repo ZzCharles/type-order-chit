@@ -1,4 +1,4 @@
-/* The Pass — voice brain (v3.9.0, 9 October 2026)
+/* The Pass — voice brain (v3.9.0, 9 October 2026; learned words v3.9.1, 10 October)
 
    Turns a spoken sentence into a change on a supplier order or the prep
    list. No AI and no network of its own: a keyword brain over the app's own
@@ -806,6 +806,7 @@ function dedupe(list){
 
 var UNDO_KEY = 'order-chit-voice-undo';
 var WORDS_KEY = 'order-chit-voice-words';
+var SAID_KEY = 'order-chit-voice-words-said';
 var USUAL_KEY = 'order-chit-voice-usual';
 var UNDO_MS = 10 * 60 * 1000;
 var CONFIRM_MS = 60 * 1000;
@@ -822,10 +823,28 @@ function createRoom(host){
   function get(k, d){ try{ var v = host.get(k); return v == null ? d : v; }catch(e){ return d; } }
   function put(k, v){ try{ host.set(k, v); }catch(e){} }
   function taught(){ var w = get(WORDS_KEY, {}); return w && typeof w === 'object' ? w : {}; }
-  function teach(heard, id){
+  /* v3.9.1: the words as they were said ("mots"), next to the folded key
+     the brain looks up ("mot"), so the Voice screen shows what he said */
+  function saidWords(){ var s = get(SAID_KEY, {}); return s && typeof s === 'object' ? s : {}; }
+  function wordsChanged(){ if(host.wordsChanged) try{ host.wordsChanged(); }catch(e){} }
+  function teach(heard, id, said){
     if(!heard || !id) return;
     var w = taught(); w[heard] = id; put(WORDS_KEY, w);
-    if(host.wordsChanged) try{ host.wordsChanged(); }catch(e){}
+    var s = saidWords();
+    if(said) s[heard] = said; else delete s[heard];
+    put(SAID_KEY, s);
+    wordsChanged();
+  }
+  /* A tick or take-off question offers today's lines ("l:…"), which come
+     and go. Learn the prep item behind the line instead, so the word still
+     works tomorrow; a line typed by hand has none, so nothing is learned.
+     (v3.9.0 saved the line itself, which never matched again.) */
+  function lastingId(cat, id){
+    if(!/^l:/.test(String(id || ''))) return id;
+    var line = entryById(cat, id);
+    if(!line) return null;
+    var c = cat.entries.filter(function(e){ return e.kind === 'prep' && clean(e.name) === clean(line.name); })[0];
+    return c ? c.id : null;
   }
 
   /* ---------- answers, in the contract's shape ---------- */
@@ -1104,7 +1123,7 @@ function createRoom(host){
         var choices = list.slice(0, 3);
         return asking('item', 'Did you mean ' + joinOr(choices.map(label)) + '?',
           choices.map(function(e){ return { label: label(e), value: e.id }; }).concat([{ label: 'None of these', value: 'none' }]),
-          { cmd: cmd, item: i, teach: it.stems.join(' ') }, 'item');
+          { cmd: cmd, item: i, teach: it.stems.join(' '), said: it.words.join(' ') }, 'item');
       }
       if(list.length === 1){ it.e = list[0]; continue; }
       if(kind === 'order' && list.every(function(e){ return clean(e.name) === clean(list[0].name); })){
@@ -1552,7 +1571,7 @@ function createRoom(host){
     }
     cmd.fromAsk = true;
     var it = cmd.items[p.item];
-    if(p.kind === 'item'){ it.pick = choice; if(p.teach) teach(p.teach, choice); }
+    if(p.kind === 'item'){ it.pick = choice; if(p.teach) teach(p.teach, lastingId(catalogue(host.data(), {}), choice), p.said); }
     else if(p.kind === 'list'){ it.kind = choice; }
     else if(p.kind === 'unusual'){ it.okBig = true; }
     else if(p.kind === 'oneoff'){ it.oneoff = true; }
@@ -1644,12 +1663,81 @@ function createRoom(host){
     catch(err){ return ans('error', { say: ["I couldn't undo that."], log: 'undo error' }); }
   }
 
+  /* ---------- learned words, for the Voice screen (v3.9.1) ----------
+     Not part of the room contract: only The Pass's own page uses these. */
+  function nameOf(cat, id){
+    var e = entryById(cat, lastingId(cat, id) || id);
+    return e ? { name: e.name, where: e.kind === 'order' ? supSay(e.sname) : 'Prep list' } : { name: '', where: '' };
+  }
+  function words(){
+    var w = taught(), s = saidWords(), cat = catalogue(host.data(), {});
+    return Object.keys(w).map(function(k){
+      var n = nameOf(cat, w[k]);
+      return { key: k, said: s[k] || k, id: w[k], name: n.name, where: n.where };
+    });
+  }
+  /* What the brain will hear in these words, the way it reads a spoken
+     sentence: one item's name and nothing else. Commands, amounts, list and
+     supplier names can't be taught: the brain reads those first. */
+  function checkWord(text){
+    if(!clean(text)) return { ok: false, why: 'empty' };
+    var cat = catalogue(host.data(), taught()), c;
+    try{ c = parse(String(text), cat); }catch(e){ return { ok: false, why: 'command' }; }
+    var items = c.items || [];
+    if(items.length > 1) return { ok: false, why: 'two', words: items.map(function(it){ return it.words.join(' '); }) };
+    if(items.length !== 1 || c.verb || c.list || (c.sids || []).length || c.refs || c.looseQty || items[0].qty) return { ok: false, why: 'command' };
+    var it = items[0], key = it.stems.join(' ');
+    var means = dedupe((cat.index[key] || []).filter(function(e){ return e.kind === 'order' || e.kind === 'prep'; }));
+    return { ok: true, key: key, said: it.words.join(' '), means: means.map(function(e){
+      var k = e.keys.filter(function(x){ return x.k === key; })[0];
+      return { id: e.id, name: e.name, where: e.kind === 'order' ? supSay(e.sname) : 'Prep list', how: k ? k.how : 'name' };
+    }) };
+  }
+  function teachWord(text, id){
+    var c = checkWord(text);
+    if(!c.ok) return c;
+    var cat = catalogue(host.data(), {});
+    id = lastingId(cat, id);
+    if(!id || !entryById(cat, id)) return { ok: false, why: 'gone' };
+    teach(c.key, id, c.said);
+    var n = nameOf(cat, id);
+    return { ok: true, key: c.key, said: c.said, id: id, name: n.name, where: n.where };
+  }
+  function forgetWord(key){
+    var w = taught(), s = saidWords();
+    if(!Object.prototype.hasOwnProperty.call(w, key)) return false;
+    delete w[key]; delete s[key];
+    put(WORDS_KEY, w); put(SAID_KEY, s);
+    wordsChanged();
+    return true;
+  }
+  /* Everything a word can be taught to mean: products and prep items */
+  function choices(){
+    var cat = catalogue(host.data(), {});
+    return dedupe(cat.entries.filter(function(e){ return e.kind === 'order' || e.kind === 'prep'; })).map(function(e){
+      var find = [];
+      clean(e.name).split(' ').concat(e.keys.map(function(x){ return x.k; }).join(' ').split(' ')).forEach(function(x){ if(x && find.indexOf(x) < 0) find.push(x); });
+      return { id: e.id, name: e.name, where: e.kind === 'order' ? supSay(e.sname) : 'Prep list', find: find };
+    });
+  }
+  /* From a sentence in the heard log, the words most likely misheard: an
+     item it didn't know, else the first item; '' when it found none */
+  function guessWord(text){
+    var cat = catalogue(host.data(), taught()), c;
+    try{ c = parse(String(text || ''), cat); }catch(e){ return ''; }
+    var items = c.items || [];
+    var odd = items.filter(function(it){ return !(cat.index[it.stems.join(' ')] || []).length && !(it.exact && it.exact.length); })[0];
+    var it = odd || items[0];
+    return it ? it.words.join(' ') : '';
+  }
+
   return { hello: hello, menu: menu, handle: handle, confirm: confirm, undo: undo, reset: reset,
-           pendingAsk: function(){ return pending ? { id: pending.id, kind: pending.kind, options: pending.options } : null; } };
+           pendingAsk: function(){ return pending ? { id: pending.id, kind: pending.kind, options: pending.options } : null; },
+           words: words, checkWord: checkWord, teachWord: teachWord, forgetWord: forgetWord, choices: choices, guessWord: guessWord };
 }
 
 return {
-  version: 'v3.9.0',
+  version: 'v3.9.1',
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
   parse: parse, catalogue: catalogue, findItems: findItems, isClose: isClose, yesNo: yesNo,
   amount: amount, itemSay: itemSay, supSay: supSay, sound: sound,

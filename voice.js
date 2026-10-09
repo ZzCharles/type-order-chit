@@ -13,6 +13,12 @@
      closes with "No worries."
    - a heard log (last 50 tries, Copy) for finding mishearings
 
+   v3.9.1 (10 October 2026): a Voice screen, from Home or the card's
+   "Heard log" link (owner's choices, from mock-ups): the on/off switch,
+   how long it keeps listening after an answer, the words it has learned
+   (forget, or teach one by hand: type it or say it), and the heard log
+   with Copy, Share, Clear and a Teach button on each line.
+
    No AI. Chrome turns speech into words (Google hears it; the first tap
    says so). Everything after that happens on this phone. Only one-shot
    timers. If this file or the brain fails to load, The Pass works exactly
@@ -23,13 +29,20 @@ if(typeof window === 'undefined' || typeof AlmoVoice === 'undefined' || typeof s
 
 var SR = window.SpeechRecognition || window.webkitSpeechRecognition || null;
 var hasTTS = 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined';
-var K_SEEN = 'order-chit-voice-seen', K_LOG = 'order-chit-voice-log', K_WORDS = 'order-chit-voice-words';
-var FOLLOW_MS = 5000, ANSWER_MS = 8000, HIDE_MS = 10000, LOG_MAX = 50;
+var K_SEEN = 'order-chit-voice-seen', K_LOG = 'order-chit-voice-log', K_SET = 'order-chit-voice-set';
+var ANSWER_MS = 8000, HIDE_MS = 10000, LOG_MAX = 50;
+var FOLLOW_CHOICES = [0, 3, 5, 8];        // seconds it keeps listening after an answer
 var NO_MIC = EDIT_VIEWS.concat(['prepAdd', 'ticket']);
 
 /* ---------- the host: the brain's only way into the app ---------- */
 function readJSON(k){ try{ var r = localStorage.getItem(k); return r ? JSON.parse(r) : null; }catch(e){ return null; } }
 function writeJSON(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catch(e){} }
+/* the Voice screen's settings: on unless switched off, 5 s follow-up */
+function settings(){
+  var s = readJSON(K_SET) || {};
+  return { on: s.on !== false, follow: FOLLOW_CHOICES.indexOf(s.follow) > -1 ? s.follow : 5 };
+}
+function saveSettings(ch){ writeJSON(K_SET, Object.assign(settings(), ch)); }
 /* Another tab may have changed the orders: storage is the truth (contract 8) */
 function freshSuppliers(){
   try{
@@ -77,7 +90,7 @@ var host = {
   },
   get: readJSON,
   set: writeJSON,
-  wordsChanged: function(){ if(view === 'log') paint(); }
+  wordsChanged: function(){ if(state.view.name === 'voice') bgRender(); }
 };
 var room = AlmoVoice.createRoom(host);
 
@@ -187,7 +200,7 @@ function vListen(purpose){
   if(!open || listeningNow()) return;
   stopSpeaking(); clearTimeout(hideT);
   var my = ++lid, heardAny = false, t = 0;
-  var wait = purpose === 'follow' ? FOLLOW_MS : purpose === 'answer' ? ANSWER_MS : 0;
+  var wait = purpose === 'follow' ? settings().follow * 1000 : purpose === 'answer' ? ANSWER_MS : 0;
   var why = listen({
     speech: function(){ if(!heardAny){ heardAny = true; clearTimeout(t); } },
     words: function(w){ if(my === lid){ live = w; paint(); } },
@@ -270,7 +283,7 @@ function present(a, heardText, byVoice){
   speak(spoken, function(){
     if(!open) return;
     if(waitAsk || waitConfirm){ vListen('answer'); return; }
-    if(byVoice && a.status !== 'error') vListen('follow');
+    if(byVoice && a.status !== 'error' && settings().follow) vListen('follow');
     else scheduleHide();
   });
   scheduleHide();
@@ -300,21 +313,31 @@ function logIt(entry, a){
            status: a.status, said: (a.say || []).concat(a.confirm ? a.confirm.readBack : []).join(' ').slice(0, 300), log: a.log || '' });
   writeJSON(K_LOG, l.slice(-LOG_MAX));
 }
+function logList(){ var l = readJSON(K_LOG); return Array.isArray(l) ? l : []; }
 function logText(){
-  var l = readJSON(K_LOG) || [];
-  return 'The Pass ' + APP_VERSION + ' heard log\n' + l.map(function(x){
-    return new Date(x.at).toLocaleString('en-AU') + ' | ' + (x.via || '') + ' | "' + x.heard + '"'
-      + (x.alts && x.alts.length ? ' (or ' + x.alts.map(function(s){ return '"' + s + '"'; }).join(', ') + ')' : '')
-      + ' -> ' + x.status + (x.said ? ': ' + x.said : '') + (x.log ? ' [' + x.log + ']' : '');
-  }).join('\n');
+  var s = settings();
+  var words = room.words();
+  return 'The Pass ' + APP_VERSION + ' heard log\n'
+    + 'Voice ' + (s.on ? 'on' : 'off') + ' · keeps listening ' + (s.follow ? s.follow + ' s' : 'off') + ' after an answer\n'
+    + logList().map(function(x){
+      return new Date(x.at).toLocaleString('en-AU') + ' | ' + (x.via || '') + ' | "' + x.heard + '"'
+        + (x.alts && x.alts.length ? ' (or ' + x.alts.map(function(s){ return '"' + s + '"'; }).join(', ') + ')' : '')
+        + ' -> ' + x.status + (x.said ? ': ' + x.said : '') + (x.log ? ' [' + x.log + ']' : '');
+    }).join('\n')
+    + (words.length ? '\n\nLearned words:\n' + words.map(function(w){
+      return '  "' + w.said + '" (' + w.key + ') = ' + (w.name ? w.name + ' · ' + w.where : 'gone from the lists') + ' [' + w.id + ']';
+    }).join('\n') : '');
 }
-async function copyLog(btn){
-  var text = logText();
-  try{ await navigator.clipboard.writeText(text); btn.textContent = 'Copied'; }
-  catch(e){
-    var ta = document.createElement('textarea'); ta.value = text; ta.className = 'vc-copy'; btn.after(ta); ta.select();
-    try{ document.execCommand('copy'); btn.textContent = 'Copied'; }catch(x){ btn.textContent = 'Select and copy'; }
+/* done(true) when it reached the clipboard */
+function copyText(text, done){
+  function fallback(){
+    var ta = document.createElement('textarea'); ta.value = text; ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select();
+    var ok = false; try{ ok = document.execCommand('copy'); }catch(e){}
+    document.body.removeChild(ta); done(ok);
   }
+  if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function(){ done(true); }, fallback);
+  else fallback();
 }
 
 /* ---------- the card and the mic ---------- */
@@ -350,12 +373,43 @@ var css = ''
   + '.vc-opts{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;}'
   + '.vc-foot{display:flex;justify-content:flex-end;margin-top:8px;}'
   + '.vc-link{background:none;border:none;color:var(--muted);font-family:inherit;font-size:11px;text-decoration:underline;cursor:pointer;padding:2px 0;}'
-  + '.vc-log{margin:6px 0 0;padding:0;list-style:none;font-size:12px;}'
-  + '.vc-log li{padding:5px 0;border-bottom:1px dashed var(--line);}'
-  + '.vc-log b{font-weight:600;}'
-  + '.vc-words li{display:flex;justify-content:space-between;align-items:center;}'
-  + '.vc-copy{width:100%;height:80px;margin-top:6px;font-size:11px;}'
-  + '.vc-h{font-size:12px;font-weight:700;margin-top:10px;}';
+  /* the Voice screen (v3.9.1) */
+  + '.vs-box{margin-bottom:12px;}'
+  + '.vs-row{display:flex;align-items:center;justify-content:space-between;gap:12px;}'
+  + '.vs-title{font-size:16px;font-weight:800;color:var(--ink);}'
+  + '.vs-note{font-size:12.5px;color:var(--muted);line-height:1.45;margin:6px 0 0;}'
+  + '.vs-good{font-size:13px;color:var(--ink);font-weight:600;line-height:1.45;margin:8px 0 0;}'
+  + '.vs-sub{font-size:12.5px;font-weight:700;color:var(--ink);margin-top:16px;}'
+  + '.vs-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}'
+  + '.vs-list{margin-top:6px;}'
+  + '.vs-word{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:9px 0;border-bottom:1px solid var(--line);font-size:14px;line-height:1.35;}'
+  + '.vs-word b{font-weight:700;}'
+  + '.vs-where{color:var(--muted);font-size:12px;white-space:nowrap;}'
+  + '.vs-x{background:none;border:none;color:var(--muted);font-size:17px;line-height:1;padding:6px 4px 6px 10px;cursor:pointer;font-family:inherit;flex:0 0 auto;}'
+  + '.vs-btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;}'
+  + '.vs-log{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);}'
+  + '.vs-log:last-child{border-bottom:none;}'
+  + '.vs-log-main{flex:1;min-width:0;}'
+  + '.vs-when{font-size:11px;color:var(--muted);}'
+  + '.vs-heard{font-size:14px;font-weight:700;color:var(--ink);margin-top:1px;overflow-wrap:anywhere;}'
+  + '.vs-said{font-size:12.5px;color:var(--ink-soft);margin-top:2px;overflow-wrap:anywhere;line-height:1.4;}'
+  + '.vs-more{background:none;border:none;color:var(--stamp);font-family:inherit;font-size:12.5px;font-weight:700;padding:10px 0 0;cursor:pointer;text-decoration:underline;text-underline-offset:2px;}'
+  + '.vt-say{display:flex;align-items:center;gap:8px;}'
+  + '.vt-say input{flex:1;min-width:0;}'
+  + '.vt-mic{width:42px;height:42px;border-radius:50%;border:none;background:var(--ink);color:#fff;flex:0 0 auto;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;}'
+  + '.vt-mic svg{width:19px;height:19px;}'
+  + '.vt-mic.on{background:var(--stamp);animation:vpulse 1.4s ease-in-out infinite;}'
+  + '@media (prefers-reduced-motion: reduce){.vt-mic.on{animation:none;}}'
+  + '.vt-list{margin-top:6px;}'
+  + '.vt-item{display:flex;align-items:center;gap:10px;width:100%;text-align:left;background:none;border:none;border-bottom:1px solid var(--line);padding:11px 2px;font-family:inherit;font-size:14px;color:var(--ink);cursor:pointer;}'
+  + '.vt-item span.vt-name{flex:1;min-width:0;}'
+  + '.vt-dot{width:16px;height:16px;border-radius:50%;border:1.5px solid var(--muted);flex:0 0 auto;box-sizing:border-box;}'
+  + '.vt-item.on .vt-dot{border:5px solid var(--stamp);}'
+  + '.vt-item.on .vt-name{font-weight:700;}'
+  + '.vt-msg{font-size:13px;line-height:1.45;margin-top:12px;color:var(--ink);}'
+  + '.vt-msg.warn{color:var(--stamp);}'
+  + '.vt-msg:empty{display:none;}'
+  + '#vt-save:disabled{opacity:.4;cursor:default;}';
 
 var micEl, cardEl;
 function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -377,10 +431,8 @@ function onCardClick(e){
   else if(v === 'opt') tapOption(b.getAttribute('data-val'), b.textContent);
   else if(v === 'yes' || v === 'no'){ cancelListening(); stopSpeaking(); doConfirm(v === 'yes', { at: Date.now(), heard: v === 'yes' ? 'Yes' : 'No', alts: [], via: 'tap' }); }
   else if(v === 'undo') tapUndo();
-  else if(v === 'log'){ cancelListening(); stopSpeaking(); clearTimeout(hideT); view = 'log'; paint(); }
-  else if(v === 'back'){ view = 'talk'; paint(); scheduleHide(); }
-  else if(v === 'copy') copyLog(b);
-  else if(v === 'forget'){ var w = readJSON(K_WORDS) || {}; delete w[b.getAttribute('data-word')]; writeJSON(K_WORDS, w); paint(); }
+  // v3.9.1: the log and the learned words live on the Voice screen now
+  else if(v === 'log'){ closeCard(false); if(state.view.name !== 'voice') goto({ name: 'voice' }); }
 }
 function statusText(){
   if(phase === 'listening') return purposeNow === 'follow' ? 'Anything else?' : purposeNow === 'answer' ? 'Listening for your answer…' : 'Listening…';
@@ -402,22 +454,6 @@ function paint(){
       + '<div class="vc-opts"><button class="vc-btn dark" data-v="gotit">Got it, start listening</button></div>';
     cardEl.innerHTML = h; return;
   }
-  if(view === 'log'){
-    var l = (readJSON(K_LOG) || []).slice().reverse();
-    var words = readJSON(K_WORDS) || {};
-    var wk = Object.keys(words);
-    h += '<div class="vc-say"><p>Heard log</p></div>'
-      + '<div class="vc-opts"><button class="vc-btn dark" data-v="copy">Copy</button><button class="vc-btn" data-v="back">Back</button></div>'
-      + (l.length ? '<ul class="vc-log">' + l.map(function(x){
-          return '<li>' + esc(new Date(x.at).toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' })) + ' <b>“' + esc(x.heard) + '”</b><br>'
-            + esc(x.status) + (x.said ? ': ' + esc(x.said) : '') + '</li>';
-        }).join('') + '</ul>' : '<div class="vc-note">Nothing yet.</div>')
-      + '<div class="vc-h">Words it has learned</div>'
-      + (wk.length ? '<ul class="vc-log vc-words">' + wk.map(function(k){
-          return '<li><span>“' + esc(k) + '”</span><button class="vc-x" data-v="forget" data-word="' + esc(k) + '" aria-label="Forget">&times;</button></li>';
-        }).join('') + '</ul>' : '<div class="vc-note">None yet. When you pick an answer to “Did you mean…?”, it learns the word.</div>');
-    cardEl.innerHTML = h; return;
-  }
   var c = cur || {};
   var heardLine = phase === 'listening' ? live : c.heard;
   if(heardLine) h += '<div class="vc-heard">“' + esc(heardLine) + '”</div>';
@@ -437,18 +473,259 @@ function paint(){
   cardEl.innerHTML = h;
 }
 
+/* ---------- the Voice screen (v3.9.1) ----------
+   Two of the app's screens, drawn here so a fault in voice can never stop
+   The Pass: "voice" (from Home, or the card's "Heard log" link) and
+   "voiceTeach" (a typing screen: it's in EDIT_VIEWS, so a background
+   refresh never redraws it under his fingers). */
+var STATUS_WORDS = { done: 'Done', answer: 'Answered', ask: 'Asked', confirm: 'Asked for a yes', cant: 'Couldn’t', notmine: 'Not for The Pass',
+  close: 'Closed', error: 'Went wrong', cancelled: 'Cancelled', 'asked again': 'Asked again' };
+var LOG_FEW = 5;
+var vsAll = false, vsClearArm = false, vsMsg = '', vsGood = '';
+var draft = { word: '', find: '', pick: '', note: '' }, teachPushed = false, teachEar = 0, teachHearing = false, choiceCache = null;
+var lastView = '';
+
+function when(at){
+  var d = new Date(at), t = d.toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' });
+  return d.toDateString() === new Date().toDateString() ? t : d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short' }) + ', ' + t;
+}
+function vsNote(t){ return '<p class="vs-note">' + t + '</p>'; }
+function quote(s){ return '“' + s + '”'; }
+
+function voicePage(){
+  var s = settings(), h = '<div class="crumb"><button data-goto="home">&larr; Home</button> / Voice</div>';
+  // the switch, and how long it keeps listening
+  h += '<div class="form-card vs-box"><div class="vs-row"><div class="vs-title">Talk to The Pass</div>';
+  if(SR) h += '<label class="switch"><input type="checkbox" data-vs-on' + (s.on ? ' checked' : '') + '><span class="switch-track"><span class="switch-knob"></span></span>'
+    + '<span class="switch-label">' + (s.on ? 'On' : 'Off') + '</span></label>';
+  h += '</div>';
+  if(!SR) h += vsNote('This browser can’t listen, so there’s no mic. Chrome on Android can.');
+  else if(!s.on) h += vsNote('Off: the mic is hidden. Switch it on to talk to The Pass.');
+  else {
+    h += vsNote('The mic is in the bottom corner. Tap it and say things like “add 2 kilos of mozzarella”. Chrome turns your voice into words, so Google hears it. Everything else stays on this phone.')
+      + '<div class="vs-sub">Keep listening after an answer</div><div class="vs-chips">'
+      + FOLLOW_CHOICES.map(function(n){ return '<button class="filter-chip' + (s.follow === n ? ' on' : '') + '" data-vs="follow" data-n="' + n + '">' + (n ? n + ' s' : 'Off') + '</button>'; }).join('')
+      + '</div>' + vsNote('So you can say the next thing without tapping the mic.');
+  }
+  h += '</div>';
+  // the words it has learned
+  var words = room.words();
+  h += '<div class="form-card vs-box"><div class="vs-title">Words it has learned</div>';
+  if(vsGood) h += '<p class="vs-good">' + esc(vsGood) + '</p>';
+  h += words.length ? '<div class="vs-list">' + words.map(function(w){
+      return '<div class="vs-word"><span><b>' + esc(quote(w.said)) + '</b> &rarr; '
+        + (w.name ? esc(w.name) + ' <span class="vs-where">· ' + esc(w.where) + '</span>' : '<span class="vs-where">gone from the lists</span>') + '</span>'
+        + '<button class="vs-x" data-vs="forget" data-key="' + esc(w.key) + '" data-said="' + esc(w.said) + '" aria-label="Forget ' + esc(w.said) + '">&#x2715;</button></div>';
+    }).join('') + '</div>'
+    : vsNote('None yet. Teach one here, or answer “Did you mean…?” when it asks, and it learns the word.');
+  h += '<div class="vs-btns"><button class="btn small" data-vs="teach">+ Teach a word</button></div>' + vsNote('Kept on this phone only.') + '</div>';
+  // the heard log, newest first
+  var l = logList().slice().reverse(), n = l.length;
+  h += '<div class="form-card vs-box"><div class="vs-title">Heard log</div>'
+    + vsNote(esc(vsMsg || (n ? n + (n === 1 ? ' try' : ' tries') + ', kept on this phone. When voice gets something wrong, Copy and send it to Claude.'
+      : 'Nothing yet. The last 50 tries are kept here, on this phone only.')));
+  if(n){
+    h += '<div class="vs-btns"><button class="btn small" data-vs="copy">Copy</button>'
+      + (navigator.share ? '<button class="btn btn-ghost small" data-vs="share">Share</button>' : '')
+      + '<button class="btn btn-ghost small" data-vs="clear">' + (vsClearArm ? 'Tap again to clear' : 'Clear') + '</button></div>'
+      + '<div class="vs-list">' + (vsAll ? l : l.slice(0, LOG_FEW)).map(function(x){
+        return '<div class="vs-log"><div class="vs-log-main"><div class="vs-when">' + esc(when(x.at)) + '</div>'
+          + '<div class="vs-heard">' + esc(quote(x.heard)) + '</div>'
+          + '<div class="vs-said">' + esc(STATUS_WORDS[x.status] || x.status) + (x.said ? ': ' + esc(x.said) : '') + '</div></div>'
+          + (x.via !== 'tap' && x.heard ? '<button class="btn btn-ghost small" data-vs="teachlog" data-at="' + esc(x.at) + '">Teach</button>' : '') + '</div>';
+      }).join('') + '</div>'
+      + (n > LOG_FEW ? '<button class="vs-more" data-vs="all">' + (vsAll ? 'Show fewer' : 'Show all ' + n) + '</button>' : '');
+  }
+  return h + '</div>';
+}
+
+function teachPage(){
+  return '<div class="crumb"><button data-vs="cancel">&larr; Voice</button> / Teach a word</div>'
+    + '<div class="form-card"><div class="vs-title">Teach a word</div>'
+    + '<label for="vt-word">When I say</label>'
+    + '<div class="vt-say"><input id="vt-word" value="' + esc(draft.word) + '" placeholder="like “mots”" autocomplete="off" autocapitalize="off" spellcheck="false">'
+    + (SR ? '<button class="vt-mic' + (teachHearing ? ' on' : '') + '" id="vt-mic" type="button" data-vs="saymic" aria-label="Say it">' + MIC + '</button>' : '') + '</div>'
+    + '<p class="vs-note" id="vt-heard">' + esc(draft.note || (SR ? 'Or tap the mic and say it: it saves what Google hears.' : '')) + '</p>'
+    + '<label for="vt-find">I mean</label>'
+    + '<input id="vt-find" type="search" value="' + esc(draft.find) + '" placeholder="Search the orders and prep list" autocomplete="off">'
+    + '<div class="vt-list" id="vt-list">' + teachList() + '</div>'
+    + '<div class="vt-msg" id="vt-msg"></div>'
+    + '<div class="form-actions"><button class="btn btn-ghost" data-vs="cancel">Cancel</button><button class="btn" data-vs="save" id="vt-save" disabled>Save</button></div>'
+    + '</div>';
+}
+function choicesNow(){ return choiceCache || (choiceCache = room.choices()); }
+/* every word typed is the start of a word in the name or an alias */
+function teachList(){
+  var all = choicesNow(), q = AlmoVoice.clean(draft.find), out = [];
+  if(q){
+    var qs = q.split(' ');
+    out = all.filter(function(c){ return qs.every(function(w){ return c.find.some(function(f){ return f.indexOf(w) === 0; }); }); });
+    var first = function(c){ return AlmoVoice.clean(c.name).indexOf(q) === 0 ? 0 : 1; };
+    out.sort(function(a, b){ return first(a) - first(b) || a.name.localeCompare(b.name); });
+    out = out.slice(0, 8);
+  }
+  var picked = draft.pick && all.filter(function(c){ return c.id === draft.pick; })[0];
+  if(picked && out.indexOf(picked) < 0) out.unshift(picked);
+  if(!out.length) return vsNote(q ? 'Nothing called that. Try fewer letters.' : 'Type a few letters of the item.');
+  return out.map(function(c){
+    return '<button class="vt-item' + (c.id === draft.pick ? ' on' : '') + '" type="button" data-vs="pick" data-id="' + esc(c.id) + '">'
+      + '<span class="vt-dot"></span><span class="vt-name">' + esc(c.name) + '</span><span class="vs-where">' + esc(c.where) + '</span></button>';
+  }).join('');
+}
+/* What Save would do, read back in words; Save only when it would teach something */
+function teachCheck(){
+  var msg = document.getElementById('vt-msg'), save = document.getElementById('vt-save');
+  if(!msg || !save) return;
+  var t = '', warn = false, can = false;
+  var c = draft.word.trim() ? room.checkWord(draft.word) : null;
+  var pick = draft.pick ? choicesNow().filter(function(x){ return x.id === draft.pick; })[0] : null;
+  if(c && !c.ok){
+    warn = true;
+    t = c.why === 'two' ? 'That’s two items (' + c.words.map(quote).join(' and ') + '). Teach one at a time.'
+      : 'The Pass reads part of that as a command, an amount, a list or a supplier, so it can’t learn it. Type only the word it gets wrong, like “mots”.';
+  } else if(c && pick){
+    var same = c.means.filter(function(m){ return m.id === pick.id; })[0];
+    var names = c.means.filter(function(m){ return m.id !== pick.id && m.how !== 'taught'; });
+    var was = c.means.filter(function(m){ return m.id !== pick.id && m.how === 'taught'; })[0];
+    if(same) t = 'It already knows ' + quote(c.said) + ' means ' + pick.name + '.';
+    else {
+      can = true;
+      t = 'When you say ' + quote(c.said) + ', it will mean ' + pick.name + ' (' + pick.where + ').';
+      if(was) t += ' Before, it meant ' + was.name + '.';
+      if(names.length){ warn = true; t += ' ' + quote(c.said) + ' is already a name for ' + names.map(function(m){ return m.name; }).join(' and ') + ', so it will ask you which one each time.'; }
+    }
+  }
+  msg.textContent = t; msg.className = 'vt-msg' + (warn ? ' warn' : '');
+  save.disabled = !can;
+}
+function startTeach(word, note){
+  draft = { word: word || '', find: '', pick: '', note: note || '' };
+  choiceCache = null; vsGood = ''; vsClearArm = false;
+  teachPushed = true;
+  goto({ name: 'voiceTeach' });
+}
+function leaveTeach(){
+  stopTeachEar();
+  draft = { word: '', find: '', pick: '', note: '' };
+  if(teachPushed){ teachPushed = false; history.back(); }
+  else goto({ name: 'voice' });
+}
+function teachSave(){
+  var r = room.teachWord(draft.word, draft.pick);
+  if(!r.ok){ teachCheck(); return; }
+  vsGood = 'Learned: when you say ' + quote(r.said) + ', it means ' + r.name + '.';
+  leaveTeach();
+}
+/* "Say it": the same one-shot listener as the mic; keeps what Google wrote */
+function setHeard(t){ var el = document.getElementById('vt-heard'); if(el) el.textContent = t; }
+function earOn(on){ teachHearing = on; var b = document.getElementById('vt-mic'); if(b) b.classList.toggle('on', on); }
+function stopTeachEar(){ if(teachHearing){ teachEar++; earOn(false); cancelListening(); } }
+function teachSay(){
+  if(teachHearing){ stopListening(); return; }
+  stopSpeaking();
+  var my = ++teachEar;
+  var why = listen({
+    words: function(w){ if(my === teachEar) setHeard(quote(w)); },
+    end: function(alts, err){
+      if(my !== teachEar) return;
+      earOn(false);
+      if(!alts){ setHeard(err && err !== 'aborted' && ERRS[err] ? ERRS[err] : 'I didn’t hear anything. Tap the mic to try again.'); return; }
+      var heardText = String(alts[0].s || '').trim();
+      var w = room.guessWord(heardText) || heardText;
+      draft.word = w;
+      draft.note = 'Heard ' + quote(heardText) + (w !== heardText ? '. Kept ' + quote(w) + '.' : '.');
+      var inp = document.getElementById('vt-word'); if(inp) inp.value = w;
+      setHeard(draft.note); teachCheck();
+    }
+  });
+  if(why){ setHeard(ERRS[why] || 'The mic didn’t start.'); return; }
+  earOn(true); setHeard('Listening… say just the word.');
+}
+
+function onPageClick(e){
+  var b = e.target.closest ? e.target.closest('[data-vs]') : null;
+  if(!b) return;
+  var v = b.getAttribute('data-vs');
+  if(v !== 'clear') vsClearArm = false;
+  if(v === 'follow'){ saveSettings({ follow: +b.getAttribute('data-n') }); render(); }
+  else if(v === 'teach') startTeach('', '');
+  else if(v === 'teachlog'){
+    var at = +b.getAttribute('data-at'), x = logList().filter(function(y){ return y.at === at; })[0];
+    if(!x) return;
+    var w = room.guessWord(x.heard) || x.heard;
+    startTeach(w, 'From the log: ' + quote(x.heard) + (w === x.heard ? '. Cut it down to the word it got wrong.' : '.'));
+  }
+  else if(v === 'forget'){
+    if(room.forgetWord(b.getAttribute('data-key'))) vsGood = 'Forgot ' + quote(b.getAttribute('data-said')) + '.';
+    render();
+  }
+  else if(v === 'copy') copyText(logText(), function(ok){ vsMsg = ok ? 'Copied. Paste it into the chat with Claude.' : 'This phone wouldn’t copy. Try Share.'; render(); });
+  else if(v === 'share'){ try{ navigator.share({ title: 'The Pass heard log', text: logText() }).catch(function(){}); }catch(err){} }
+  else if(v === 'clear'){
+    if(!vsClearArm){ vsClearArm = true; render(); return; }
+    writeJSON(K_LOG, []); vsClearArm = false; vsAll = false; vsMsg = 'Cleared.'; render();
+  }
+  else if(v === 'all'){ vsAll = !vsAll; render(); }
+  else if(v === 'pick'){
+    draft.pick = b.getAttribute('data-id');
+    var list = document.getElementById('vt-list'); if(list) list.innerHTML = teachList();
+    teachCheck();
+  }
+  else if(v === 'saymic') teachSay();
+  else if(v === 'save') teachSave();
+  else if(v === 'cancel') leaveTeach();
+}
+function onPageInput(e){
+  var t = e.target;
+  if(t.id === 'vt-word'){ draft.word = t.value; teachCheck(); }
+  else if(t.id === 'vt-find'){
+    draft.find = t.value;
+    var list = document.getElementById('vt-list'); if(list) list.innerHTML = teachList();
+    teachCheck();
+  }
+}
+function onPageChange(e){
+  var t = e.target;
+  if(t.hasAttribute && t.hasAttribute('data-vs-on')){ saveSettings({ on: t.checked }); render(); }
+}
+/* render() puts this in the page for the two Voice screens */
+function renderVoice(name){
+  try{ return name === 'voiceTeach' ? teachPage() : voicePage(); }
+  catch(e){ return '<div class="crumb"><button data-goto="home">&larr; Home</button> / Voice</div><div class="empty">Voice couldn’t draw this screen.</div>'; }
+}
+
 /* Called by render() on every screen change: no mic where you type */
 function voiceScreen(){
   if(!micEl) return;
-  var show = !!SR && NO_MIC.indexOf(state.view.name) < 0;
+  var name = state.view.name;
+  var show = !!SR && settings().on && NO_MIC.indexOf(name) < 0;
   micEl.hidden = !show;
   document.body.classList.toggle('vmic-on', show);
   if(!show && open) closeCard(true);
+  if(name !== 'voiceTeach'){ stopTeachEar(); teachPushed = false; }
+  if(name !== 'voice' && name !== 'voiceTeach'){ vsAll = false; vsClearArm = false; vsMsg = ''; vsGood = ''; }
+  if(name === 'voiceTeach') teachCheck();
+  // the app keeps the scroll between screens: Teach opens at its top, and
+  // after it the Voice screen shows the "Learned…" line, not the log below
+  if(name === 'voiceTeach' && lastView !== 'voiceTeach') window.scrollTo(0, 0);
+  if(name === 'voice' && lastView === 'voiceTeach' && vsGood){
+    setTimeout(function(){ var g = document.querySelector('.vs-good'); if(g) g.scrollIntoView({ block: 'center' }); }, 0);
+  }
+  lastView = name;
 }
 
 build();
+var appEl = document.getElementById('app');
+if(appEl){
+  appEl.addEventListener('click', onPageClick);
+  appEl.addEventListener('input', onPageInput);
+  appEl.addEventListener('change', onPageChange);
+}
 window.voiceScreen = voiceScreen;
-voiceScreen();
+window.renderVoice = renderVoice;
+/* The first paint came before this file loaded: Home again, for its Voice card */
+if(state.view.name === 'home' || state.view.name === 'voice') render();
+else voiceScreen();
 /* For testing in a browser without a microphone: the same path as speech */
 window.almoVoiceTry = function(text, alts){
   if(!open) openCard();
