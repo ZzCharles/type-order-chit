@@ -627,7 +627,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.8.4';
+const APP_VERSION = 'v3.9.0';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -1015,6 +1015,26 @@ async function tickPrepLine(lineId, done){
   }
 }
 
+
+/* Clears these finished lines for everyone. Shared by the Clear completed
+   button and voice (v3.9.0), so both behave the same. */
+async function clearDonePrepLines(ids){
+  try{
+    const res = await fetch(API + '/api/prep/published/clear', {
+      method:'POST', headers: chefHeaders({'Content-Type':'application/json'}),
+      body: JSON.stringify({ ids: ids })
+    });
+    if(!res.ok) throw new Error();
+    const d = await res.json().catch(()=>({}));
+    const gone = {}; ids.forEach(id => gone[id] = true);
+    state.prepLines = state.prepLines.filter(l => !gone[l.id]);
+    /* Stops a stale poll from resurrecting them while KV catches up with
+       the deletes. */
+    ids.forEach(id => { clearedLines[id] = Date.now(); });
+    render();
+    return { ok: true, cleared: typeof d.cleared === 'number' ? d.cleared : ids.length };
+  }catch(e){ return { ok: false, cleared: 0 }; }
+}
 
 /* Sections are picked, not typed, so "Sauces" and "sauces" can't both exist. */
 function sameSection(a, b){
@@ -2263,6 +2283,8 @@ function render(){
   else if(v.name === "recipeImport") html += renderRecipeImport();
   app.innerHTML = html;
   attachHandlers();
+  // v3.9.0: the voice mic hides where you type (voice.js; absent if it didn't load)
+  if(typeof voiceScreen === 'function') voiceScreen();
 }
 
 function prepTileSub(){
@@ -4674,23 +4696,9 @@ function attachHandlers(){
       if(!n) return;
       if(!confirm('Clear '+n+' completed item'+(n===1?'':'s')+' for everyone?')) return;
       clearDone.disabled = true;
-      try{
-        const res = await fetch(API + '/api/prep/published/clear', {
-          method:'POST', headers: chefHeaders({'Content-Type':'application/json'}),
-          body: JSON.stringify({ ids: ids })
-        });
-        if(!res.ok) throw new Error();
-        const d = await res.json().catch(()=>({}));
-        const gone = {}; ids.forEach(id => gone[id] = true);
-        state.prepLines = state.prepLines.filter(l => !gone[l.id]);
-        /* Stops a stale poll from resurrecting them while KV catches up with
-           the deletes. */
-        ids.forEach(id => { clearedLines[id] = Date.now(); });
-        render();
-        showToast(typeof d.cleared === 'number' && d.cleared < n
-          ? d.cleared+' of '+n+' cleared'
-          : 'Completed items cleared');
-      }catch(e){ clearDone.disabled = false; showToast('No connection. Nothing was cleared.'); }
+      const r = await clearDonePrepLines(ids);
+      if(!r.ok){ clearDone.disabled = false; showToast('No connection. Nothing was cleared.'); return; }
+      showToast(r.cleared < n ? r.cleared+' of '+n+' cleared' : 'Completed items cleared');
     });
   }
 
@@ -5169,5 +5177,8 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
+<!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
+<script src="voice-brain.js?v=3.9.0"></script>
+<script src="voice.js?v=3.9.0"></script>
 </body>
 </html>
