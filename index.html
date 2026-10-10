@@ -627,7 +627,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.9.1';
+const APP_VERSION = 'v3.9.2';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -2051,6 +2051,7 @@ function loadData(){
       state.suppliers = JSON.parse(raw);
     }
     localStorage.setItem(VERSION_KEY, SEED_VERSION);
+    suppliersSeen = localStorage.getItem(STORAGE_KEY);
   }catch(e){
     state.suppliers = seed;
   }
@@ -2072,12 +2073,46 @@ function loadData(){
   else if(deniMove) showToast('Deni Foods removed \u2014 ' + deniMove.moved + ' product' + (deniMove.moved===1?'':'s') + ' moved to ' + deniMove.to);
 }
 
+/* v3.9.2 (owner, 11 Oct 2026: "Sliced Swiss Browns" went back to its old
+   name). With two copies of The Pass open at once (a Chrome tab and the
+   home-screen app, say), each keeps its own list in memory, and the older
+   copy's next save (even a +1 tap) wrote its old list over the newer one.
+   Proven in the test browser. Now each copy remembers the list it last read
+   or wrote (suppliersSeen):
+   - it takes the newer list when the other copy writes one (the storage
+     event) and whenever it comes back on screen;
+   - a save that would still land on a list it hasn't seen is not made: it
+     takes the newer list and asks for the change again, rather than undo
+     the other copy's work without a word. */
+let suppliersSeen = null;
+function refreshSuppliersFromStorage(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(!raw || raw === suppliersSeen) return false;
+    state.suppliers = JSON.parse(raw);
+    suppliersSeen = raw;
+    return true;
+  }catch(e){ return false; }
+}
 function saveData(){
   try{
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.suppliers));
+    const now = localStorage.getItem(STORAGE_KEY);
+    if(suppliersSeen !== null && now !== null && now !== suppliersSeen){
+      refreshSuppliersFromStorage();
+      render();
+      // a moment later, so a caller's own "Product updated" can't cover it
+      setTimeout(()=>showToast('Your other The Pass window changed this list. Showing it now. Please do that again.'), 60);
+      return;
+    }
+    const raw = JSON.stringify(state.suppliers);
+    localStorage.setItem(STORAGE_KEY, raw);
+    suppliersSeen = raw;
   }catch(e){ showToast('Not saved - storage unavailable'); }
   schedulePublish();
 }
+window.addEventListener('storage', (e)=>{
+  if(e.key === STORAGE_KEY && refreshSuppliersFromStorage()) bgRender();
+});
 
 /* ===== Product catalogue -> staff app =====
    Every supplier product, flattened, pushed to the Worker so Almo Orders shows
@@ -5179,6 +5214,8 @@ refreshFromServer();
 
 document.addEventListener('visibilitychange', ()=>{
   if(document.visibilityState !== 'visible') return;
+  // v3.9.2: another copy of The Pass may have changed the list meanwhile
+  if(refreshSuppliersFromStorage()) bgRender();
   /* A phone can keep the app alive in the background from Sunday night to
      Tuesday, so the Monday roll can't only happen on a cold start. */
   if(rollRosterWeek()) bgRender();
@@ -5192,7 +5229,7 @@ if('serviceWorker' in navigator){
 }
 </script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="voice-brain.js?v=3.9.1"></script>
-<script src="voice.js?v=3.9.1"></script>
+<script src="voice-brain.js?v=3.9.2"></script>
+<script src="voice.js?v=3.9.2"></script>
 </body>
 </html>

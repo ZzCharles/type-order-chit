@@ -43,8 +43,11 @@ function settings(){
   return { on: s.on !== false, follow: FOLLOW_CHOICES.indexOf(s.follow) > -1 ? s.follow : 5 };
 }
 function saveSettings(ch){ writeJSON(K_SET, Object.assign(settings(), ch)); }
-/* Another tab may have changed the orders: storage is the truth (contract 8) */
+/* Another tab may have changed the orders: storage is the truth (contract 8).
+   v3.9.2: through the page's own reader, so its save check knows this list
+   is the latest (otherwise a voice change could be refused as stale). */
 function freshSuppliers(){
+  if(typeof refreshSuppliersFromStorage === 'function'){ refreshSuppliersFromStorage(); return; }
   try{
     var raw = localStorage.getItem(STORAGE_KEY);
     if(raw && raw !== JSON.stringify(state.suppliers)) state.suppliers = JSON.parse(raw);
