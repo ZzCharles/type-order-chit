@@ -627,7 +627,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.9.8';
+const APP_VERSION = 'v3.9.9';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -1481,6 +1481,18 @@ function saveRoster(){
    are one-offs, the regular shifts are what carry. */
 const ROSTER_WEEK_KEY = 'order-chit-roster-week';
 const ROSTER_NEXT_KEY = 'order-chit-roster-next';
+/* v3.9.9: the week just worked, kept at the Monday changeover so voice can
+   answer "what was last week's roster?" (owner, 11 Oct). One copy, with the
+   names as they were that week, since staff can change. Before this, the
+   old week was simply replaced. */
+const ROSTER_PREV_KEY = 'order-chit-roster-prev';
+function keepLastWeek(weekKey){
+  try{
+    const names = {};
+    (state.staff || []).forEach(s => { names[s.id] = s.name; });
+    localStorage.setItem(ROSTER_PREV_KEY, JSON.stringify({ week: weekKey, roster: cloneRoster(state.roster), names: names }));
+  }catch(e){}
+}
 
 function rosterFor(which){ return which === 'next' ? state.rosterNext : state.roster; }
 
@@ -1560,6 +1572,7 @@ function rollRosterWeek(){
   const gap = seen ? weeksBetween(seen, week) : 0;
   let rolled = false;
   if(gap > 0){
+    keepLastWeek(seen);   // v3.9.9: before this week's roster is replaced
     const covers = advanceRosterWeek(gap);
     state.rosterRolled = { covers: covers };
     rolled = true;
@@ -5358,7 +5371,7 @@ if('serviceWorker' in navigator){
 }
 </script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="voice-brain.js?v=3.9.8"></script>
-<script src="voice.js?v=3.9.8"></script>
+<script src="voice-brain.js?v=3.9.9"></script>
+<script src="voice.js?v=3.9.9"></script>
 </body>
 </html>
