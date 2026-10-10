@@ -1846,7 +1846,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.9.3',
+  version: 'v3.9.4',
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
   parse: parse, catalogue: catalogue, findItems: findItems, isClose: isClose, yesNo: yesNo,
   amount: amount, itemSay: itemSay, supSay: supSay, sound: sound,

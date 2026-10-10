@@ -627,7 +627,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.9.3';
+const APP_VERSION = 'v3.9.4';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -1435,12 +1435,42 @@ function loadInvoices(){
   catch(e){ state.invoices = {}; }
 }
 
+/* v3.9.4: the roster and the timesheet get the product list's guard (v3.9.2,
+   saveData). Two open copies of The Pass each keep their own roster and
+   timesheet in memory, so the older copy's next edit wrote its old one over
+   the newer one. Each copy now remembers what it last read or wrote
+   (rosterSeen, timesheetSeen), takes the newer one when another copy writes
+   it or when it comes back on screen, and refuses a save over one it hasn't
+   seen. Voice reads these from v3.10, so they must be the newest. */
+function refuseStaleSave(what, refresh){
+  refresh();
+  render();
+  // a moment later, so a caller's own toast can't cover it
+  setTimeout(()=>showToast('Your other The Pass window changed the ' + what + '. Showing it now. Please do that again.'), 60);
+}
+let rosterSeen = null;
+function rosterRaw(){
+  try{
+    const r = localStorage.getItem(ROSTER_KEY);
+    return r === null ? null : JSON.stringify([r, localStorage.getItem(ROSTER_NEXT_KEY)]);
+  }catch(e){ return null; }
+}
+function refreshRosterFromStorage(){
+  const now = rosterRaw();
+  if(now === null || now === rosterSeen) return false;
+  loadRoster();
+  return true;
+}
+
 /* Both weeks save together: every roster edit goes through here. */
 function saveRoster(){
+  const now = rosterRaw();
+  if(rosterSeen !== null && now !== null && now !== rosterSeen){ refuseStaleSave('roster', refreshRosterFromStorage); return; }
   try{
     localStorage.setItem(ROSTER_KEY, JSON.stringify(state.roster));
     localStorage.setItem(ROSTER_NEXT_KEY, JSON.stringify(state.rosterNext));
   }catch(e){}
+  rosterSeen = rosterRaw();
 }
 
 /* ===== This week / next week =====
@@ -1540,6 +1570,7 @@ function rollRosterWeek(){
 
 function loadRoster(){
   let raw = null, rawNext = null;
+  rosterSeen = rosterRaw();   // first, so the save below is never refused
   try{ raw = localStorage.getItem(ROSTER_KEY); rawNext = localStorage.getItem(ROSTER_NEXT_KEY); }catch(e){}
   try{ state.roster = raw ? JSON.parse(raw) : {}; }catch(e){ state.roster = {}; }
   ROSTER_DAY_KEYS.forEach(d=>{ if(!state.roster[d]) state.roster[d] = {}; });
@@ -1634,9 +1665,24 @@ function timesheetFromRoster(roster, edits){
   return out;
 }
 
-function saveTimesheet(){ try{ localStorage.setItem(TS_SHEET_KEY, JSON.stringify(state.timesheet)); }catch(e){} }
+/* v3.9.4: the same guard as the roster (see refuseStaleSave). */
+let timesheetSeen = null;
+function timesheetRaw(){ try{ return localStorage.getItem(TS_SHEET_KEY); }catch(e){ return null; } }
+function refreshTimesheetFromStorage(){
+  const now = timesheetRaw();
+  if(now === null || now === timesheetSeen) return false;
+  loadTimesheet();
+  return true;
+}
+function saveTimesheet(){
+  const now = timesheetRaw();
+  if(timesheetSeen !== null && now !== null && now !== timesheetSeen){ refuseStaleSave('timesheet', refreshTimesheetFromStorage); return; }
+  try{ localStorage.setItem(TS_SHEET_KEY, JSON.stringify(state.timesheet)); }catch(e){}
+  timesheetSeen = timesheetRaw();
+}
 
 function loadTimesheet(){
+  timesheetSeen = timesheetRaw();   // first, so the save below is never refused
   const sheet = readStoredJSON(TS_SHEET_KEY);
   if(isPlainObj(sheet)){
     state.timesheet = {};
@@ -2112,6 +2158,9 @@ function saveData(){
 }
 window.addEventListener('storage', (e)=>{
   if(e.key === STORAGE_KEY && refreshSuppliersFromStorage()) bgRender();
+  // v3.9.4
+  if((e.key === ROSTER_KEY || e.key === ROSTER_NEXT_KEY) && refreshRosterFromStorage()) bgRender();
+  if(e.key === TS_SHEET_KEY && refreshTimesheetFromStorage()) bgRender();
 });
 
 /* ===== Product catalogue -> staff app =====
@@ -5216,6 +5265,9 @@ document.addEventListener('visibilitychange', ()=>{
   if(document.visibilityState !== 'visible') return;
   // v3.9.2: another copy of The Pass may have changed the list meanwhile
   if(refreshSuppliersFromStorage()) bgRender();
+  // v3.9.4: and the roster and timesheet, before the Monday roll below
+  const rosterNew = refreshRosterFromStorage(), timesheetNew = refreshTimesheetFromStorage();
+  if(rosterNew || timesheetNew) bgRender();
   /* A phone can keep the app alive in the background from Sunday night to
      Tuesday, so the Monday roll can't only happen on a cold start. */
   if(rollRosterWeek()) bgRender();
@@ -5229,7 +5281,7 @@ if('serviceWorker' in navigator){
 }
 </script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="voice-brain.js?v=3.9.3"></script>
-<script src="voice.js?v=3.9.3"></script>
+<script src="voice-brain.js?v=3.9.4"></script>
+<script src="voice.js?v=3.9.4"></script>
 </body>
 </html>
