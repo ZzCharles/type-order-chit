@@ -474,14 +474,17 @@ function clockMin(p, near, after){
   }
   return p.h >= 5 && p.h <= 11 ? c[0] : c[1];
 }
-/* "add today's timesheet", "do my timesheet", "add my hours" and the like */
+/* "add today's timesheet", "do my timesheet", "add my hours": add.
+   v3.9.7: only a clear add / do / fill in / put in writes. A question, or
+   anything else ("whats my timesheet this week", his log of 11 Oct, which
+   v3.9.6 took as add), only reads: when unsure, read, never write. */
 function tsIntent(text){
-  var c = clean(text);
-  if(/\bhow many hours\b|\bhours (this week|so far)\b/.test(c)) return 'read';
-  if(!/\b(time ?sheets?|my hours)\b/.test(c)) return null;
-  if(/\b(send|submit|share|email|text)\b/.test(c)) return 'send';
-  if(/\b(how many|how much|total|whats on|what is on|read|tell me)\b/.test(c)) return 'read';
-  return 'add';
+  var c = clean(text).replace(/^(hey pluto|ok pluto|pluto) /, '');
+  if(!/\b(time ?sheets?|my hours|how many hours|hours (this week|last week|so far))\b/.test(c)) return null;
+  if(/\b(send|submit|share|email)\b/.test(c)) return 'send';
+  if(/^(whats|what|how|hows|show|tell|read|check|is|are|was|were|did|do i|have i|any|when|which|whens|give me|can you (tell|read|check|show)|could you (tell|read|check|show))\b/.test(c)) return 'read';
+  if(/\b(add|do|fill|put|log|enter|update|record|save|write|input|punch|clock)\b/.test(c)) return 'add';
+  return 'read';
 }
 /* the day a sentence names: today / tonight, yesterday / last night, or a
    weekday (the latest one, on or before today) */
@@ -1135,11 +1138,12 @@ function createRoom(host){
     var maybe = parse(text, (await fresh()).cat);
     if(maybe.verb && maybe.items.some(function(it){ return it.exact && it.exact.length; })) return run(maybe, req, mode);
     if(!p.again && clean(text)){
-      var q = p.kind === 'tsDay' ? 'Which day is it for?' : p.kind === 'tsStartYes' ? 'Did you start at ' + timeSay(p.ts.rostered) + '?'
+      var q = p.kind === 'tsDay' ? 'Which day is it for?' : p.kind === 'tsRead' ? 'Which day, or the whole week?'
+        : p.kind === 'tsStartYes' ? 'Did you start at ' + timeSay(p.ts.rostered) + '?'
         : p.kind === 'tsEnd' ? 'What time did you finish?' : 'What time did you start?';
-      return asking(p.kind, "Sorry, I didn't catch that. " + q, p.options, { ts: p.ts, again: true }, p.kind === 'tsDay' || p.kind === 'tsStartYes' ? 'choice' : 'time');
+      return asking(p.kind, "Sorry, I didn't catch that. " + q, p.options, { ts: p.ts, again: true }, /^ts(Day|Read|StartYes)$/.test(p.kind) ? 'choice' : 'time');
     }
-    return ans('answer', { say: ['Left it. Timesheet unchanged.'], log: 'ts dropped' });
+    return ans('answer', { say: [p.kind === 'tsRead' ? 'Left it.' : 'Left it. Timesheet unchanged.'], log: 'ts dropped' });
   }
   function tsClock(p, text, t, kind){
     var c = parseClock(text);
@@ -1151,6 +1155,14 @@ function createRoom(host){
     var text = String(req.text || ''), choice = req.reply && req.reply.choice != null ? String(req.reply.choice) : null;
     var t = Object.assign({}, p.ts || {});
     pending = null;
+    if(p.kind === 'tsRead'){   // v3.9.7: "Which day, or the whole week?"
+      var rc = clean(text), today = tsToday();
+      if(choice === 'week' || (!choice && /\b(week|whole|all|total|everything)\b/.test(rc))) return tsReadWeek(/\blast\b/.test(rc));
+      if(choice === 'today' || (!choice && /\b(today|tonight)\b/.test(rc))) return tsReadDay(today);
+      var rd = choice && TS_DAYS.indexOf(choice) > -1 ? lastDayOn(choice, today) : tsDayIn(text, today);
+      if(rd) return tsReadDay(rd);
+      return tsMiss(p, text, req, mode);
+    }
     if(p.kind === 'tsDay'){
       var d = choice || matchOption(text, p.options);
       if(!d){ var named = tsDayIn(text, tsToday()); if(named) d = dayOf(named); }
@@ -1178,16 +1190,64 @@ function createRoom(host){
     t.end = said;
     return tsConfirm(t);
   }
-  function tsRead(){
+  /* ---------- reading the timesheet (v3.9.7, his design of 11 Oct) ----------
+     "whats my timesheet" → "Which day, or the whole week?"; a day → its start
+     and finish; the week (Wed to Sun) → "This week so far: …", or on Monday
+     and Tuesday the week just finished. The sheet is one page written over
+     each week, so a day only counts when its row is that date's: dated rows
+     by their date, undated ones (from before v3.9.6) as the latest such day. */
+  function tsRow(sheet, date){
+    var day = dayOf(date), r = (sheet.days || {})[day] || {};
+    if(!r.start && !r.end) return { empty: true };
+    if(r.date ? r.date === date : date === lastDayOn(day, tsToday())) return r;
+    return { other: r.date || 'unknown' };
+  }
+  function tsReadDay(date){
     var sheet = tsSheet();
     if(!sheet) return cant("I can't reach the timesheet.", 'ts none');
-    var total = 0, n = 0;
-    TS_DAYS.forEach(function(d){ var r = (sheet.days || {})[d]; if(r && r.start && r.end){ total += hoursOf(r.start, r.end); n++; } });
-    if(!n) return ans('answer', { say: ['The timesheet has no hours on it yet.'], log: 'ts read empty' });
-    return ans('answer', { say: ['The timesheet adds up to ' + hoursSay(total) + ', over ' + n + (n === 1 ? ' day.' : ' days.')], log: 'ts read' });
+    var r = tsRow(sheet, date), when = dateSay(date);
+    if(r.other) return ans('answer', { say: ["I don't have " + when + ' any more. That day has newer times on it now.'], log: 'ts read gone' });
+    if(r.empty) return ans('answer', { say: ['Nothing on ' + when + '.'], log: 'ts read empty day' });
+    if(!r.end) return ans('answer', { say: [when + ': started ' + timeSay(r.start) + ', no finish yet.'], log: 'ts read day' });
+    return ans('answer', { say: [when + ': ' + timeSay(r.start) + ' to ' + timeSay(r.end) + ', ' + hoursSay(hoursOf(r.start, r.end)) + '.'], log: 'ts read day' });
+  }
+  function daysSay(list){
+    var idx = list.map(function(d){ return TS_DAYS.indexOf(d); });
+    var run = list.length >= 3 && idx.every(function(x, i){ return !i || x === idx[i - 1] + 1; });
+    return run ? DAY_FULL[list[0]] + ' to ' + DAY_FULL[list[list.length - 1]] : joinAnd(list.map(function(d){ return DAY_FULL[d]; }));
+  }
+  function tsReadWeek(last){
+    var sheet = tsSheet();
+    if(!sheet) return cant("I can't reach the timesheet.", 'ts none');
+    var today = tsToday(), mon = keyDate(mondayOf(today));
+    if(last || TS_DAYS.indexOf(dayOf(today)) < 0) mon.setDate(mon.getDate() - 7);   // Mon/Tue: the week just finished
+    var isLast = dateKey(mon) !== mondayOf(today);
+    var total = 0, done = [], gone = [];
+    TS_DAYS.forEach(function(d, i){
+      var dt = new Date(mon); dt.setDate(mon.getDate() + 2 + i);   // Wed is Monday + 2
+      var date = dateKey(dt);
+      if(date > today) return;
+      var r = tsRow(sheet, date);
+      if(r.other){ gone.push(d); return; }
+      if(r.start && r.end){ total += hoursOf(r.start, r.end); done.push(d); }
+    });
+    var name = isLast ? 'Last week' : 'This week so far';
+    var say = [done.length ? name + ': ' + hoursSay(total) + ', ' + daysSay(done) + '.' : (isLast ? 'Nothing for last week on the timesheet.' : 'Nothing on the timesheet for this week yet.')];
+    if(gone.length) say.push("I don't have " + (isLast ? "last week's " : '') + joinAnd(gone.map(function(d){ return DAY_FULL[d]; })) + ' any more: newer times are on ' + (gone.length === 1 ? 'it' : 'them') + '.');
+    return ans('answer', { say: say, log: 'ts read week ' + (isLast ? 'last' : 'this') + ' ' + fmt(total) });
+  }
+  function tsReadBegin(text){
+    var c = clean(text);
+    if(/\blast week\b/.test(c)) return tsReadWeek(true);
+    var date = tsDayIn(text, tsToday());
+    if(date) return tsReadDay(date);
+    if(/\b(week|weeks|weekly|total|so far|how many hours|all)\b/.test(c)) return tsReadWeek(false);
+    var today = tsToday(), onSheet = TS_DAYS.indexOf(dayOf(today)) > -1;
+    return asking('tsRead', 'Which day, or the whole week?',
+      [{ label: 'Whole week', value: 'week' }, onSheet ? { label: 'Today', value: 'today' } : { label: 'Sunday', value: 'sun' }], {}, 'choice');
   }
   function tsHandle(kind, text){
-    if(kind === 'read') return tsRead();
+    if(kind === 'read') return tsReadBegin(text);
     if(kind === 'send'){
       if(host.open) host.open({ view: 'timesheet' });
       return ans('answer', { say: ["I can't send it by voice. It's on screen: check it, then tap Submit Timesheet."], keep: false, log: 'ts send' });
@@ -2108,7 +2168,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.9.6',
+  version: 'v3.9.7',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
   parse: parse, catalogue: catalogue, findItems: findItems, isClose: isClose, yesNo: yesNo,
