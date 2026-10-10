@@ -255,9 +255,19 @@ async function heard(alts, purpose){
               woke: false, locked: false, now: Date.now(), mode: 'tab' }, entry, true);
 }
 async function ask(req, entry, byVoice){
+  var before = cur;
   phase = 'thinking'; cur = { heard: entry.heard }; waitAsk = null; paint();
   var a;
   try{ a = await room.handle(req); }catch(e){ a = { status: 'error', say: ['I couldn’t check the list.'] }; }
+  /* v3.9.3: talk while it listens for a follow-up isn't for The Pass (the
+     brain says "chatter"): kept in the heard log, the answer stays on the
+     card, nothing is said, and it listens again, as RK Trips does */
+  if(a && a.status === 'notmine' && a.log === 'chatter'){
+    logIt(entry, { status: 'ignored', say: [], log: 'chatter, while listening for a follow-up' });
+    phase = ''; cur = before; paint();
+    if(open) vListen('follow'); else scheduleHide();
+    return;
+  }
   logIt(entry, a);
   present(a, entry.heard, byVoice);
 }
@@ -730,9 +740,9 @@ window.renderVoice = renderVoice;
 if(state.view.name === 'home' || state.view.name === 'voice') render();
 else voiceScreen();
 /* For testing in a browser without a microphone: the same path as speech */
-window.almoVoiceTry = function(text, alts){
+window.almoVoiceTry = function(text, alts, purpose){   // v3.9.3: purpose 'follow' tries the follow-up window
   if(!open) openCard();
   view = 'talk';
-  return heard([{ s: text }].concat((alts || []).map(function(a){ return { s: a }; })), waitAsk || waitConfirm ? 'answer' : 'ask');
+  return heard([{ s: text }].concat((alts || []).map(function(a){ return { s: a }; })), purpose || (waitAsk || waitConfirm ? 'answer' : 'ask'));
 };
 })();

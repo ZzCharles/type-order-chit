@@ -1,4 +1,5 @@
-/* The Pass — voice brain (v3.9.0, 9 October 2026; learned words v3.9.1, 10 October)
+/* The Pass — voice brain (v3.9.0, 9 October 2026; learned words v3.9.1, 10 October;
+   v3.9.3, 11 October: fixes from his heard log, see HANDOFF "Heard log, Sat 10 Oct")
 
    Turns a spoken sentence into a change on a supplier order or the prep
    list. No AI and no network of its own: a keyword brain over the app's own
@@ -233,6 +234,12 @@ function readQty(t, i){
   }
   return q;
 }
+/* the first clear amount said, with its unit (v3.9.3: answers to "How many …?") */
+function firstQty(text){
+  var t = toks(text);
+  for(var i = 0; i < t.length; i++){ var q = readQty(t, i); if(q && !q.vague && q.n != null) return q; }
+  return null;
+}
 /* every number said, in order: for the fifteen / fifty check */
 function numbersIn(text){
   var t = toks(text), out = [], i = 0;
@@ -285,6 +292,8 @@ var VERBS = [
   [['untick'], 'untick', 0], [['un', 'tick'], 'untick', 0], [['uncheck'], 'untick', 0], [['isnt', 'done'], 'untick', 1], [['arent', 'done'], 'untick', 1],
   [['is', 'not', 'done'], 'untick', 1], [['not', 'done'], 'untick', 1], [['not', 'finished'], 'untick', 1],
   [['make', 'it'], 'set', 0], [['make', 'that'], 'set', 0], [['make', 'them'], 'set', 0], [['make'], 'set', 0], [['set'], 'set', 0],
+  // v3.9.3: a correction ("no I meant 6 kilo"): sets the thing just talked about
+  [['i', 'meant'], 'set', 0], [['i', 'mean'], 'set', 0], [['meant'], 'set', 0],
   [['change'], 'set', 0], [['update'], 'set', 0], [['should', 'be'], 'set', 1], [['only', 'need'], 'set', 0],
   [['get', 'ready', 'to', 'send'], 'send', 0], [['ready', 'to', 'send'], 'send', 0], [['send'], 'send', 0], [['text'], 'send', 0], [['submit'], 'send', 0],
   [['show', 'me'], 'open', 0], [['show'], 'open', 0], [['open', 'up'], 'open', 0], [['open'], 'open', 0], [['go', 'to'], 'open', 0],
@@ -313,7 +322,9 @@ var FILLERS = [
   ['can', 'i', 'get'], ['could', 'i', 'get'], ['please'], ['i', 'want', 'to'], ['i', 'wanna'], ['i', 'would', 'like', 'to'], ['id', 'like', 'to'],
   ['i', 'need', 'you', 'to'], ['lets'], ['let', 'us'], ['mate'], ['chef'], ['bro'], ['go', 'ahead', 'and'], ['quickly']
 ];
-var TRAIL = [['please'], ['thanks'], ['mate'], ['bro'], ['for', 'me'], ['for', 'us'], ['cheers'], ['as', 'well'], ['too'], ['thank', 'you'], ['now'], ['again']];
+var TRAIL = [['please'], ['thanks'], ['mate'], ['bro'], ['for', 'me'], ['for', 'us'], ['cheers'], ['as', 'well'], ['too'], ['thank', 'you'], ['now'], ['again'],
+  // v3.9.3: a sentence cut off as he carried on ("… royal blue potatoes add some")
+  ['add', 'some'], ['and', 'add'], ['add']];
 
 var STOP = {
   the: 1, a: 1, an: 1, of: 1, to: 1, on: 1, onto: 1, in: 1, into: 1, for: 1, from: 1, off: 1, my: 1, our: 1, me: 1, us: 1,
@@ -323,7 +334,8 @@ var STOP = {
   extra: 1, fresh: 0, usual: 1, normal: 1, regular: 1, total: 1, altogether: 1, all: 1, up: 1, back: 1, out: 1, over: 1,
   by: 1, this: 1, week: 1, next: 1, order: 0, am: 1, pm: 1, monday: 1, tuesday: 1, wednesday: 1, thursday: 1, friday: 1,
   saturday: 1, sunday: 1, ones: 1, one: 0, lot: 1, item: 1, items: 1, thing: 1, things: 1, stuff: 1, more: 1, another: 1,
-  only: 1, about: 1, around: 1, roughly: 1, like: 1, maybe: 1, will: 1, can: 1, need: 1, want: 1, thanks: 1, cheers: 1
+  only: 1, about: 1, around: 1, roughly: 1, like: 1, maybe: 1, will: 1, can: 1, need: 1, want: 1, thanks: 1, cheers: 1,
+  following: 1, below: 1   // v3.9.3: "add the following to the orders …"
 };
 var REFS = { it: 1, that: 1, them: 1, those: 1, these: 1, same: 1, thats: 1, its: 1 };
 var CONJ = { and: 1, plus: 1, also: 1, then: 1, ',': 1 };
@@ -554,8 +566,16 @@ function stripEdges(t){
    clause it is in; "and" and commas start a new clause, so "add 2 mozz and
    take the speck off" is two jobs. */
 var SPLIT = { take: 'remove', knock: 'remove', tick: 'tick', cross: 'tick', mark: 'tick' };
+/* v3.9.3 (his heard log, 10 Oct: "after that could you add 6 kilo of spec"
+   added 1 packet, with "I couldn't find after. I couldn't find could add."):
+   soft words before a clause's verb are lead-in, not items, and the verb
+   still counts after them ("need to add", "I think we need"). */
+var SOFT = { after: 1, that: 1, then: 1, could: 1, can: 1, would: 1, will: 1, should: 1, you: 1, please: 1, also: 1, just: 1,
+  to: 1, want: 1, wanna: 1, i: 1, im: 1, we: 1, me: 1, us: 1, gonna: 1, going: 1, lets: 1, maybe: 1, now: 1, so: 1, ok: 1,
+  okay: 1, um: 1, uh: 1, actually: 1, mate: 1, chef: 1, quickly: 1, yeah: 1, right: 1, well: 1, oh: 1, next: 1, first: 1,
+  firstly: 1, finally: 1, sorry: 1, oops: 1, think: 1, guess: 1, do: 1 };
 function scan(t, cat){
-  var segs = [], i = 0, clause = 0, start = 0, splitOff = -1;
+  var segs = [], i = 0, clause = 0, start = 0, splitOff = -1, lead = true, hadVerb = false;
   function verbAt(i){
     // split verbs: "take the speck off", "tick pizza sauce off"
     if(i === start && SPLIT[t[i].r] && !(t[i + 1] && t[i + 1].r === 'off')){
@@ -569,7 +589,11 @@ function scan(t, cat){
     for(var v = 0; v < VERBS.length; v++){
       var V = VERBS[v];
       if(!phraseAt(t, i, V.w)) continue;
-      if(!V.any && i !== start) continue;
+      /* v3.9.3: after soft lead-in words a verb still counts; after a verb,
+         only a "to" verb does ("need to add"), so "read me the order list"
+         keeps "order" as the list */
+      var prev = segs[segs.length - 1];
+      if(!V.any && i !== start && !(lead && (!hadVerb || (prev && prev.type === 'stop' && prev.w === 'to')))) continue;
       // "no" on its own is an answer; "no speck" is a removal
       if(V.w.join(' ') === 'no' && t.length < 2) continue;
       return { verb: V.verb, end: i + V.w.length, words: V.w.join(' ') };
@@ -580,13 +604,13 @@ function scan(t, cat){
     for(var l = 0; l < LISTS.length; l++) if(phraseAt(t, i, LISTS[l].w)) return { list: LISTS[l].list, end: i + LISTS[l].w.length };
     return null;
   }
-  function push(g){ g.c = clause; segs.push(g); }
+  function push(g){ g.c = clause; segs.push(g); if(g.type === 'verb') hadVerb = true; else if(g.type !== 'stop') lead = false; }
   while(i < t.length){
     if(i === splitOff){ push({ type: 'stop', w: t[i].r, i: i, end: i + 1 }); i++; continue; }
     var w = t[i].r;
     if(CONJ[w] && !(w === 'plus' && i === start)){
       push({ type: 'conj', i: i, end: i + 1 });
-      clause++; start = i + 1; i++;
+      clause++; start = i + 1; i++; lead = true; hadVerb = false;
       continue;
     }
     var opts = [];
@@ -598,6 +622,8 @@ function scan(t, cat){
     var best = null;
     opts.forEach(function(o){ if(!best || o.end > best.end || (o.end === best.end && o.rank > best.rank)) best = o; });
     if(best){ push(best); i = best.end; continue; }
+    // v3.9.3: lead-in, not an item ("that" after the verb is still "it": "remove all of that")
+    if(lead && SOFT[w] && !(hadVerb && REFS[w])){ push({ type: 'stop', w: w, i: i, end: i + 1 }); i++; continue; }
     if(REFS[w]) push({ type: 'ref', i: i, end: i + 1 });
     else if(STOP[w] === 1 || w === 'away') push({ type: 'stop', w: w, i: i, end: i + 1 });
     else push({ type: 'word', w: w, s: t[i].s, i: i, end: i + 1 });
@@ -614,11 +640,17 @@ function parse(text, cat){
   var se = stripEdges(toks(text, true)), t = se.t;
   while(t.length && t[0].r === ',') t = t.slice(1);
   while(t.length && t[t.length - 1].r === ',') t = t.slice(0, -1);
+  /* v3.9.3: "no, make that one kilo", "no I meant 6 kilo" are corrections, not
+     "take it off" ("no speck" still is) */
+  if(t.length > 1 && /^(no|nah|nope|sorry|oops)$/.test(t[0].r) && /^(make|set|change|i|meant|mean|its|it|actually)$/.test(t[1].r)) t = t.slice(1);
   var cmd = { text: String(text || ''), verb: null, verbWords: '', list: null, sids: [], items: [], refs: false,
-              looseQty: null, and: se.and, question: false, tickWords: false, empty: !t.length };
+              looseQty: null, and: se.and, question: false, tickWords: false, empty: !t.length, nTok: t.length, nHit: 0,
+              moreWord: t.some(function(x){ return x.r === 'another' || x.r === 'more'; }) };
   if(!t.length) return cmd;
   cmd.question = !!QWORDS[t[0].r];
   var segs = scan(t, cat);
+  // how much of the sentence is items and amounts: long talk with little of either is chatter (v3.9.3)
+  segs.forEach(function(g){ if(g.type === 'item' || g.type === 'qty' || g.type === 'sup') cmd.nHit += g.end - g.i; });
   var nC = segs.length ? segs[segs.length - 1].c + 1 : 1, clauses = [];
   for(var c = 0; c < nC; c++) clauses.push({ verb: null, words: '', list: null, sids: [], setTo: false });
   segs.forEach(function(g, gi){
@@ -690,9 +722,19 @@ function parse(text, cat){
      said after a name with nothing in between belongs to that name ("mozz
      2", "pepperoni to 3"). */
   var pending = null, last = null, joined = false;
-  segs.forEach(function(g){
+  /* v3.9.3: "… 6 kilo of spec": an amount followed by "of" and a name is
+     that name's, whatever came before it */
+  function ofNext(gi){
+    var sawOf = false;
+    for(var k = gi + 1; k < segs.length; k++){
+      if(segs[k].type === 'stop'){ if(segs[k].w === 'of') sawOf = true; continue; }
+      return sawOf && (segs[k].type === 'item' || segs[k].type === 'word');
+    }
+    return false;
+  }
+  segs.forEach(function(g, gi){
     if(g.type === 'qty'){
-      if(last && !last.qty && !joined){ last.qty = g.q; return; }
+      if(last && !last.qty && !joined && !ofNext(gi)){ last.qty = g.q; return; }
       pending = g.q; return;
     }
     if(g.type === 'conj'){ joined = true; return; }
@@ -778,14 +820,18 @@ function findItems(item, cat, kinds){
   var fz = [];
   cat.entries.forEach(function(e){
     if(!ok(e)) return;
-    var best = 0;
+    var best = 0, anchor = false;
     e.keys.forEach(function(x){
       if(!x.set.length) return;
-      var sum = 0;
-      said.forEach(function(w){ var b = 0; x.set.forEach(function(y){ b = Math.max(b, wordLike(w, y)); }); sum += b; });
-      best = Math.max(best, sum / Math.max(said.length, x.set.length));
+      var sum = 0, sure = false;
+      said.forEach(function(w){ var b = 0; x.set.forEach(function(y){ b = Math.max(b, wordLike(w, y)); if(w === y && w.length >= 4) sure = true; }); sum += b; });
+      var s = sum / Math.max(said.length, x.set.length);
+      if(s > best){ best = s; anchor = sure; } else if(s === best && sure) anchor = true;
     });
-    if(best >= 0.6) fz.push({ e: e, n: best });
+    /* v3.9.3: half a name, said exactly ("pearly garlic", "pils garlic" for
+       Peeled Garlic in his log), is enough to ask "Did you mean…" (and learn
+       the word on a yes); it never acts without asking */
+    if(best >= 0.6 || (best >= 0.5 && anchor)) fz.push({ e: e, n: best });
   });
   fz.sort(function(a, b){ return b.n - a.n; });
   if(fz.length){
@@ -1107,6 +1153,16 @@ function createRoom(host){
         }
         // "make pesto": making is prep
         if(top.length > 1 && it.makePrep && top.indexOf('prep') > -1) top = ['prep'];
+        /* v3.9.3: when every list only sounds like it ("pils garlic"), one
+           "Did you mean…" across them, not "Prep list or an order?" first */
+        if(top.length > 1 && top.every(function(k){ return found[k].how === 'fuzzy'; })){
+          var mix = [];
+          top.forEach(function(k){ dedupe(found[k].list).forEach(function(e){ if(mix.indexOf(e) < 0) mix.push(e); }); });
+          var ch = mix.slice(0, 3);
+          return asking('item', 'Did you mean ' + joinOr(ch.map(label)) + '?',
+            ch.map(function(e){ return { label: label(e) + (e.kind === 'prep' ? ' (prep)' : ''), value: e.id }; }).concat([{ label: 'None of these', value: 'none' }]),
+            { cmd: cmd, item: i, teach: it.stems.join(' '), said: it.words.join(' ') }, 'item');
+        }
         if(top.length > 1){
           var oe = found.order && found.order.list.length ? found.order.list[0] : null;
           var opts = [{ label: 'Prep list', value: 'prep' }, { label: oe ? supSay(oe.sname) + ' order' : 'An order', value: 'order' }];
@@ -1312,7 +1368,10 @@ function createRoom(host){
     talk = talk.concat(nothing).concat(notes);
     var lab = labels.length === 1 ? labels[0] : joinAnd(labels);
     var id = remember(lab, ops);
-    ctx = { at: now(), verb: lastVerb || 'add', items: done };
+    // v3.9.3: what each order item went from and to, for "remove all of that"
+    var deltas = {};
+    ops.forEach(function(o){ if(o.k === 'qty') deltas['p:' + o.pid] = { before: o.before, after: o.after }; });
+    ctx = { at: now(), verb: lastVerb || 'add', items: done, deltas: deltas };
     var title = openView && openView.view === 'prep' ? 'Prep list' : orderChanges[0] ? supSay(orderChanges[0].e.sname) + ' order' : 'Done';
     return ans('done', { say: talk, show: { title: title, lines: show.slice(0, 6), open: openView },
       action: { id: id, label: lab, undo: true }, log: ops.map(function(o){ return o.k === 'qty' ? o.name + ' ' + o.before + '>' + o.after : o.k; }).join(', ') });
@@ -1392,14 +1451,28 @@ function createRoom(host){
     }
     if(cmd.verb === 'undo') return await undoNow(null);
 
-    // "make it 3", "take it off", "add another 2", "and a box of pepperoni"
-    if(!cmd.items.length && live && ctx.items.length && (cmd.refs || cmd.looseQty || cmd.and) && ['add', 'set', 'remove', 'tick', 'untick', null].indexOf(cmd.verb) > -1){
+    /* "make it 3", "take it off", "add another 2", "add another". v3.9.3: a
+       bare "and add" (cut off as he carried on) no longer adds the last item
+       again (his log, 10 Oct: "and add" → +1 kilo of pork mince); it needs
+       "it", a number, or "another"/"more". */
+    if(!cmd.items.length && live && ctx.items.length && (cmd.refs || cmd.looseQty || cmd.moreWord) && ['add', 'set', 'remove', 'tick', 'untick', null].indexOf(cmd.verb) > -1){
       var lq = cmd.looseQty;
       var v0 = cmd.verb || (lq ? 'set' : ctx.verb);
       // with a number, it means the last thing named (add 2 mozz and a box of pepperoni, then add another 2)
       var refItems = lq && ctx.items.length > 1 ? ctx.items.slice(-1) : ctx.items;
       cmd.items = refItems.map(function(x){ return { words: [itemSay(x.name)], stems: keyOf(x.name).split(' '), pick: x.id, qty: refItems.length === 1 ? lq : null, verb: v0, verbWords: cmd.verbWords, list: null, sids: [] }; });
       cmd.looseQty = null; cmd.verb = v0; hasCue = true;
+      /* v3.9.3: "actually remove all of that" right after adding 20 to 2 took
+         all 22 off (his log). Ask: all of it, or just what was added. */
+      var dl = refItems.length === 1 && ctx.deltas ? ctx.deltas[refItems[0].id] : null;
+      if(v0 === 'remove' && !lq && ctx.verb === 'add' && dl && dl.before > 0){
+        var ex = entryById(cat, refItems[0].id);
+        if(ex && Math.abs((+ex.qty || 0) - dl.after) < 0.001){
+          var added = r2(dl.after - dl.before);
+          return asking('offhow', 'Take off all ' + amountOf(ex.qty, ex.unit, label(ex)) + ', or just the ' + fmt(added) + ' you added?',
+            [{ label: 'All ' + fmt(ex.qty), value: 'all' }, { label: 'Just the ' + fmt(added), value: 'added' }], { cmd: cmd, item: 0, added: added });
+        }
+      }
     }
     if(!cmd.verb && cmd.and && live && cmd.items.length){
       cmd.verb = ctx.verb;
@@ -1492,6 +1565,11 @@ function createRoom(host){
       if(cmd.refs || cmd.looseQty) return cant('Say what it is, like “make the mozzarella 3”.', 'no context');
       return cant(v === 'remove' ? 'Take off what?' : v === 'tick' || v === 'untick' ? 'Which prep item?' : v ? 'Add what?' : "I didn't catch that.", 'no items');
     }
+    /* v3.9.3: just a name, no verb or amount, in the listening window after
+       an answer (his log: "pepperoni" added a box; maybe the mic caught the
+       end of its own answer) asks first. A name on its own when he starts
+       talking still adds, as before. */
+    var bare = !v && req && req.followUp && !cmd.fromAsk && cmd.items.length === 1 && !cmd.items[0].qty && !cmd.looseQty && !cmd.refs;
     if(!v) cmd.verb = 'add';
     cmd.items.forEach(function(it){
       if(!it.verb) it.verb = cmd.verb;
@@ -1506,6 +1584,12 @@ function createRoom(host){
       if(skips.length) return cant(skips.join(' '), 'all skipped');
       var names = cmd.items.map(function(it){ return it.words.join(' '); });
       return cant("I couldn't find " + joinOr(names) + ' on the orders or the prep list.', 'missing');
+    }
+    if(bare && cmd.items[0].e){
+      var eb = cmd.items[0].e, ub = unitSay(eb.unit)[0];
+      var yn = [{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }];
+      if(eb.kind === 'order') return asking('bare', 'Add ' + (+eb.qty > 0 ? 'another ' : ub ? 'a ' : '') + (ub ? ub + ' of ' : '') + label(eb) + '?', yn, { cmd: cmd, item: 0 });
+      if(eb.kind === 'prep') return asking('bare', 'Put ' + label(eb) + ' on the prep list?', yn, { cmd: cmd, item: 0 });
     }
     var a = amounts(cmd);
     if(a) return a;
@@ -1552,6 +1636,20 @@ function createRoom(host){
         if(maybe.verb || maybe.items.length) return run(maybe, req, mode);
         return ans('answer', { say: ['Left it. Nothing changed.'], log: 'howmany dropped' });
       }
+      /* v3.9.3: "6 kilo" to "How many packets?" isn't 6 packets: it asks
+         once more; "500 grams" to "How many kilos?" is 0.5 */
+      var e1 = cmd.items[p.item].e, aq = choice != null ? null : firstQty(text);
+      if(e1 && e1.kind === 'order' && aq && aq.unit){
+        var cv = convert(aq.n, aq.unit, canonUnit(e1.unit));
+        if(cv == null){
+          pending = null;
+          if(p.again) return ans('answer', { say: ['Left it. Nothing changed.'], log: 'unit dropped' });
+          var us = unitSay(e1.unit)[1];
+          return asking('unit', label(e1) + ' is ordered in ' + (us || 'ones') + ', not ' + (UNIT_SAY[aq.unit] ? UNIT_SAY[aq.unit][1] : aq.unit) + '. How many ' + (us || '') + '?',
+            [], { cmd: cmd, item: p.item, again: true }, 'number');
+        }
+        ns = [Math.round(cv * 1000) / 1000];
+      }
       cmd.items[p.item].qtyFix = ns[0];
       cmd.fromAsk = true; pending = null;
       return run(cmd, req, mode);
@@ -1577,6 +1675,8 @@ function createRoom(host){
     else if(p.kind === 'oneoff'){ it.oneoff = true; }
     else if(p.kind === 'elsewhere'){ it.pick = p.pickId; it.otherOk = true; it.sids = []; }
     else if(p.kind === 'supplier'){ cmd.sids = [choice]; }
+    else if(p.kind === 'offhow'){ if(choice === 'added') it.qtyFix = p.added; }   // v3.9.3; "all": as said
+    else if(p.kind === 'bare'){ cmd.verb = 'add'; it.verb = 'add'; }               // v3.9.3: yes, add it
     return run(cmd, req, mode);
   }
 
@@ -1589,6 +1689,15 @@ function createRoom(host){
       if(req.reply && req.reply.choice != null && !req.text){ pending = null; return cant('That one expired. Ask me again.', 'ask expired'); }
       pending = null;
       if(isClose(req.text || '')) return notmine('close');
+      /* v3.9.3: long talk while it listens for a follow-up, with no verb and
+         few names or amounts in it, is chatter (his log: talking to Claude
+         about the app made it ask "Which garlic?"). Ignored, as RK Trips
+         does; a real order, even a long one, has a verb or is mostly names
+         and amounts. */
+      if(req.followUp && !req.reply){
+        var pc = parse(req.text || '', (await fresh()).cat);
+        if(!pc.verb && pc.nTok >= 8 && pc.nHit / pc.nTok < 0.4) return notmine('chatter');
+      }
       // fifteen or fifty? (only when the listener's other guesses disagree)
       var tt = teenTen(req.text || '', req.alts || []);
       if(tt){
@@ -1737,7 +1846,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.9.2',
+  version: 'v3.9.3',
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
   parse: parse, catalogue: catalogue, findItems: findItems, isClose: isClose, yesNo: yesNo,
   amount: amount, itemSay: itemSay, supSay: supSay, sound: sound,
