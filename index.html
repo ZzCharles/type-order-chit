@@ -627,7 +627,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.9.5';
+const APP_VERSION = 'v3.9.6';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -1686,7 +1686,11 @@ function loadTimesheet(){
   const sheet = readStoredJSON(TS_SHEET_KEY);
   if(isPlainObj(sheet)){
     state.timesheet = {};
-    ROSTER_DAY_KEYS.forEach(d => { const e = isPlainObj(sheet[d]) ? sheet[d] : {}; state.timesheet[d] = { start: e.start||'', end: e.end||'' }; });
+    ROSTER_DAY_KEYS.forEach(d => {
+      const e = isPlainObj(sheet[d]) ? sheet[d] : {};
+      state.timesheet[d] = { start: e.start||'', end: e.end||'' };
+      if(typeof e.date === 'string' && e.date) state.timesheet[d].date = e.date;   // v3.9.6
+    });
     return;
   }
   /* First open of v3.8.2: keep what the old timesheet was showing. v3.8.1 kept
@@ -1710,8 +1714,23 @@ function loadTimesheet(){
   state.timesheet = timesheetFromRoster(roster, edits);
   saveTimesheet();
 }
+/* v3.9.6: each day remembers the date it was filled in for, so voice can
+   tell this Wednesday from last Wednesday (almo-voice-brain.md 5.5). Typed
+   on the screen, it's the latest date on that weekday, up to today's
+   service day. Voice passes its own date; '' means unknown (as every row
+   saved before v3.9.6, and Reset to roster, are). Hours, the screen and the
+   text sent to accounts don't use it. */
+function tsDayDate(day){
+  const want = ['sun','mon','tue','wed','thu','fri','sat'].indexOf(day);
+  if(want < 0) return '';
+  const d = new Date(serviceDateKey() + 'T12:00:00');
+  d.setDate(d.getDate() - (d.getDay() - want + 7) % 7);
+  return localDateKey(d);
+}
 function setTsDay(day, val){
+  const date = val.date !== undefined ? val.date : tsDayDate(day);
   state.timesheet[day] = { start: val.start||'', end: val.end||'' };
+  if(date) state.timesheet[day].date = date;
   saveTimesheet();
 }
 function rabindraId(){
@@ -5339,7 +5358,7 @@ if('serviceWorker' in navigator){
 }
 </script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="voice-brain.js?v=3.9.5"></script>
-<script src="voice.js?v=3.9.5"></script>
+<script src="voice-brain.js?v=3.9.6"></script>
+<script src="voice.js?v=3.9.6"></script>
 </body>
 </html>

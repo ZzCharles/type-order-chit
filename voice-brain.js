@@ -362,6 +362,139 @@ function yesNo(text){
   return null;
 }
 
+/* ================= the timesheet: days and times (v3.9.6) =================
+   His own hours only (almo-voice-brain.md section 5). Times are rounded to
+   the nearest quarter hour, halfway up, and the read-back says the rounded
+   time. A shift belongs to its service day: before 5 am counts as the night
+   before. Dates are built from local date parts, never toISOString (UTC
+   would put a Sydney morning on the day before). */
+var TS_DAYS = ['wed', 'thu', 'fri', 'sat', 'sun'];
+var DAY_KEYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+var DAY_FULL = { sun: 'Sunday', mon: 'Monday', tue: 'Tuesday', wed: 'Wednesday', thu: 'Thursday', fri: 'Friday', sat: 'Saturday' };
+var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+function pad2(n){ return (n < 10 ? '0' : '') + n; }
+function dateKey(d){ return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate()); }
+function keyDate(k){ var p = String(k).split('-'); return new Date(+p[0], +p[1] - 1, +p[2], 12); }
+function serviceDate(ms){
+  var d = new Date(ms), s = new Date(d.getFullYear(), d.getMonth(), d.getDate(), 12);
+  if(d.getHours() < 5) s.setDate(s.getDate() - 1);
+  return dateKey(s);
+}
+function dayOf(k){ return DAY_KEYS[keyDate(k).getDay()]; }
+function mondayOf(k){ var d = keyDate(k); d.setDate(d.getDate() - (d.getDay() + 6) % 7); return dateKey(d); }
+/* the latest date that falls on that weekday, on or before the given date */
+function lastDayOn(day, k){ var d = keyDate(k); d.setDate(d.getDate() - (d.getDay() - DAY_KEYS.indexOf(day) + 7) % 7); return dateKey(d); }
+function dateSay(k){ var d = keyDate(k); return DAY_FULL[DAY_KEYS[d.getDay()]] + ' ' + d.getDate() + ' ' + MONTHS[d.getMonth()]; }
+function toMin(hhmm){ var m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm || '')); return m ? +m[1] * 60 + +m[2] : null; }
+function toHHMM(min){ min = ((min % 1440) + 1440) % 1440; return pad2(Math.floor(min / 60)) + ':' + pad2(min % 60); }
+function quarter(min){ return Math.round(min / 15) * 15; }   // halfway rounds up
+function timeSay(hhmm){
+  var m = toMin(hhmm);
+  if(m == null) return '';
+  if(m === 0) return 'midnight';
+  if(m === 720) return '12 noon';
+  var h = Math.floor(m / 60), mm = m % 60;
+  return (h % 12 || 12) + (mm ? ':' + pad2(mm) : '') + (h < 12 ? ' am' : ' pm');
+}
+function hoursOf(start, end){
+  var a = toMin(start), b = toMin(end);
+  if(a == null || b == null) return 0;
+  return ((b - a + 1440) % 1440) / 60;
+}
+/* "6 and three quarter hours"; anything not in quarters is said as digits,
+   as the screen shows it */
+function hoursSay(h){
+  if(Math.abs(h * 4 - Math.round(h * 4)) > 1e-6) return fmt(h) + ' hours';
+  var whole = Math.floor(h + 1e-9), part = Math.round((h - whole) * 4);
+  if(!whole && part) return ['', 'a quarter of an hour', 'half an hour', 'three quarters of an hour'][part];
+  return whole + (part ? ' ' + ['', 'and a quarter', 'and a half', 'and three quarter'][part] : '') + (whole === 1 && !part ? ' hour' : ' hours');
+}
+
+/* A time as he says it, the way Google writes it down: "10:15", "10.15",
+   "10 15", "10 p.m.", "half past ten", "half ten", "quarter to 11",
+   "twenty past 10", "ten fifteen", "midnight", "just now". Returns
+   { h, m, mer: 'am' | 'pm' | 'abs' | null } or { now: true }, or null. */
+var HOUR_W = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12 };
+var MIN_W = { five: 5, ten: 10, fifteen: 15, twenty: 20, 'twenty five': 25, thirty: 30, 'thirty five': 35, forty: 40, 'forty five': 45,
+  fifty: 50, 'fifty five': 55, 'oh five': 5, 'o five': 5 };
+function hourNum(w){ return /^\d{1,2}$/.test(w) ? +w : (HOUR_W[w] || null); }
+function parseClock(text){
+  var s = ' ' + String(text || '').toLowerCase().replace(/o\s*['’]?\s*clock/g, ' ')
+    .replace(/[^a-z0-9:. ]+/g, ' ').replace(/(\d)\.(?!\d)/g, '$1 ').replace(/(\d)(?=[a-z])/g, '$1 ').replace(/\s+/g, ' ') + ' ';
+  var H = '(\\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)';
+  var MW = '(\\d{1,2}|five|ten|twenty|twenty five)';
+  var MINS = '(fifteen|thirty|forty five|forty|fifty five|fifty|twenty five|twenty|thirty five|oh five|o five|ten|five)';
+  var found = null, m;
+  function at(re, fn){ if(found) return; m = re.exec(s); if(m){ var r = fn(m); if(r){ r.end = m.index + m[0].length; found = r; } } }
+  at(new RegExp(' half past ' + H + ' '), function(x){ return { h: hourNum(x[1]), m: 30 }; });
+  at(new RegExp(' quarter past ' + H + ' '), function(x){ return { h: hourNum(x[1]), m: 15 }; });
+  at(new RegExp(' quarter to ' + H + ' '), function(x){ var h = hourNum(x[1]); return { h: h === 1 ? 12 : h - 1, m: 45 }; });
+  at(new RegExp(' ' + MW + ' (?:minutes )?past ' + H + ' '), function(x){ var n = MIN_W[x[1]] || +x[1]; return n < 60 ? { h: hourNum(x[2]), m: n } : null; });
+  at(new RegExp(' ' + MW + ' (?:minutes )?to ' + H + ' '), function(x){ var n = MIN_W[x[1]] || +x[1], h = hourNum(x[2]); return n < 60 ? { h: h === 1 ? 12 : h - 1, m: 60 - n } : null; });
+  at(new RegExp(' half ' + H + ' '), function(x){ return { h: hourNum(x[1]), m: 30 }; });                        // "half ten"
+  at(/ (\d{1,2})[:.](\d{2}) /, function(x){ return +x[2] < 60 ? { h: +x[1], m: +x[2] } : null; });
+  at(/ (\d{1,2}) (\d{2}) /, function(x){ return +x[2] < 60 && +x[2] >= 10 ? { h: +x[1], m: +x[2] } : null; });   // "10 15"
+  at(/ (\d)(\d{2}) /, function(x){ return +x[2] < 60 ? { h: +x[1], m: +x[2] } : null; });                        // "915"
+  at(/ (1\d|2[0-3])(\d{2}) /, function(x){ return +x[2] < 60 ? { h: +x[1], m: +x[2] } : null; });               // "1015", "2230"
+  at(new RegExp(' ' + H + ' ' + MINS + ' '), function(x){ return { h: hourNum(x[1]), m: MIN_W[x[2]] }; });     // "ten fifteen"
+  at(/ midnight /, function(){ return { h: 0, m: 0, mer: 'abs' }; });
+  at(/ (noon|midday) /, function(){ return { h: 12, m: 0, mer: 'abs' }; });
+  at(new RegExp(' ' + H + ' '), function(x){ return { h: hourNum(x[1]), m: 0 }; });
+  if(!found){
+    if(/ (now|just now|right now|just then|this minute|just finished|just started) /.test(s)) return { now: true };
+    return null;
+  }
+  if(found.h == null || found.h > 24 || found.m > 59) return null;
+  if(!found.mer){
+    var after = s.slice(found.end - 1);
+    if(found.h > 12 || found.h === 0 || found.h === 24) found.mer = 'abs';
+    else if(/^ ?(a\s*\.?\s*m\b|in the morning)/.test(after)) found.mer = 'am';
+    else if(/^ ?(p\s*\.?\s*m\b|in the (afternoon|evening)|at night|tonight)/.test(after)) found.mer = 'pm';
+    else found.mer = null;
+  }
+  return { h: found.h, m: found.m, mer: found.mer };
+}
+/* Minutes after midnight, rounded to a quarter. A finish is the first time
+   after the start ("10" after a 3:30 start is 10 pm, "12:30" is half past
+   midnight); a start without am or pm is the one nearest the rostered time,
+   or with no roster, 5 to 11 is morning and 12 to 4 is afternoon. */
+function clockMin(p, near, after){
+  var h12 = p.h % 12;
+  if(p.mer === 'abs') return quarter((p.h % 24) * 60 + p.m) % 1440;
+  if(p.mer === 'am') return quarter(h12 * 60 + p.m) % 1440;
+  if(p.mer === 'pm') return quarter((h12 + 12) * 60 + p.m) % 1440;
+  var c = [quarter(h12 * 60 + p.m) % 1440, quarter((h12 + 12) * 60 + p.m) % 1440];
+  if(after != null){
+    var fwd = function(x){ return ((x - after + 1440) % 1440) || 1440; };
+    return fwd(c[0]) <= fwd(c[1]) ? c[0] : c[1];
+  }
+  if(near != null){
+    var dist = function(x){ var d = Math.abs(x - near) % 1440; return Math.min(d, 1440 - d); };
+    return dist(c[0]) <= dist(c[1]) ? c[0] : c[1];
+  }
+  return p.h >= 5 && p.h <= 11 ? c[0] : c[1];
+}
+/* "add today's timesheet", "do my timesheet", "add my hours" and the like */
+function tsIntent(text){
+  var c = clean(text);
+  if(/\bhow many hours\b|\bhours (this week|so far)\b/.test(c)) return 'read';
+  if(!/\b(time ?sheets?|my hours)\b/.test(c)) return null;
+  if(/\b(send|submit|share|email|text)\b/.test(c)) return 'send';
+  if(/\b(how many|how much|total|whats on|what is on|read|tell me)\b/.test(c)) return 'read';
+  return 'add';
+}
+/* the day a sentence names: today / tonight, yesterday / last night, or a
+   weekday (the latest one, on or before today) */
+function tsDayIn(text, today){
+  var c = clean(text);
+  if(/\b(yesterday|yesterdays|last night)\b/.test(c)){ var d = keyDate(today); d.setDate(d.getDate() - 1); return dateKey(d); }
+  for(var i = 0; i < DAY_KEYS.length; i++){
+    var w = DAY_FULL[DAY_KEYS[i]].toLowerCase();
+    if(new RegExp('\\b' + w + 's?\\b').test(c)) return lastDayOn(DAY_KEYS[i], today);
+  }
+  return null;
+}
+
 /* ================= aliases: how the kitchen says the names =================
    From almo-voice-brain.md section 7 (lines marked "check" there are still
    guesses). Products are keyed by their id, which survives renames; prep
@@ -957,6 +1090,111 @@ function createRoom(host){
     return n > limit;
   }
 
+  /* ---------- the timesheet (v3.9.6): "add today's timesheet" ----------
+     His words (11 Oct): "Did you start at your rostered time of 3:30 today?"
+     → "What time did you finish?" → read back → a plain yes (it's pay).
+     Only his own hours; nothing goes to accounts until he submits it from
+     the Timesheet screen himself. */
+  function tsSheet(){ try{ return host.timesheet ? host.timesheet() : null; }catch(e){ return null; } }
+  function tsToday(){ return serviceDate(now()); }
+  function tsWhen(t){ return t.date === tsToday() ? 'today' : 'on ' + DAY_FULL[t.day]; }
+  function tsBegin(text){
+    var sheet = tsSheet();
+    if(!sheet) return cant("I can't reach the timesheet.", 'ts none');
+    var today = tsToday(), date = tsDayIn(text, today);
+    if(!date){
+      if(TS_DAYS.indexOf(dayOf(today)) < 0){
+        return asking('tsDay', "The timesheet's only Wednesday to Sunday. Which day is it for?",
+          TS_DAYS.map(function(d){ return { label: DAY_FULL[d], value: d }; }), {}, 'choice');
+      }
+      date = today;
+    }
+    if(TS_DAYS.indexOf(dayOf(date)) < 0) return cant("The timesheet's only Wednesday to Sunday.", 'ts not on sheet');
+    return tsAskStart({ day: dayOf(date), date: date }, sheet);
+  }
+  function tsAskStart(t, sheet){
+    // the roster only knows this week, so an earlier week has no rostered time
+    t.rostered = mondayOf(t.date) === sheet.week ? (sheet.rostered || {})[t.day] || '' : '';
+    if(t.rostered){
+      return asking('tsStartYes', 'Did you start at your rostered time of ' + timeSay(t.rostered) + ' ' + tsWhen(t) + '?',
+        [{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }], { ts: t }, 'choice');
+    }
+    return asking('tsStart', 'What time did you start ' + tsWhen(t) + '?', [], { ts: t }, 'time');
+  }
+  function tsConfirm(t){
+    var sheet = tsSheet() || { days: {} }, row = (sheet.days || {})[t.day] || {}, h = hoursOf(t.start, t.end);
+    var rb = [dateSay(t.date) + ': ' + timeSay(t.start) + ' to ' + timeSay(t.end) + '.'];
+    rb.push("That's " + hoursSay(h) + (h > 14 ? ', which is a long one.' : h < 1 ? ', which is a short one.' : '.'));
+    if(row.start && (row.start !== t.start || (row.end || '') !== t.end)){
+      rb.push('Was ' + timeSay(row.start) + (row.end ? ' to ' + timeSay(row.end) : '') + (row.date && row.date !== t.date ? ', from ' + dateSay(row.date) : '') + '.');
+    }
+    return confirming('timesheet', rb, 'Save it?', { ts: t }, 'ts confirm ' + t.day);
+  }
+  /* not an answer: a new command starts over; one miss asks again, a second leaves it */
+  async function tsMiss(p, text, req, mode){
+    var maybe = parse(text, (await fresh()).cat);
+    if(maybe.verb && maybe.items.some(function(it){ return it.exact && it.exact.length; })) return run(maybe, req, mode);
+    if(!p.again && clean(text)){
+      var q = p.kind === 'tsDay' ? 'Which day is it for?' : p.kind === 'tsStartYes' ? 'Did you start at ' + timeSay(p.ts.rostered) + '?'
+        : p.kind === 'tsEnd' ? 'What time did you finish?' : 'What time did you start?';
+      return asking(p.kind, "Sorry, I didn't catch that. " + q, p.options, { ts: p.ts, again: true }, p.kind === 'tsDay' || p.kind === 'tsStartYes' ? 'choice' : 'time');
+    }
+    return ans('answer', { say: ['Left it. Timesheet unchanged.'], log: 'ts dropped' });
+  }
+  function tsClock(p, text, t, kind){
+    var c = parseClock(text);
+    if(!c) return null;
+    if(c.now) return toHHMM(quarter((function(d){ return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60; })(new Date(now()))));
+    return toHHMM(kind === 'end' ? clockMin(c, null, toMin(t.start)) : clockMin(c, toMin(t.rostered), null));
+  }
+  async function tsAnswer(p, req, mode){
+    var text = String(req.text || ''), choice = req.reply && req.reply.choice != null ? String(req.reply.choice) : null;
+    var t = Object.assign({}, p.ts || {});
+    pending = null;
+    if(p.kind === 'tsDay'){
+      var d = choice || matchOption(text, p.options);
+      if(!d){ var named = tsDayIn(text, tsToday()); if(named) d = dayOf(named); }
+      if(!d || TS_DAYS.indexOf(d) < 0) return tsMiss(p, text, req, mode);
+      var sheet = tsSheet();
+      if(!sheet) return cant("I can't reach the timesheet.", 'ts none');
+      return tsAskStart({ day: d, date: lastDayOn(d, tsToday()) }, sheet);
+    }
+    // an order said instead ("add 2 kilos of mozz") is an order, not a finish at 2
+    if(choice == null && clean(text)){
+      var other = parse(text, (await fresh()).cat);
+      if(other.verb && other.items.some(function(it){ return it.exact && it.exact.length; })) return run(other, req, mode);
+    }
+    var said = choice == null ? tsClock(p, text, t, p.kind === 'tsEnd' ? 'end' : 'start') : null;
+    if(p.kind === 'tsStartYes'){
+      if(said){ t.start = said; return asking('tsEnd', 'What time did you finish?', [], { ts: t }, 'time'); }
+      var c = clean(text), yn = choice || yesNo(text)
+        || (/^(yes|yeah|yep|yup|yes i did|yeah i did|i did|on time|correct|right|sure)\b/.test(c) ? 'yes' : /^(no|nope|nah|i didnt|not quite)\b/.test(c) ? 'no' : null);
+      if(yn === 'yes'){ t.start = t.rostered; return asking('tsEnd', 'What time did you finish?', [], { ts: t }, 'time'); }
+      if(yn === 'no') return asking('tsStart', 'What time did you start?', [], { ts: t }, 'time');
+      return tsMiss(p, text, req, mode);
+    }
+    if(!said) return tsMiss(p, text, req, mode);
+    if(p.kind === 'tsStart'){ t.start = said; return asking('tsEnd', 'What time did you finish?', [], { ts: t }, 'time'); }
+    t.end = said;
+    return tsConfirm(t);
+  }
+  function tsRead(){
+    var sheet = tsSheet();
+    if(!sheet) return cant("I can't reach the timesheet.", 'ts none');
+    var total = 0, n = 0;
+    TS_DAYS.forEach(function(d){ var r = (sheet.days || {})[d]; if(r && r.start && r.end){ total += hoursOf(r.start, r.end); n++; } });
+    if(!n) return ans('answer', { say: ['The timesheet has no hours on it yet.'], log: 'ts read empty' });
+    return ans('answer', { say: ['The timesheet adds up to ' + hoursSay(total) + ', over ' + n + (n === 1 ? ' day.' : ' days.')], log: 'ts read' });
+  }
+  function tsHandle(kind, text){
+    if(kind === 'read') return tsRead();
+    if(kind === 'send'){
+      if(host.open) host.open({ view: 'timesheet' });
+      return ans('answer', { say: ["I can't send it by voice. It's on screen: check it, then tap Submit Timesheet."], keep: false, log: 'ts send' });
+    }
+    return tsBegin(text);
+  }
+
   /* ---------- the doorway ---------- */
   function hello(){ return { room: 'almo', label: 'Almo', contract: 1, version: host.version || '' }; }
 
@@ -980,11 +1218,12 @@ function createRoom(host){
     (d.prepCatalogue || []).forEach(function(c){ put2(c.name); });
     Object.keys(taught()).forEach(function(k){ put2(k); });
     put2('prep list');
+    ['timesheet', 'time sheet', 'my hours'].forEach(put2);   // v3.9.6
     cues = cues.filter(function(c){ return strong.indexOf(c) < 0; });
-    return { room: 'almo', label: 'Almo', contract: 1, help: 'your prep list and orders', busy: 'Checking the list\u2026',
+    return { room: 'almo', label: 'Almo', contract: 1, help: 'your prep list, orders and timesheet', busy: 'Checking the list\u2026',
       strong: strong, cues: cues,
       verbs: ['add', 'chuck in', 'we need', 'put', 'get', 'order', 'remove', 'take off', 'scrap', 'drop', 'change', 'make it', 'read', 'whats on', 'send', 'tick off', 'clear'],
-      examples: ['add salad dressing to the prep list', 'chuck in 2 kilos of mozzarella', 'whats on the aziz order', 'take the speck off', 'pizza sauce is done', 'send the aziz order'] };
+      examples: ['add salad dressing to the prep list', 'chuck in 2 kilos of mozzarella', 'whats on the aziz order', 'take the speck off', 'pizza sauce is done', 'send the aziz order', 'add todays timesheet'] };
   }
   function reset(){ ctx = null; pending = null; }
 
@@ -1406,6 +1645,11 @@ function createRoom(host){
         var r = await host.addPrep([o.line]);
         if(r && r.ok) said.push(itemSay(o.line.text) + ' is back on the prep list.'); else skipped.push(itemSay(o.line.text));
       }
+      else if(o.k === 'ts'){   // v3.9.6: only if nothing changed that day since
+        var tsh = tsSheet(), tnow = tsh && (tsh.days || {})[o.day];
+        if(!tnow || tnow.start !== o.after.start || tnow.end !== o.after.end || !host.setTimesheetDay(o.day, o.before)){ skipped.push(DAY_FULL[o.day] + "'s timesheet"); continue; }
+        said.push(DAY_FULL[o.day] + "'s timesheet is back how it was.");
+      }
       else if(o.k === 'restore'){
         var s2 = (data.suppliers || []).filter(function(x){ return x.id === o.sid; })[0];
         if(!s2){ skipped.push(o.sname); continue; }
@@ -1628,6 +1872,7 @@ function createRoom(host){
     var choice = req.reply && req.reply.choice != null ? String(req.reply.choice) : null;
     var text = String(req.text || '');
     var cmd = p.cmd;
+    if(/^ts/.test(p.kind)) return await tsAnswer(p, req, mode);   // v3.9.6
     if(p.kind === 'howmany' || p.kind === 'unit'){
       var ns = numbersIn(choice != null ? choice : text);
       if(!ns.length){
@@ -1689,6 +1934,8 @@ function createRoom(host){
       if(req.reply && req.reply.choice != null && !req.text){ pending = null; return cant('That one expired. Ask me again.', 'ask expired'); }
       pending = null;
       if(isClose(req.text || '')) return notmine('close');
+      var tsk = tsIntent(req.text || '');   // v3.9.6: his timesheet
+      if(tsk) return tsHandle(tsk, req.text || '');
       /* v3.9.3: long talk while it listens for a follow-up, with no verb and
          few names or amounts in it, is chatter (his log: talking to Claude
          about the app made it ask "Which garlic?"). Ignored, as RK Trips
@@ -1754,6 +2001,21 @@ function createRoom(host){
         if(!r || !r.ok) return ans('error', { say: ['No connection. Nothing was cleared.'], log: 'clear done failed' });
         var n = typeof r.cleared === 'number' ? r.cleared : c.ids.length;
         return ans('done', { say: ['Cleared ' + n + ' finished ' + (n === 1 ? 'line' : 'lines') + '.'], action: { id: 'a-cd-' + now().toString(36), label: 'Cleared ' + n + ' finished prep lines', undo: false }, log: 'clear done ok' });
+      }
+      if(c.kind === 'timesheet'){   // v3.9.6
+        var t = c.ts, sh = tsSheet();
+        if(!sh || !host.setTimesheetDay) return cant("I can't reach the timesheet.", 'ts none');
+        var was = (sh.days || {})[t.day] || {};
+        var before = { start: was.start || '', end: was.end || '', date: was.date || '' };
+        if(!host.setTimesheetDay(t.day, { start: t.start, end: t.end, date: t.date })){
+          return ans('error', { say: ["It didn't save. Check the Timesheet screen."], log: 'ts save failed' });
+        }
+        var tlab = 'Saved ' + DAY_FULL[t.day] + "'s timesheet";
+        var tid = remember(tlab, [{ k: 'ts', day: t.day, before: before, after: { start: t.start, end: t.end } }]);
+        var th = hoursOf(t.start, t.end);
+        return ans('done', { say: ['Saved. ' + DAY_FULL[t.day] + ', ' + hoursSay(th) + '.'], action: { id: tid, label: tlab, undo: true },
+          show: { title: 'Timesheet', lines: [{ text: DAY_FULL[t.day] + ' · ' + timeSay(t.start) + ' – ' + timeSay(t.end) + ' · ' + fmt(th) + ' h', tone: 'ok' }] },
+          keep: false, log: 'ts saved ' + t.day });
       }
       if(c.kind === 'again'){
         var cmd = c.cmd;
@@ -1846,7 +2108,8 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.9.5',
+  version: 'v3.9.6',
+  parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
   parse: parse, catalogue: catalogue, findItems: findItems, isClose: isClose, yesNo: yesNo,
   amount: amount, itemSay: itemSay, supSay: supSay, sound: sound,

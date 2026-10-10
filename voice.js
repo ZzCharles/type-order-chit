@@ -84,12 +84,35 @@ var host = {
     return !!l && l.done === done;
   },
   clearDonePrep: async function(ids){ return clearDonePrepLines(ids); },
+  /* v3.9.6: his timesheet, and this week's rostered start times, read fresh
+     from storage first (another copy of The Pass may have changed them) */
+  timesheet: function(){
+    if(typeof refreshTimesheetFromStorage === 'function') refreshTimesheetFromStorage();
+    if(typeof refreshRosterFromStorage === 'function') refreshRosterFromStorage();
+    var rid = rabindraId(), days = {}, rostered = {};
+    ROSTER_DAY_KEYS.forEach(function(d){
+      var e = (state.timesheet && state.timesheet[d]) || {};
+      days[d] = { start: e.start || '', end: e.end || '', date: e.date || '' };
+      var r = rid && state.roster && state.roster[d] && state.roster[d][rid];
+      if(r && r.start) rostered[d] = r.start;
+    });
+    return { days: days, rostered: rostered, week: weekStartKey() };
+  },
+  setTimesheetDay: function(day, v){
+    if(ROSTER_DAY_KEYS.indexOf(day) < 0) return false;
+    if(typeof refreshTimesheetFromStorage === 'function') refreshTimesheetFromStorage();
+    setTsDay(day, { start: v.start || '', end: v.end || '', date: v.date || '' });
+    bgRender();
+    var e = state.timesheet[day] || {};
+    return e.start === (v.start || '') && e.end === (v.end || '');
+  },
   open: function(v){
     if(!v || isEditing()) return;
     if(v.view === 'supplier') goto({ name: 'supplier', id: v.id });
     else if(v.view === 'ticket') goto({ name: 'ticket', id: v.id });
     else if(v.view === 'prep') goto({ name: 'prep' });
     else if(v.view === 'list') goto({ name: 'list' });
+    else if(v.view === 'timesheet') goto({ name: 'timesheet' });
   },
   get: readJSON,
   set: writeJSON,
@@ -286,7 +309,7 @@ function present(a, heardText, byVoice){
   waitConfirm = a.status === 'confirm' ? a.confirm : null;
   confirmTries = 0;
   var say = (a.say || []).slice();
-  if(a.status === 'notmine') say = ['Sorry, I can only help with orders and the prep list.'];
+  if(a.status === 'notmine') say = ['Sorry, I can only help with orders, the prep list and your timesheet.'];
   if(a.status === 'confirm') say = a.confirm.readBack.concat([a.confirm.question]);
   cur = { heard: heardText, say: say, show: a.show || null, action: a.action && a.action.undo ? a.action : null,
           ask: waitAsk, confirm: waitConfirm, status: a.status };
