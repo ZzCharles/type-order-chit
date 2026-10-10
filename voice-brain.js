@@ -480,7 +480,7 @@ function clockMin(p, near, after){
    v3.9.6 took as add), only reads: when unsure, read, never write. */
 function tsIntent(text){
   var c = clean(text).replace(/^(hey pluto|ok pluto|pluto) /, '');
-  if(!/\b(time ?sheets?|my hours|how many hours|hours (this week|last week|so far))\b/.test(c)) return null;
+  if(!/\b(time ?sheets?|my hours|how many hours|hours (this weeks?|last weeks?|so far))\b/.test(c)) return null;
   if(/\b(send|submit|share|email)\b/.test(c)) return 'send';
   if(/^(whats|what|how|hows|show|tell|read|check|is|are|was|were|did|do i|have i|any|when|which|whens|give me|can you (tell|read|check|show)|could you (tell|read|check|show))\b/.test(c)) return 'read';
   if(TS_EDIT.test(c) || (TS_SE.test(c) && parseClock(text))) return 'edit';   // v3.9.10
@@ -526,6 +526,30 @@ function tsDayIn(text, today){
     if(new RegExp('\\b' + w + 's?\\b').test(c)) return lastDayOn(DAY_KEYS[i], today);
   }
   return null;
+}
+
+/* ================= the roster, read only (v3.9.11) =================
+   His questions (11 Oct): "what was last week's roster?" → "Which day, or
+   the whole week?" → "Wednesday: Suraj on pasta at 4 pm, …"; "how many
+   worked on Wednesday?"; "who was on pasta last week?"; this week's and next
+   week's too. It only reads: nothing here changes the roster. */
+function addDays(k, n){ var d = keyDate(k); d.setDate(d.getDate() + n); return dateKey(d); }
+var RO_OFFSET = { mon: 0, tue: 1, wed: 2, thu: 3, fri: 4, sat: 5, sun: 6 };
+var RO_STATION_SAY = { KH: 'kitchen hand' };
+/* names: the staff names, lower case, so "is Anil on" and "when is Nathan
+   working" count; an item ("is mozz on the order") doesn't */
+function rosterIntent(text, names){
+  var c = clean(text).replace(/^(hey pluto|ok pluto|pluto) /, '');
+  if(/\brosters?\b|\brostered\b/.test(c)) return true;
+  if(/\bwho(s| is| was| were| are| will be)? (on|working|in|rostered)\b|\bwho (worked|works|is working|was working)\b/.test(c)) return true;
+  if(/\bhow many (people |staff |of us |chefs |cooks )?(worked|working|are on|were on|on|rostered|in)\b/.test(c)) return true;
+  if(/\b(am i|do i) (on|working|rostered|work)\b|\b(when|what days) (am i|do i)\b/.test(c)) return true;
+  var who = (names || []).filter(function(n){ return n && new RegExp('\\b' + n + '\\b').test(c); });
+  for(var i = 0; i < who.length; i++){
+    var n = who[i];
+    if(new RegExp('\\b(is|was|does|did) ' + n + ' (on|working|rostered|work)\\b|\\b(when|what days) (is|was|does|did) ' + n + '\\b|\\b' + n + 's (shifts?|days|roster)\\b').test(c)) return true;
+  }
+  return false;
 }
 
 /* ================= aliases: how the kitchen says the names =================
@@ -1351,7 +1375,7 @@ function createRoom(host){
   }
   function tsReadBegin(text){
     var c = clean(text);
-    if(/\blast week\b/.test(c)) return tsReadWeek(true);
+    if(/\blast weeks?\b/.test(c)) return tsReadWeek(true);   // "last week's" is "last weeks" once cleaned
     var date = tsDayIn(text, tsToday());
     if(date) return tsReadDay(date);
     if(/\b(week|weeks|weekly|total|so far|how many hours|all)\b/.test(c)) return tsReadWeek(false);
@@ -1367,6 +1391,124 @@ function createRoom(host){
       return ans('answer', { say: ["I can't send it by voice. It's on screen: check it, then tap Submit Timesheet."], keep: false, log: 'ts send' });
     }
     return tsBegin(text);
+  }
+
+  /* ---------- the roster, read only (v3.9.11) ---------- */
+  function roData(){ try{ return host.roster ? host.roster() : null; }catch(e){ return null; } }
+  function roNames(d){ return Object.keys((d && d.names) || {}).map(function(k){ return clean(d.names[k]); }).filter(Boolean); }
+  /* the roster for the week that starts on that Monday: last, this or next */
+  function roWeek(d, mon){
+    if(mon === d.week) return { roster: d.thisWeek || {}, names: d.names, label: 'This week' };
+    if(mon === addDays(d.week, 7)) return { roster: d.nextWeek || {}, names: d.names, label: 'Next week' };
+    if(mon === addDays(d.week, -7)){
+      if(d.lastWeek && d.lastWeek.week === mon) return { roster: d.lastWeek.roster || {}, names: Object.assign({}, d.names, d.lastWeek.names || {}), label: 'Last week' };
+      return { missing: true, label: 'Last week' };
+    }
+    return { missing: true, label: 'That week', far: true };
+  }
+  function roWho(d, w, id){ return id === d.me ? 'you' : (w.names[id] || 'someone'); }
+  function roStation(s){ return s ? (RO_STATION_SAY[s] || String(s).toLowerCase()) : ''; }
+  function roEntries(d, w, day){
+    var e = (w.roster || {})[day] || {}, order = d.stations || [];
+    return Object.keys(e).filter(function(id){ return e[id] && e[id].start; }).map(function(id){ return { id: id, s: e[id] }; }).sort(function(a, b){
+      var ra = order.indexOf(a.s.station), rb = order.indexOf(b.s.station);
+      ra = ra < 0 ? 99 : ra; rb = rb < 0 ? 99 : rb;
+      return ra - rb || String(a.s.start).localeCompare(String(b.s.start));
+    });
+  }
+  function roTimes(x){ return 'at ' + timeSay(x.s.start) + (x.s.end ? ' to ' + timeSay(x.s.end) : ''); }
+  function roShift(x){ return (x.s.station ? 'on ' + roStation(x.s.station) + ' ' : '') + roTimes(x); }       // "on pasta at 4 pm"
+  function roShiftT(x){ return roTimes(x) + (x.s.station ? ' on ' + roStation(x.s.station) : ''); }         // "at 4 pm on pasta"
+  function roMissing(w, d){
+    if(w.far) return cant('I only know last week, this week and next week.', 'roster far');
+    var since = d.lastWeek && d.lastWeek.week ? ' The last one I kept is the week of ' + dateSay(d.lastWeek.week).replace(/^\w+ /, '') + '.' : ' The Pass keeps it from the 12 October changeover on.';
+    return ans('answer', { say: ["I don't have last week's roster." + since], log: 'roster no last week' });
+  }
+  /* which day a question means, and which week: "last week", "next week",
+     "tomorrow", a day name. A day already gone this week, asked about in the
+     present tense ("who's on Wednesday" on a Sunday), means the coming one. */
+  function roWhen(text, d){
+    var c = clean(text), today = tsToday(), date = null, mon = d.week;
+    var past = /\b(was|were|worked|did)\b/.test(c);
+    if(/\blast weeks?\b/.test(c)) mon = addDays(d.week, -7);   // "last week's" is "last weeks" once cleaned
+    else if(/\bnext weeks?\b/.test(c)) mon = addDays(d.week, 7);
+    if(/\btomorrow(s)?\b/.test(c)) date = addDays(today, 1);
+    else if(/\b(today|todays|tonight|tonights)\b/.test(c)) date = today;
+    else if(/\b(yesterday|yesterdays|last night)\b/.test(c)) date = addDays(today, -1);
+    else {
+      for(var i = 0; i < DAY_KEYS.length; i++){
+        var dk = DAY_KEYS[i];
+        if(!new RegExp('\\b' + DAY_FULL[dk].toLowerCase() + 's?\\b').test(c)) continue;
+        if(new RegExp('\\blast ' + DAY_FULL[dk].toLowerCase()).test(c)) mon = addDays(d.week, -7);
+        else if(new RegExp('\\bnext ' + DAY_FULL[dk].toLowerCase()).test(c)) mon = addDays(d.week, 7);
+        date = addDays(mon, RO_OFFSET[dk]);
+        if(!/\b(last|next|this) weeks?\b|\b(last|next) \w+day\b/.test(c) && date < today && !past) date = addDays(date, 7);
+        break;
+      }
+    }
+    if(date) mon = mondayOf(date);
+    return { date: date, mon: mon };
+  }
+  function rosterAnswer(text, forceWeek){
+    var d = roData();
+    if(!d) return cant("I can't reach the roster.", 'roster none');
+    var c = clean(text), when = roWhen(text, d), w = roWeek(d, when.mon);
+    if(w.missing) return roMissing(w, d);
+    // who it's about: a station, a person (or "I"), or how many
+    var station = (d.stations || []).filter(function(s){ return new RegExp('\\b' + clean(roStation(s)) + '\\b|\\b' + clean(s) + '\\b').test(c); })[0] || null;
+    var me = /\b(am i|do i|my|me|i work|i on)\b/.test(c) && !/\bwho\b/.test(c);
+    var person = me ? d.me : Object.keys(d.names || {}).filter(function(id){ var n = clean(d.names[id]); return n && new RegExp('\\b' + n + 's?\\b').test(c); })[0] || null;
+    var count = /\bhow many\b/.test(c);
+    var days = when.date ? [dayOf(when.date)] : TS_DAYS.slice();
+    if(when.date && TS_DAYS.indexOf(days[0]) < 0) return ans('answer', { say: ["The kitchen's closed on " + DAY_FULL[days[0]] + 's.'], log: 'roster closed day' });
+    var dateOf = function(day){ return addDays(when.mon, RO_OFFSET[day]); };
+    var wk = w.label.toLowerCase();
+    if(!when.date && !station && !person && !count && !forceWeek && !/\b(week|whole|all)\b/.test(c)){
+      // last or next week: say the day; this week: today and tomorrow are a tap away
+      return asking('roDay', 'Which day, or the whole week?', [{ label: 'Whole week', value: 'week' }].concat(when.mon === d.week
+        ? [{ label: 'Today', value: 'today' }, { label: 'Tomorrow', value: 'tomorrow' }] : []), { text: text }, 'choice');
+    }
+    if(person){
+      var pn = person === d.me ? 'You' : (w.names[person] || 'They');
+      var shifts = days.map(function(day){ var x = roEntries(d, w, day).filter(function(y){ return y.id === person; })[0]; return x ? { day: day, x: x } : null; }).filter(Boolean);
+      var where = when.date ? 'on ' + dateSay(when.date) : wk;
+      if(!shifts.length) return ans('answer', { say: [(person === d.me ? "You're not" : pn + " isn't") + ' on the roster ' + where + '.'], log: 'roster person none' });
+      return ans('answer', { say: [pn + ' ' + where + ': ' + joinAnd(shifts.map(function(s){ return (when.date ? '' : DAY_FULL[s.day] + ' ') + roShiftT(s.x); })) + '.'], log: 'roster person ' + shifts.length });
+    }
+    if(station){
+      var on = days.map(function(day){ return { day: day, xs: roEntries(d, w, day).filter(function(y){ return y.s.station === station; }) }; }).filter(function(o){ return o.xs.length; });
+      var sn = cap(roStation(station));
+      if(!on.length) return ans('answer', { say: ['Nobody on ' + roStation(station) + ' ' + (when.date ? 'on ' + dateSay(when.date) : wk) + '.'], log: 'roster station none' });
+      if(when.date) return ans('answer', { say: [sn + ' on ' + dateSay(when.date) + ': ' + joinAnd(on[0].xs.map(function(y){ return roWho(d, w, y.id) + ' at ' + timeSay(y.s.start); })) + '.'], log: 'roster station day' });
+      return ans('answer', { say: [sn + ' ' + wk + ': ' + joinAnd(on.map(function(o){ return DAY_FULL[o.day] + ' ' + joinAnd(o.xs.map(function(y){ return roWho(d, w, y.id); })); })) + '.'], log: 'roster station week' });
+    }
+    if(count){
+      if(when.date){
+        var xs = roEntries(d, w, days[0]);
+        if(!xs.length) return ans('answer', { say: ['Nobody on ' + dateSay(when.date) + '.'], log: 'roster count 0' });
+        return ans('answer', { say: [xs.length + (xs.length === 1 ? ' person' : ' people') + ' on ' + dateSay(when.date) + ': ' + joinAnd(xs.map(function(y){ return roWho(d, w, y.id); })) + '.'], log: 'roster count ' + xs.length });
+      }
+      return ans('answer', { say: [w.label + ': ' + days.map(function(day){ return DAY_FULL[day] + ' ' + roEntries(d, w, day).length; }).join(', ') + '.'], log: 'roster count week' });
+    }
+    if(when.date){
+      var es = roEntries(d, w, days[0]);
+      if(!es.length) return ans('answer', { say: ["Nobody's rostered on " + dateSay(when.date) + '.'], log: 'roster day empty' });
+      return ans('answer', { say: [dateSay(when.date) + ': ' + joinAnd(es.map(function(y){ return roWho(d, w, y.id) + ' ' + roShift(y); })) + '.'],
+        show: { title: 'Roster · ' + dateSay(when.date), lines: es.map(function(y){ return { text: [cap(roWho(d, w, y.id)), y.s.station || '', timeSay(y.s.start) + (y.s.end ? ' – ' + timeSay(y.s.end) : '')].filter(Boolean).join(' · '), tone: 'ok' }; }) }, log: 'roster day ' + es.length });
+    }
+    // the whole week: names spoken, times on the card
+    var lines = days.map(function(day){ var es2 = roEntries(d, w, day); return DAY_FULL[day] + ': ' + (es2.length ? joinAnd(es2.map(function(y){ return roWho(d, w, y.id); })) : 'nobody') + '.'; });
+    return ans('answer', { say: [w.label + '. ' + lines.join(' ')],
+      show: { title: w.label + "'s roster", lines: days.map(function(day){ var es3 = roEntries(d, w, day); return { text: DAY_FULL[day].slice(0, 3) + ' · ' + (es3.length ? es3.map(function(y){ return cap(roWho(d, w, y.id)) + ' ' + timeSay(y.s.start); }).join(', ') : '—'), tone: 'ok' }; }) },
+      log: 'roster week' });
+  }
+  function rosterReply(p, req, mode){
+    var text = String(req.text || ''), choice = req.reply && req.reply.choice != null ? String(req.reply.choice) : null, c = clean(text);
+    pending = null;
+    if(choice === 'week' || (!choice && /\b(week|whole|all|everyone|everything)\b/.test(c))) return rosterAnswer(p.text + ' ' + (/\blast\b/.test(c) ? 'last week' : ''), true);
+    if(choice === 'today' || choice === 'tomorrow') return rosterAnswer(p.text + ' ' + choice);
+    if(/\b(today|tonight|tomorrow|yesterday|monday|tuesday|wednesday|thursday|friday|saturday|sunday)s?\b/.test(c)) return rosterAnswer(p.text + ' ' + text);
+    return ans('answer', { say: ['Left it.'], log: 'roster ask dropped' });
   }
 
   /* ---------- the doorway ---------- */
@@ -1393,6 +1535,7 @@ function createRoom(host){
     Object.keys(taught()).forEach(function(k){ put2(k); });
     put2('prep list');
     ['timesheet', 'time sheet', 'my hours'].forEach(put2);   // v3.9.6
+    ['roster', 'rostered'].forEach(put2);                    // v3.9.11
     cues = cues.filter(function(c){ return strong.indexOf(c) < 0; });
     return { room: 'almo', label: 'Almo', contract: 1, help: 'your prep list, orders and timesheet', busy: 'Checking the list\u2026',
       strong: strong, cues: cues,
@@ -2047,6 +2190,7 @@ function createRoom(host){
     var text = String(req.text || '');
     var cmd = p.cmd;
     if(/^ts/.test(p.kind)) return await tsAnswer(p, req, mode);   // v3.9.6
+    if(p.kind === 'roDay') return rosterReply(p, req, mode);      // v3.9.11
     if(p.kind === 'howmany' || p.kind === 'unit'){
       var ns = numbersIn(choice != null ? choice : text);
       if(!ns.length){
@@ -2114,6 +2258,7 @@ function createRoom(host){
         if(tsk && parse(req.text || '', (await fresh()).cat).items.some(function(it){ return it.exact && it.exact.length; })) tsk = null;
       }
       if(tsk) return tsHandle(tsk, req.text || '');
+      if(rosterIntent(req.text || '', roNames(roData()))) return rosterAnswer(req.text || '');   // v3.9.11: read only
       /* v3.9.3: long talk while it listens for a follow-up, with no verb and
          few names or amounts in it, is chatter (his log: talking to Claude
          about the app made it ask "Which garlic?"). Ignored, as RK Trips
@@ -2291,8 +2436,8 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.9.10',
-  parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent,
+  version: 'v3.9.11',
+  parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
   parse: parse, catalogue: catalogue, findItems: findItems, isClose: isClose, yesNo: yesNo,
   amount: amount, itemSay: itemSay, supSay: supSay, sound: sound,

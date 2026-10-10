@@ -99,6 +99,16 @@ var host = {
     });
     return { days: days, rostered: rostered, week: weekStartKey() };
   },
+  /* v3.9.11: the roster, to read: this week, next week, and last week as
+     kept at the Monday changeover (v3.9.9) */
+  roster: function(){
+    if(typeof refreshRosterFromStorage === 'function') refreshRosterFromStorage();
+    var names = {};
+    (state.staff || []).forEach(function(s){ names[s.id] = s.name; });
+    var prev = readJSON('order-chit-roster-prev');
+    return { week: weekStartKey(), me: rabindraId(), names: names, stations: STATIONS.slice(),
+             thisWeek: state.roster || {}, nextWeek: state.rosterNext || {}, lastWeek: prev && prev.week ? prev : null };
+  },
   setTimesheetDay: function(day, v){
     if(ROSTER_DAY_KEYS.indexOf(day) < 0) return false;
     if(typeof refreshTimesheetFromStorage === 'function') refreshTimesheetFromStorage();
@@ -339,7 +349,7 @@ function present(a, heardText, byVoice){
   waitConfirm = a.status === 'confirm' ? a.confirm : null;
   confirmTries = 0;
   var say = (a.say || []).slice();
-  if(a.status === 'notmine') say = ['Sorry, I can only help with orders, the prep list and your timesheet.'];
+  if(a.status === 'notmine') say = ['Sorry, I can only help with orders, the prep list, the roster and your timesheet.'];
   if(a.status === 'confirm') say = a.confirm.readBack.concat([a.confirm.question]);
   cur = { heard: heardText, say: say, show: a.show || null, action: a.action && a.action.undo ? a.action : null,
           ask: waitAsk, confirm: waitConfirm, status: a.status };
