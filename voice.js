@@ -40,7 +40,8 @@ function writeJSON(k, v){ try{ localStorage.setItem(k, JSON.stringify(v)); }catc
 /* the Voice screen's settings: on unless switched off, 5 s follow-up */
 function settings(){
   var s = readJSON(K_SET) || {};
-  return { on: s.on !== false, follow: FOLLOW_CHOICES.indexOf(s.follow) > -1 ? s.follow : 5 };
+  return { on: s.on !== false, follow: FOLLOW_CHOICES.indexOf(s.follow) > -1 ? s.follow : 5,
+           voice: typeof s.voice === 'string' ? s.voice : '' };   // v3.9.8: the voice he picked ('' = automatic)
 }
 function saveSettings(ch){ writeJSON(K_SET, Object.assign(settings(), ch)); }
 /* Another tab may have changed the orders: storage is the truth (contract 8).
@@ -126,10 +127,39 @@ var room = AlmoVoice.createRoom(host);
    behind them without touching the rest. */
 var voices = [], ttsJob = 0, ttsBusy = false, srNow = null;
 function loadVoices(){ try{ voices = speechSynthesis.getVoices() || []; }catch(e){ voices = []; } }
-if(hasTTS){ loadVoices(); try{ speechSynthesis.addEventListener('voiceschanged', loadVoices); }catch(e){} }
+if(hasTTS){
+  loadVoices();
+  // the list can arrive late: the Voice screen redraws when it does
+  try{ speechSynthesis.addEventListener('voiceschanged', function(){ loadVoices(); if(state.view && state.view.name === 'voice') bgRender(); }); }catch(e){}
+}
+/* v3.9.8 (owner, 11 Oct: "too robotic, keep a female voice until Pluto"):
+   he picks by ear on the Voice screen. Chrome on Android can only offer the
+   phone's own text-to-speech voices, often one per language with no gender
+   given, so the phone's TTS settings matter most. */
+function voiceLang(v){ return String(v.lang || '').replace('_', '-').toLowerCase(); }
+var LANG_ORDER = ['en-au', 'en-gb', 'en-us', 'en-nz', 'en-ie', 'en-in'];
+function englishVoices(){
+  return voices.filter(function(v){ return /^en(-|$)/.test(voiceLang(v)); }).sort(function(a, b){
+    var ra = LANG_ORDER.indexOf(voiceLang(a)), rb = LANG_ORDER.indexOf(voiceLang(b));
+    ra = ra < 0 ? 99 : ra; rb = rb < 0 ? 99 : rb;
+    return ra - rb || String(a.name).localeCompare(String(b.name));
+  });
+}
+function voiceById(id){ return id ? voices.filter(function(v){ return v.voiceURI === id; })[0] || voices.filter(function(v){ return v.name === id; })[0] || null : null; }
 function pickVoice(){
-  var by = function(l){ return voices.filter(function(v){ return String(v.lang || '').replace('_', '-').toLowerCase() === l; })[0]; };
+  var mine = voiceById(settings().voice);
+  if(mine) return mine;
+  var by = function(l){ return voices.filter(function(v){ return voiceLang(v) === l; })[0]; };
   return by('en-au') || by('en-gb') || null;
+}
+var SAMPLE = 'Added 2 kilos of mozzarella. Now 4 kilos on the Aziz order.';
+function hearVoice(id){
+  var v = voiceById(id);
+  stopSpeaking();
+  if(!hasTTS || !v) return;
+  var u = new SpeechSynthesisUtterance(toSpeech(SAMPLE));
+  u.voice = v; u.lang = v.lang;
+  try{ speechSynthesis.speak(u); }catch(e){}
 }
 /* how the words should sound, not how they look */
 function toSpeech(t){
@@ -517,7 +547,7 @@ function paint(){
 var STATUS_WORDS = { done: 'Done', answer: 'Answered', ask: 'Asked', confirm: 'Asked for a yes', cant: 'Couldn’t', notmine: 'Not for The Pass',
   close: 'Closed', error: 'Went wrong', cancelled: 'Cancelled', 'asked again': 'Asked again' };
 var LOG_FEW = 5;
-var vsAll = false, vsClearArm = false, vsMsg = '', vsGood = '';
+var vsAll = false, vsClearArm = false, vsMsg = '', vsGood = '', vsVoicesAll = false;
 var draft = { word: '', find: '', pick: '', note: '' }, teachPushed = false, teachEar = 0, teachHearing = false, choiceCache = null;
 var lastView = '';
 
@@ -542,6 +572,22 @@ function voicePage(){
       + '<div class="vs-sub">Keep listening after an answer</div><div class="vs-chips">'
       + FOLLOW_CHOICES.map(function(n){ return '<button class="filter-chip' + (s.follow === n ? ' on' : '') + '" data-vs="follow" data-n="' + n + '">' + (n ? n + ' s' : 'Off') + '</button>'; }).join('')
       + '</div>' + vsNote('So you can say the next thing without tapping the mic.');
+    // v3.9.8: the voice, picked by ear
+    var vl = englishVoices(), cur = pickVoice();
+    h += '<div class="vs-sub">Voice <span class="vs-where">(tap &#9654; to hear it)</span></div>';
+    if(!hasTTS || !vl.length) h += vsNote('This browser has no voices to choose from.');
+    else {
+      var shown = vsVoicesAll || vl.length <= 4 ? vl : vl.slice(0, 4);
+      if(cur && shown.indexOf(cur) < 0) shown = [cur].concat(shown.slice(0, 3));
+      h += '<div class="vs-list">' + shown.map(function(v){
+          var id = v.voiceURI || v.name, on = cur && (cur.voiceURI || cur.name) === id;   // some phones give no voiceURI
+          return '<div class="vs-word"><button class="vt-item' + (on ? ' on' : '') + '" style="border:none;padding:4px 2px;" data-vs="voice" data-id="' + esc(id) + '">'
+            + '<span class="vt-dot"></span><span class="vt-name">' + esc(v.name) + (v.localService === false ? ' <span class="vs-where">· online</span>' : '') + '</span></button>'
+            + '<button class="vc-btn" data-vs="hear" data-id="' + esc(id) + '" aria-label="Hear ' + esc(v.name) + '">&#9654;</button></div>';
+        }).join('') + '</div>';
+      if(vl.length > 4) h += '<button class="vs-more" data-vs="voicesall">' + (vsVoicesAll ? 'Show fewer' : 'Show all ' + vl.length) + '</button>';
+      h += vsNote('These are the voices this phone has. For more natural ones: phone Settings → Text-to-speech → choose Google’s engine, then pick a voice there.');
+    }
   }
   h += '</div>';
   // the words it has learned
@@ -684,6 +730,9 @@ function onPageClick(e){
   var v = b.getAttribute('data-vs');
   if(v !== 'clear') vsClearArm = false;
   if(v === 'follow'){ saveSettings({ follow: +b.getAttribute('data-n') }); render(); }
+  else if(v === 'voice'){ saveSettings({ voice: b.getAttribute('data-id') }); render(); hearVoice(b.getAttribute('data-id')); }   // v3.9.8
+  else if(v === 'hear') hearVoice(b.getAttribute('data-id'));
+  else if(v === 'voicesall'){ vsVoicesAll = !vsVoicesAll; render(); }
   else if(v === 'teach') startTeach('', '');
   else if(v === 'teachlog'){
     var at = +b.getAttribute('data-at'), x = logList().filter(function(y){ return y.at === at; })[0];
