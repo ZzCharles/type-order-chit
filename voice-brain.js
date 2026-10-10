@@ -536,6 +536,7 @@ function tsDayIn(text, today){
 function addDays(k, n){ var d = keyDate(k); d.setDate(d.getDate() + n); return dateKey(d); }
 var RO_OFFSET = { mon: 0, tue: 1, wed: 2, thu: 3, fri: 4, sat: 5, sun: 6 };
 var RO_STATION_SAY = { KH: 'kitchen hand' };
+var RO_PIZZA = ['Oven', 'Dough', 'Toppings', 'Finisher'];   // v3.9.12: the pizza section (owner)
 /* names: the staff names, lower case, so "is Anil on" and "when is Nathan
    working" count; an item ("is mozz on the order") doesn't */
 function rosterIntent(text, names){
@@ -1456,6 +1457,11 @@ function createRoom(host){
     if(w.missing) return roMissing(w, d);
     // who it's about: a station, a person (or "I"), or how many
     var station = (d.stations || []).filter(function(s){ return new RegExp('\\b' + clean(roStation(s)) + '\\b|\\b' + clean(s) + '\\b').test(c); })[0] || null;
+    /* v3.9.12 (owner, 11 Oct): "pizza" is a section: Oven, Dough, Toppings and
+       Finisher. Pasta is its own section; KH isn't pizza. "Who's on pizza?"
+       says each person with their station. */
+    var pizza = /\bpizzas?\b/.test(c) ? RO_PIZZA.filter(function(s){ return (d.stations || []).indexOf(s) > -1; }) : [];
+    var section = pizza.length ? { name: 'pizza', set: pizza, group: true } : station ? { name: roStation(station), set: [station], group: false } : null;
     var me = /\b(am i|do i|my|me|i work|i on)\b/.test(c) && !/\bwho\b/.test(c);
     var person = me ? d.me : Object.keys(d.names || {}).filter(function(id){ var n = clean(d.names[id]); return n && new RegExp('\\b' + n + 's?\\b').test(c); })[0] || null;
     var count = /\bhow many\b/.test(c);
@@ -1463,7 +1469,7 @@ function createRoom(host){
     if(when.date && TS_DAYS.indexOf(days[0]) < 0) return ans('answer', { say: ["The kitchen's closed on " + DAY_FULL[days[0]] + 's.'], log: 'roster closed day' });
     var dateOf = function(day){ return addDays(when.mon, RO_OFFSET[day]); };
     var wk = w.label.toLowerCase();
-    if(!when.date && !station && !person && !count && !forceWeek && !/\b(week|whole|all)\b/.test(c)){
+    if(!when.date && !section && !person && !count && !forceWeek && !/\b(week|whole|all)\b/.test(c)){
       // last or next week: say the day; this week: today and tomorrow are a tap away
       return asking('roDay', 'Which day, or the whole week?', [{ label: 'Whole week', value: 'week' }].concat(when.mon === d.week
         ? [{ label: 'Today', value: 'today' }, { label: 'Tomorrow', value: 'tomorrow' }] : []), { text: text }, 'choice');
@@ -1475,11 +1481,14 @@ function createRoom(host){
       if(!shifts.length) return ans('answer', { say: [(person === d.me ? "You're not" : pn + " isn't") + ' on the roster ' + where + '.'], log: 'roster person none' });
       return ans('answer', { say: [pn + ' ' + where + ': ' + joinAnd(shifts.map(function(s){ return (when.date ? '' : DAY_FULL[s.day] + ' ') + roShiftT(s.x); })) + '.'], log: 'roster person ' + shifts.length });
     }
-    if(station){
-      var on = days.map(function(day){ return { day: day, xs: roEntries(d, w, day).filter(function(y){ return y.s.station === station; }) }; }).filter(function(o){ return o.xs.length; });
-      var sn = cap(roStation(station));
-      if(!on.length) return ans('answer', { say: ['Nobody on ' + roStation(station) + ' ' + (when.date ? 'on ' + dateSay(when.date) : wk) + '.'], log: 'roster station none' });
-      if(when.date) return ans('answer', { say: [sn + ' on ' + dateSay(when.date) + ': ' + joinAnd(on[0].xs.map(function(y){ return roWho(d, w, y.id) + ' at ' + timeSay(y.s.start); })) + '.'], log: 'roster station day' });
+    if(section){
+      var on = days.map(function(day){ return { day: day, xs: roEntries(d, w, day).filter(function(y){ return section.set.indexOf(y.s.station) > -1; }) }; }).filter(function(o){ return o.xs.length; });
+      var sn = cap(section.name);
+      // a section of several stations says each person's station too
+      var who2 = function(y, time){ return roWho(d, w, y.id) + (section.group ? ' on ' + roStation(y.s.station) : '') + (time ? ' at ' + timeSay(y.s.start) : ''); };
+      if(!on.length) return ans('answer', { say: ['Nobody on ' + section.name + ' ' + (when.date ? 'on ' + dateSay(when.date) : wk) + '.'], log: 'roster station none' });
+      if(when.date) return ans('answer', { say: [sn + ' on ' + dateSay(when.date) + ': ' + joinAnd(on[0].xs.map(function(y){ return who2(y, true); })) + '.'], log: 'roster station day' });
+      if(section.group) return ans('answer', { say: [sn + ' ' + wk + '. ' + on.map(function(o){ return DAY_FULL[o.day] + ': ' + joinAnd(o.xs.map(function(y){ return who2(y, false); })) + '.'; }).join(' ')], log: 'roster section week' });
       return ans('answer', { say: [sn + ' ' + wk + ': ' + joinAnd(on.map(function(o){ return DAY_FULL[o.day] + ' ' + joinAnd(o.xs.map(function(y){ return roWho(d, w, y.id); })); })) + '.'], log: 'roster station week' });
     }
     if(count){
@@ -2436,7 +2445,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.9.11',
+  version: 'v3.9.12',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
   parse: parse, catalogue: catalogue, findItems: findItems, isClose: isClose, yesNo: yesNo,
