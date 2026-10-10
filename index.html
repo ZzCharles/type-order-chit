@@ -627,7 +627,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.9.4';
+const APP_VERSION = 'v3.9.5';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -2240,6 +2240,62 @@ function saveLastSent(id){
 
 function clearLastSent(id){
   try{ localStorage.removeItem(lastSentKey(id)); }catch(e){}
+}
+
+/* ===== Order history (v3.9.5) =====
+   Every order handed to Messages or Mail is kept, so The Pass can learn the
+   owner's patterns later (v3.10: "am I missing anything?", his usual for each
+   day, things not ordered in a while). On the phone only, like the orders.
+   Each entry: at (time sent), day (service day sent), sup (supplier id),
+   mode + for (the date the ticket asked for: 'tomorrow', the next usual day,
+   or one picked from the calendar), items ({product id: quantity}).
+   The list is read fresh and written in one step, so two open copies of The
+   Pass can't undo each other's entries. Entries older than 400 days drop off.
+   Copy-to-clipboard isn't recorded: it doesn't mark an order sent either. */
+const ORDER_HISTORY_KEY = 'order-chit-order-history';
+const ORDER_HISTORY_DAYS = 400;
+function readOrderHistory(){ const h = readStoredJSON(ORDER_HISTORY_KEY); return Array.isArray(h) ? h : []; }
+
+function ticketForKey(s){
+  if(ticketDateMode === 'nextday'){
+    const d = nextWeekday((s.template && s.template.usualDay) || 'Tuesday');
+    return d ? localDateKey(d) : null;
+  }
+  if(ticketDateMode === 'calendar'){
+    const el = document.getElementById('date-input');
+    return el && el.value ? el.value : null;
+  }
+  const d = new Date(); d.setDate(d.getDate() + 1);   // 'tomorrow', as the supplier reads it
+  return localDateKey(d);
+}
+
+function recordOrderSent(s){
+  const items = {};
+  s.products.forEach(p => { if(p.qty > 0) items[p.id] = p.qty; });
+  if(!Object.keys(items).length) return;
+  const now = Date.now();
+  const cutoff = now - ORDER_HISTORY_DAYS * 24 * 3600 * 1000;
+  try{
+    const h = readOrderHistory().filter(e => e && e.at >= cutoff);
+    h.push({ at: now, day: serviceDateKey(), sup: s.id, mode: ticketDateMode, for: ticketForKey(s), items: items });
+    localStorage.setItem(ORDER_HISTORY_KEY, JSON.stringify(h));
+  }catch(e){}
+}
+
+/* "Marked as not sent": the order never went, so it isn't history either.
+   Takes off that supplier's newest entry from this service day. */
+function unrecordOrderSent(id){
+  try{
+    const h = readOrderHistory();
+    const today = serviceDateKey();
+    for(let i = h.length - 1; i >= 0; i--){
+      if(h[i] && h[i].sup === id && h[i].day === today){
+        h.splice(i, 1);
+        localStorage.setItem(ORDER_HISTORY_KEY, JSON.stringify(h));
+        return;
+      }
+    }
+  }catch(e){}
 }
 
 /* Returns the record only if it belongs to the current service day, so the tick
@@ -4023,6 +4079,7 @@ function attachHandlers(){
   document.querySelectorAll('[data-unsend]').forEach(el=>{
     el.addEventListener('click', ()=>{
       clearLastSent(el.dataset.unsend);
+      unrecordOrderSent(el.dataset.unsend);   // v3.9.5
       render(); showToast('Marked as not sent');
     });
   });
@@ -4384,6 +4441,7 @@ function attachHandlers(){
       const s = findSupplier(stampBtn.dataset.supplier);
       saveLastOrder(s);
       saveLastSent(s.id);
+      recordOrderSent(s);   // v3.9.5
       s.products.forEach(p => { p.qty = 0; });
       saveData();
       showToast('Order sent & cleared');
@@ -5281,7 +5339,7 @@ if('serviceWorker' in navigator){
 }
 </script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="voice-brain.js?v=3.9.4"></script>
-<script src="voice.js?v=3.9.4"></script>
+<script src="voice-brain.js?v=3.9.5"></script>
+<script src="voice.js?v=3.9.5"></script>
 </body>
 </html>
