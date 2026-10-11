@@ -103,11 +103,48 @@ var host = {
      kept at the Monday changeover (v3.9.9) */
   roster: function(){
     if(typeof refreshRosterFromStorage === 'function') refreshRosterFromStorage();
+    // v3.10.0: a phone left open over Monday moves the weeks on first, as coming back to it does
+    if(typeof rollRosterWeek === 'function' && rollRosterWeek()) bgRender();
     var names = {};
     (state.staff || []).forEach(function(s){ names[s.id] = s.name; });
     var prev = readJSON('order-chit-roster-prev');
     return { week: weekStartKey(), me: rabindraId(), names: names, stations: STATIONS.slice(),
+             staff: (state.staff || []).map(function(s){ return { id: s.id, name: s.name, avail: Object.assign({}, s.avail || {}) }; }),
              thisWeek: state.roster || {}, nextWeek: state.rosterNext || {}, lastWeek: prev && prev.week ? prev : null };
+  },
+  /* v3.10.0: building the roster by voice. Only the days given change, in
+     this week or next week, written over the roster as storage holds it now
+     (another copy of The Pass may have changed it), through the screen's own
+     save. Returns those days as read back from storage, or ok: false, so the
+     brain never says "done" for something that wasn't stored. */
+  setRosterDays: function(mon, days){
+    if(isEditing()) return { ok: false, why: 'editing' };
+    if(typeof refreshRosterFromStorage === 'function') refreshRosterFromStorage();
+    if(typeof rollRosterWeek === 'function' && rollRosterWeek()) bgRender();
+    var wk = weekStartKey(), nx = new Date(wk + 'T12:00:00');
+    nx.setDate(nx.getDate() + 7);
+    var which = mon === wk ? 'this' : mon === localDateKey(nx) ? 'next' : null;
+    if(!which) return { ok: false, why: 'week' };
+    var r = rosterFor(which), keys = Object.keys(days || {}).filter(function(d){ return ROSTER_DAY_KEYS.indexOf(d) > -1; });
+    keys.forEach(function(d){ r[d] = JSON.parse(JSON.stringify(days[d] || {})); });
+    if(!saveRoster()){ loadRoster(); bgRender(); return { ok: false, why: 'save' }; }   // memory back to what's stored
+    bgRender();
+    var stored = readJSON(which === 'next' ? ROSTER_NEXT_KEY : ROSTER_KEY) || {}, out = {};
+    keys.forEach(function(d){ out[d] = stored[d] || {}; });
+    return { ok: true, days: out };
+  },
+  /* v3.10.0: "Add them?" yes: a new name on the Staff list, ticked for every
+     day, as the Staff screen's Save does. Read fresh first and checked after. */
+  addStaff: function(name){
+    name = String(name || '').trim();
+    if(!name) return { ok: false };
+    var fresh = readJSON(STAFF_KEY);
+    if(Array.isArray(fresh)) state.staff = fresh;
+    var st = { id: uid(), name: name, avail: { wed: true, thu: true, fri: true, sat: true, sun: true } };
+    state.staff.push(st);
+    saveStaff(); bgRender();
+    var back = readJSON(STAFF_KEY);
+    return { ok: Array.isArray(back) && back.some(function(s){ return s.id === st.id; }), id: st.id };
   },
   setTimesheetDay: function(day, v){
     if(ROSTER_DAY_KEYS.indexOf(day) < 0) return false;
@@ -124,6 +161,7 @@ var host = {
     else if(v.view === 'prep') goto({ name: 'prep' });
     else if(v.view === 'list') goto({ name: 'list' });
     else if(v.view === 'timesheet') goto({ name: 'timesheet' });
+    else if(v.view === 'rosterBuild'){ rosterWeek = v.week === 'next' ? 'next' : 'this'; rosterShowAll = false; goto({ name: 'rosterBuild' }); }   // v3.10.0
   },
   get: readJSON,
   set: writeJSON,

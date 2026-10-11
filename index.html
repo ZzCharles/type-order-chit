@@ -627,7 +627,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.9.13';
+const APP_VERSION = 'v3.10.0';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -1462,15 +1462,19 @@ function refreshRosterFromStorage(){
   return true;
 }
 
-/* Both weeks save together: every roster edit goes through here. */
+/* Both weeks save together: every roster edit goes through here.
+   v3.10.0: says whether it was stored (voice must never call a refused or
+   failed save "done"); the screen's own callers can ignore it, as before. */
 function saveRoster(){
   const now = rosterRaw();
-  if(rosterSeen !== null && now !== null && now !== rosterSeen){ refuseStaleSave('roster', refreshRosterFromStorage); return; }
+  if(rosterSeen !== null && now !== null && now !== rosterSeen){ refuseStaleSave('roster', refreshRosterFromStorage); return false; }
+  let ok = true;
   try{
     localStorage.setItem(ROSTER_KEY, JSON.stringify(state.roster));
     localStorage.setItem(ROSTER_NEXT_KEY, JSON.stringify(state.rosterNext));
-  }catch(e){}
+  }catch(e){ ok = false; }
   rosterSeen = rosterRaw();
+  return ok;
 }
 
 /* ===== This week / next week =====
@@ -5371,7 +5375,8 @@ if('serviceWorker' in navigator){
 }
 </script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="voice-brain.js?v=3.9.13"></script>
-<script src="voice.js?v=3.9.13"></script>
+<script src="roster-engine.js?v=3.10.0"></script>
+<script src="voice-brain.js?v=3.10.0"></script>
+<script src="voice.js?v=3.10.0"></script>
 </body>
 </html>

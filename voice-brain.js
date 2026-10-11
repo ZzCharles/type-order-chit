@@ -19,10 +19,12 @@
 
    Loaded by the page as window.AlmoVoice, by Node with require(). */
 (function(root, make){
-  var api = make();
-  if(typeof module === 'object' && module.exports) module.exports = api;
+  var node = typeof module === 'object' && module.exports;
+  // v3.10.0: the roster engine (roster-engine.js), loaded before this file in the page
+  var api = make(node ? require('./roster-engine.js') : (root.RosterEngine || null));
+  if(node) module.exports = api;
   else root.AlmoVoice = api;
-})(typeof self !== 'undefined' ? self : this, function(){
+})(typeof self !== 'undefined' ? self : this, function(RE){
 'use strict';
 
 /* ================= words ================= */
@@ -267,7 +269,7 @@ function teenTen(text, alts){
 
 /* [words, meaning, where]: 0 = only at the start, 1 = anywhere */
 var VERBS = [
-  [['undo', 'that'], 'undo', 0], [['undo', 'it'], 'undo', 0], [['undo'], 'undo', 0], [['scrap', 'that'], 'undo', 0], [['take', 'that', 'back'], 'undo', 0],
+  [['undo', 'that'], 'undo', 0], [['undo', 'it'], 'undo', 0], [['undo'], 'undo', 0], [['scrap', 'that'], 'undo', 0], [['scratch', 'that'], 'undo', 0], [['take', 'that', 'back'], 'undo', 0],
   [['repeat', 'the', 'last', 'order'], 'repeat', 0], [['repeat', 'last', 'order'], 'repeat', 0], [['repeat', 'my', 'last', 'order'], 'repeat', 0],
   [['repeat', 'last'], 'repeat', 0], [['same', 'as', 'last', 'time'], 'repeat', 0], [['same', 'as', 'last', 'week'], 'repeat', 0],
   [['load', 'the', 'last', 'order'], 'repeat', 0], [['load', 'last', 'order'], 'repeat', 0], [['last', 'order', 'again'], 'repeat', 0],
@@ -572,8 +574,8 @@ function rosterWrite(text, names){
    should be able to tell what it can or cannot"): "can you …" with nothing
    to act on is a question about The Pass itself, answered honestly. A real
    command said politely ("can you add 2 kilos of mozz") still just runs. */
-var HELP_SAY = 'I can add, change and take things off your orders and the prep list, tick prep off, read them back, get an order ready to send, fill in and read your timesheet, and read the roster.';
-var HELP_TRY = "Try 'add 2 kilos of mozzarella', 'add today's timesheet' or 'who's on tonight?'.";
+var HELP_SAY = 'I can add, change and take things off your orders and the prep list, tick prep off, read them back, get an order ready to send, fill in and read your timesheet, and read and build the roster.';
+var HELP_TRY = "Try 'add 2 kilos of mozzarella', 'add today's timesheet' or 'let's do next week's roster'.";
 function canTopic(text){
   var c = clean(text).replace(/^(hey pluto|ok pluto|pluto) /, '');
   if(!/^(can you|could you|are you able to|do you know how to|will you be able to|is it possible to)\b/.test(c)) return null;
@@ -588,7 +590,7 @@ function canTopic(text){
   return 'other';
 }
 var CAN_SAY = {
-  'roster-write': "Not yet. I can read the roster, like 'who's on tonight?', but I can't change it. Building it by voice is coming.",
+  'roster-write': "Yes. Say 'let's do next week's roster', or a change like 'swap Nathan for Axel on Thursday'.",
   'roster-read': "Yes. Ask me 'who's on tonight?', 'how many worked on Wednesday?' or 'what was last week's roster?'.",
   'timesheet': "Yes. Say 'add today's timesheet', change a day, or ask 'how many hours this week?'. Sending it to accounts is still you, on the Timesheet screen.",
   'send': "I can get an order ready to send, but you tap Send yourself. I can't send messages for you.",
@@ -599,6 +601,205 @@ var CAN_SAY = {
   'orders': "Yes. Say what to add, change or take off, like 'add 2 kilos of mozzarella to the Aziz order'.",
   'other': "I'm not sure I can. I can help with orders, the prep list, your timesheet and the roster."
 };
+
+/* ================= building the roster by voice: the words (v3.10.0) =================
+   His spec of 11 Oct (pluto-roster-spec.md; his decisions are in the box at
+   its top). roster-engine.js holds the rules and makes every change; these
+   only find, in what he said, the people, days, times and kind of change.
+   No AI: what can't be pinned down is asked about, never guessed. */
+var RB_KEY = 'order-chit-roster-voice';         // the session: which week, which days are done
+var RB_NAMES_KEY = 'order-chit-roster-names';   // a misheard name he picked: heard word -> staff id
+var RB_LIVE_MS = 10 * 60 * 1000;                // how long a bare "same" or "next" still means the roster
+var RB_OWNER_SAID = ['ravindra', 'robindra', 'rubindra'];   // his own name as Google heard it (log, 11 Oct)
+var RB_DAY = { wednesday: 'wed', thursday: 'thu', friday: 'fri', saturday: 'sat', sunday: 'sun', monday: 'mon', tuesday: 'tue' };
+var RB_STATION = { oven: 'Oven', dough: 'Dough', pasta: 'Pasta', toppings: 'Toppings', topping: 'Toppings', finisher: 'Finisher', kh: 'KH' };
+var RB_PRON = { him: 1, her: 1, them: 1, he: 1, she: 1, they: 1, hes: 1, shes: 1, theyre: 1 };
+/* words that are never a person's name, so whatever is left over in a
+   sentence about the roster is a name it doesn't know ("put Sam on") */
+var RB_WORDS = {};
+('a about actually add after afternoon again all also am an and another any anyone anybody are arent around as at away back be been bin bit both bring but by '
+ + 'can cant change chuck clear close closed come coming copy could cover covering covers cut day days did didnt do does doesnt done dont down drop '
+ + 'each early earlier end ends evening every everybody everyone everything finish finished finishes finishing first for forward from get gets go goes going gone '
+ + 'got had half hand has have he hell her here hers hes hey hi him his home hour hours how i id if ill im in instead into is isnt it its just keep kitchen knock '
+ + 'last later late leave leaves leaving lets like lot make me midday midnight min mins minute minutes more morning move my myself need needs new next night '
+ + 'no nobody none noon not now oclock of off ok okay on one only onto or our out over past people person please plus pop pull push put quarter rather really '
+ + 'remove replace replacing right roster rostered rosters same say scratch see set she shift shifts should sick sir so some someone somebody start started '
+ + 'starting starts staff stay stays stick sub substitute swap switch take team than thanks that thats the them then there they theyre this those though till '
+ + 'til time times to today tomorrow tonight too until up us want was way we week weekend weeks well were what whats when where which who whos whole why will '
+ + 'with without wont work worked working works would yeah yep yes yesterday you youre your mate chef bro pluto oh um uh er so trade swop instead place '
+ + 'two three four five six seven eight nine ten eleven twelve fifteen twenty thirty forty fifty ninety sixty pm am ready sorry nah nope yup ah also '
+ + 'station stations pizza shift ok cool great good fine perfect thank cheers going doing does day same again wed thu fri sat sun cross strike bump kick lose '
+ + 'ditch delete cancel scrap wipe clear skip later leave pause stop continue resume carry finish save publish send share read show open week give book '
+ + 'schedule throw have their there these other another else anything nothing something next previous before goes went off out let us '
+ + 'prep preps list lists order orders ordering supplier suppliers timesheet timesheets recipe recipes item items stuff thing things menu').split(' ')
+  .concat(Object.keys(RB_DAY), Object.keys(RB_STATION), Object.keys(STOP), Object.keys(UNIT_WORDS)).forEach(function(w){ if(w) RB_WORDS[w] = 1; });
+
+/* Times keep their colon as a dot ("9:00" -> "9.00"), which parseClock reads */
+function rbClean(s){ return clean(String(s == null ? '' : s).replace(/(\d):(\d)/g, '$1.$2')).replace(/^(hey pluto|ok pluto|okay pluto|hi pluto|pluto) /, ''); }
+function rbDayOf(w){ return RB_DAY[w] || (/s$/.test(w) ? RB_DAY[w.slice(0, -1)] : null) || null; }
+function rbNth(n){ var t = n % 100; return n + (t >= 11 && t <= 13 ? 'th' : (['th', 'st', 'nd', 'rd'][n % 10] || 'th')); }
+/* "Wednesday the 14th" */
+function rbDateSay(k){ var d = keyDate(k); return DAY_FULL[DAY_KEYS[d.getDay()]] + ' the ' + rbNth(d.getDate()); }
+/* A roster time, said the way he says it: "4", "half 5", "quarter past 6";
+   mornings and late nights keep their am or pm ("9 am", "10 pm"). */
+function rbTime(t){
+  var m = toMin(t);
+  if(m == null) return '';
+  var h = Math.floor(m / 60), mm = m % 60, h12 = h % 12 || 12;
+  if(h < 12 || h >= 22) return timeSay(t);
+  if(h === 12) return mm === 0 ? '12 noon' : mm === 30 ? 'half 12' : timeSay(t);
+  if(mm === 0) return String(h12);
+  if(mm === 30) return 'half ' + h12;
+  if(mm === 15) return 'quarter past ' + h12;
+  if(mm === 45) return 'quarter to ' + (h12 + 1);
+  return h12 + ':' + pad2(mm);
+}
+/* "an hour later", "half an hour earlier", "push him back an hour" */
+var RB_REL = [
+  [/\b(an|one|a) hour and a half\b|\b(90|ninety) (minutes|mins)\b/, 90], [/\bhalf an hour\b|\bhalf hour\b|\b(30|thirty) (minutes|mins)\b/, 30],
+  [/\b(a )?quarter of an hour\b|\b(15|fifteen) (minutes|mins)\b/, 15], [/\b(45|forty five) (minutes|mins)\b/, 45],
+  [/\b(2|two) hours\b/, 120], [/\b(3|three) hours\b/, 180], [/\b(an|one|a) hour\b|\b(60|sixty) (minutes|mins)\b/, 60],
+  [/\b(20|twenty) (minutes|mins)\b/, 20], [/\b(10|ten) (minutes|mins)\b/, 10], [/\b(5|five) (minutes|mins)\b/, 5]
+];
+function rbRel(c){
+  var dir = /\b(later|back|after)\b/.test(c) ? 1 : /\b(earlier|forward|forwards|sooner|before)\b/.test(c) ? -1 : 0;
+  if(!dir) return null;
+  for(var i = 0; i < RB_REL.length; i++){
+    var m = RB_REL[i][0].exec(c);
+    if(m) return { minutes: dir * RB_REL[i][1], cut: (c.slice(0, m.index) + ' ' + c.slice(m.index + m[0].length)).replace(/\s+/g, ' ').trim() };
+  }
+  return null;
+}
+/* A spoken start as "HH:MM". am / pm / a 24-hour time said aloud wins;
+   a bare hour follows his rule (roster-engine bareTime), which may ask. */
+function rbStartOf(p, who, E){
+  if(!p || p.now) return null;
+  var h = p.h, m = p.m || 0;
+  if(p.mer === 'abs') return { time: toHHMM((h % 24) * 60 + m) };
+  if(p.mer === 'am') return { time: toHHMM((h % 12) * 60 + m) };
+  if(p.mer === 'pm') return { time: toHHMM((h % 12 + 12) * 60 + m) };
+  return E.bareTime(h, m, who);
+}
+/* A finish is the first such time after the start ("till 1" is 1 am) */
+function rbEndOf(p, start){
+  if(!p || p.now) return null;
+  var h = p.h, m = p.m || 0;
+  if(p.mer === 'abs') return toHHMM((h % 24) * 60 + m);
+  if(p.mer === 'am') return toHHMM((h % 12) * 60 + m);
+  if(p.mer === 'pm') return toHHMM((h % 12 + 12) * 60 + m);
+  var s = toMin(start) || 0, c = [(h % 12) * 60 + m, (h % 12 + 12) * 60 + m];
+  var fwd = function(x){ return ((x - s + 1440) % 1440) || 1440; };
+  return toHHMM(fwd(c[0]) <= fwd(c[1]) ? c[0] : c[1]);
+}
+var RB_END = /\b(finish|finishes|finishing|finished|leave|leaves|leaving|knock off|knocks off|knocking off|off at|until|till|til|go home|goes home|going home|end|ends|ending|done at|done by|out at|out by)\b/;
+var RB_ENDCLEAR = /\b(no (early )?finish|(till|until|til) (close|closing|the end|late|its done|the work is done|the jobs done|everythings done)|stays? (on|till|until|late)|full shift|when (its|it is|the work is|works|all the job is|the jobs|everythings) done)\b/;
+/* The times in one clause: a start, a finish, or "3 till 9" */
+function rbTimes(c){
+  var out = {};
+  if(RB_ENDCLEAR.test(c)){ out.endClear = true; c = c.replace(RB_ENDCLEAR, ' '); }
+  var two = twoClocks(c);
+  if(two){ out.start = two[0]; out.end = two[1]; return out; }
+  var em = RB_END.exec(c);
+  if(em){
+    var a = parseClock(c.slice(0, em.index)), b = parseClock(c.slice(em.index));
+    if(a && !a.now) out.start = a;
+    if(b && !b.now) out.end = b;
+    return out;
+  }
+  var p = parseClock(c);
+  if(p && !p.now) out.start = p;
+  return out;
+}
+/* Which staff a word is. Exact (name, first name, a name he picked before,
+   his own name as misheard) is sure; a sound-alike is sure only when it's
+   close and alone, otherwise it's asked about. */
+function rbIndex(staff, me){
+  return (staff || []).map(function(s){
+    var full = clean(s.name), keys = [full, full.split(' ')[0]];
+    if(s.id === me) keys = keys.concat(RB_OWNER_SAID);
+    return { id: s.id, name: s.name, keys: uniq(keys.filter(Boolean)) };
+  });
+}
+function rbMatch(w, idx, learned){
+  if(!w || /^\d/.test(w)) return null;
+  var base = w.length > 3 && /s$/.test(w) ? w.slice(0, -1) : null;   // "anils"
+  var hit = idx.filter(function(p){ return p.keys.indexOf(w) > -1 || (base && p.keys.indexOf(base) > -1); });
+  if(hit.length) return { ids: uniq(hit.map(function(p){ return p.id; })), sure: true };
+  if(learned && learned[w] && idx.some(function(p){ return p.id === learned[w]; })) return { ids: [learned[w]], sure: true };
+  if(RB_WORDS[w] || w.length < 3) return null;
+  var scored = idx.map(function(p){
+    return { id: p.id, s: Math.max.apply(null, p.keys.map(function(k){ return k.indexOf(' ') < 0 ? wordLike(w, k) : 0; })) };
+  }).filter(function(x){ return x.s >= 0.7; }).sort(function(a, b){ return b.s - a.s; });
+  if(!scored.length) return null;
+  var close = scored.filter(function(x){ return scored[0].s - x.s < 0.1; });
+  if(close.length > 1) return { ids: close.map(function(x){ return x.id; }), sure: false, word: w };
+  return { ids: [scored[0].id], sure: scored[0].s >= 0.75, word: w };
+}
+var RB_CLAUSE_VERB = /^(put|add|have|get|bring|stick|pop|chuck|throw|book|schedule|swap|switch|sub|replace|change|make|move|push|pull|take|remove|drop|cut|ditch|scratch|knock|start|starts|finish|finishes|leave|leaves|give|set|shift|go|goes|skip|clear|wipe|copy|keep|go|back|bump|kick|lose)$/;
+/* One sentence as clauses: "swap Z for W and make him start at 3" is two,
+   "Y and Z at 5" is one, "X at 4 and Y at 5" is two. find(word) is rbMatch. */
+function rbClauses(text, find){
+  var c = rbClean(String(text || '').replace(/,/g, ' qqc ')).replace(/\bkitchen hand\b/g, 'kh').replace(/\b\d{1,2} (st|nd|rd|th)\b/g, ' ');
+  var raw = [], cur = [];
+  c.split(' ').forEach(function(w){
+    if(w === 'qqc' || w === 'and' || w === 'then' || w === 'also' || w === 'plus' || w === 'but'){ raw.push(cur); cur = []; }
+    else if(w) cur.push(w);
+  });
+  raw.push(cur);
+  raw = raw.filter(function(x){ return x.length; });
+  var personIn = function(ws){ return ws.some(function(w, i){ return RB_PRON[w] || w === 'me' || w === 'myself' || (find(w) && !RB_WORDS[w]) || ((w === 'i' || w === 'im') && i === 0); }); };
+  var timeIn = function(ws){ var s = ws.join(' '); return !!(rbRel(s) || parseClock(s)); };
+  var out = [];
+  raw.forEach(function(ws){
+    var prev = out[out.length - 1];
+    // a new clause starts at a verb, or at a person after a clause that already had its time
+    if(!prev || RB_CLAUSE_VERB.test(ws[0]) || (ws[0] === 'go' || ws[0] === 'actually') || (timeIn(prev) && personIn(ws))) out.push(ws.slice());
+    else out[out.length - 1] = prev.concat(['and'], ws);
+  });
+  return out.map(function(ws){ return ws.join(' '); });
+}
+/* the words that may be a name nobody has told it about: in a command of
+   12 words or fewer, written with a capital when the words have capitals */
+function rbNewNames(text, itemWords){
+  var raw = String(text || ''), words = raw.split(/\s+/).filter(Boolean);
+  if(words.length > 12) return {};
+  var caps = /[A-Z]/.test(raw.replace(/^\W*\w/, '').replace(/\bI\b|\bI'/g, '')), out = {};
+  words.forEach(function(w){
+    var k = clean(w).replace(/s$/, ''), k2 = clean(w);
+    if(itemWords && (itemWords[stem(k2)] || itemWords[k2])) return;   // a word from a product or prep item ("cream", "garlic")
+    if(!caps || /^[A-Z]/.test(w)){ if(k2) out[k2] = 1; if(k) out[k] = 1; }
+  });
+  return out;
+}
+/* What one clause says: the people (in order), days, times, a station,
+   "an hour later", everyone, all week; rbKind then reads the kind of change. */
+function rbClause(c, find, maybeNew){
+  var o = { text: c, people: [], unknown: [], days: [], last: false, allWeek: false, station: null, rel: null, everyone: false };
+  var rel = rbRel(c);
+  if(rel){ o.rel = rel.minutes; c = rel.cut; }
+  if(/\b(all week|every day|everyday|each day|the whole week|whole week|all the days|every shift|all days|the week)\b/.test(c)) o.allWeek = true;
+  if(/\b(everyone|everybody|all of them|the lot|the whole team|all the staff|the team|all of us)\b/.test(c)) o.everyone = true;
+  var tk = c.split(' ').filter(Boolean), shape = [];
+  tk.forEach(function(w, i){
+    var dk = rbDayOf(w);
+    if(dk){ o.days.push(dk); if(tk[i - 1] === 'last') o.last = true; shape.push('D'); return; }
+    if(RB_STATION[w] && /^(on|in|doing|at|for|the)$/.test(tk[i - 1] || '')){ o.station = RB_STATION[w]; shape.push('S'); return; }
+    if(w === 'me' || w === 'myself' || ((w === 'i' || w === 'im' || w === 'ill') && /^(on|in|off|at|start|starting|finish|finishing|work|working|leave|leaving|out|be|am|will)$/.test(tk[i + 1] || ''))){
+      o.people.push({ me: true, at: i }); shape.push('P'); return;
+    }
+    if(RB_PRON[w]){ o.people.push({ pron: true, at: i, word: w }); shape.push('P'); return; }
+    var m = find(w);
+    if(m && !(RB_WORDS[w] && !m.sure)){ o.people.push({ ids: m.ids, sure: m.sure, word: w, at: i }); shape.push('P'); return; }
+    if(!RB_WORDS[w] && !/^\d/.test(w) && w.length > 1 && !/^(st|nd|rd|th)$/.test(w) && (!maybeNew || maybeNew[w])){ o.unknown.push({ word: w, at: i }); shape.push('U'); return; }
+    shape.push(w);
+  });
+  o.tk = tk;
+  o.ty = shape.map(function(x){ return /^[PUDS]$/.test(x) ? x : ''; });
+  o.shape = ' ' + shape.join(' ') + ' ';
+  var t = rbTimes(c);
+  o.start = t.start || null; o.end = t.end || null; o.endClear = !!t.endClear;
+  return o;
+}
 
 /* ================= aliases: how the kitchen says the names =================
    From almo-voice-brain.md section 7 (lines marked "check" there are still
@@ -1489,9 +1690,16 @@ function createRoom(host){
   /* which day a question means, and which week: "last week", "next week",
      "tomorrow", a day name. A day already gone this week, asked about in the
      present tense ("who's on Wednesday" on a Sunday), means the coming one. */
-  function roWhen(text, d){
+  function roWhen(text, d, sess){
     var c = clean(text), today = tsToday(), date = null, mon = d.week;
     var past = /\b(was|were|worked|did)\b/.test(c);
+    if(sess){   // v3.10.0: building a roster: "Thursday" is that week's, "last Thursday" the week before
+      mon = /\blast\b/.test(c) ? sess.ref : sess.build;
+      for(var si = 0; si < DAY_KEYS.length; si++){
+        if(new RegExp('\\b' + DAY_FULL[DAY_KEYS[si]].toLowerCase() + 's?\\b').test(c)){ date = addDays(mon, RO_OFFSET[DAY_KEYS[si]]); break; }
+      }
+      return { date: date, mon: mon };
+    }
     if(/\blast weeks?\b/.test(c)) mon = addDays(d.week, -7);   // "last week's" is "last weeks" once cleaned
     else if(/\bnext weeks?\b/.test(c)) mon = addDays(d.week, 7);
     if(/\btomorrow(s)?\b/.test(c)) date = addDays(today, 1);
@@ -1511,10 +1719,10 @@ function createRoom(host){
     if(date) mon = mondayOf(date);
     return { date: date, mon: mon };
   }
-  function rosterAnswer(text, forceWeek){
+  function rosterAnswer(text, forceWeek, sess){
     var d = roData();
     if(!d) return cant("I can't reach the roster.", 'roster none');
-    var c = clean(text), when = roWhen(text, d), w = roWeek(d, when.mon);
+    var c = clean(text), when = roWhen(text, d, sess), w = roWeek(d, when.mon);
     if(w.missing) return roMissing(w, d);
     // who it's about: a station, a person (or "I"), or how many
     var station = (d.stations || []).filter(function(s){ return new RegExp('\\b' + clean(roStation(s)) + '\\b|\\b' + clean(s) + '\\b').test(c); })[0] || null;
@@ -1533,7 +1741,7 @@ function createRoom(host){
     if(!when.date && !section && !person && !count && !forceWeek && !/\b(week|whole|all)\b/.test(c)){
       // last or next week: say the day; this week: today and tomorrow are a tap away
       return asking('roDay', 'Which day, or the whole week?', [{ label: 'Whole week', value: 'week' }].concat(when.mon === d.week
-        ? [{ label: 'Today', value: 'today' }, { label: 'Tomorrow', value: 'tomorrow' }] : []), { text: text }, 'choice');
+        ? [{ label: 'Today', value: 'today' }, { label: 'Tomorrow', value: 'tomorrow' }] : []), { text: text, sess: sess || null }, 'choice');
     }
     if(person){
       var pn = person === d.me ? 'You' : (w.names[person] || 'They');
@@ -1575,10 +1783,949 @@ function createRoom(host){
   function rosterReply(p, req, mode){
     var text = String(req.text || ''), choice = req.reply && req.reply.choice != null ? String(req.reply.choice) : null, c = clean(text);
     pending = null;
-    if(choice === 'week' || (!choice && /\b(week|whole|all|everyone|everything)\b/.test(c))) return rosterAnswer(p.text + ' ' + (/\blast\b/.test(c) ? 'last week' : ''), true);
+    if(choice === 'week' || (!choice && /\b(week|whole|all|everyone|everything)\b/.test(c))) return rosterAnswer(p.text + ' ' + (/\blast\b/.test(c) ? 'last week' : ''), true, p.sess);
     if(choice === 'today' || choice === 'tomorrow') return rosterAnswer(p.text + ' ' + choice);
-    if(/\b(today|tonight|tomorrow|yesterday|monday|tuesday|wednesday|thursday|friday|saturday|sunday)s?\b/.test(c)) return rosterAnswer(p.text + ' ' + text);
+    if(/\b(today|tonight|tomorrow|yesterday|monday|tuesday|wednesday|thursday|friday|saturday|sunday)s?\b/.test(c)) return rosterAnswer(p.text + ' ' + text, false, p.sess);
     return ans('answer', { say: ['Left it.'], log: 'roster ask dropped' });
+  }
+
+  /* ---------- building the roster by voice (v3.10.0) ----------
+     Layer 2 of his spec. Every change goes through roster-engine (RE) and
+     the page's host.setRosterDays, and every read-back is built from what
+     was stored after it, never from what was meant. The session (which
+     week, which days are done, the day in focus, the question last asked)
+     is kept in storage, so closing the card or the app loses nothing. */
+  var rbOther = true;   // something other than the roster answered last, so a bare "yes" isn't the roster's
+  var RB_YES = /^(yes|yeah|yep|yup|sure|ok|okay|correct|right|sounds good|perfect|good|great|lovely|cool|fine|go ahead|do it|yes please)\b/;
+  var RB_NO = /^(no|nah|nope|not really|negative)\b/;
+  var RB_NEXT = /^(next|move on|next day|go on|onwards|keep going|thats it|thats all|nothing else|nothing|done|all done|were done|im done|finished|no more|thats everything)\b|\b(move on|next day|nothing else|thats it|thats all|next one|thats everything)$/;
+  var RB_SAME = /\bsame\b|\bas last week\b|\bcopy (it|that|last weeks?|the last one)\b/;
+  var RB_KEEP = /\b(keep (it|that|them|as is)|leave it( as is)?|thats (fine|good|right|correct)|as is|looks good|all good|its fine|its good|that works)\b/;
+  var RB_SKIP = /\b(skip|come back to (it|that)|do it later|leave it for now|not sure yet|dont know yet|park it)\b/;
+  var RB_CLOSED = /\b(closed|shut|nobody|no one|noone|none)\b/;
+  var RB_UNDO = /^(undo|undo that|undo it|scratch that|scrap that|take that back)$/;
+  function rbData(){
+    var d = roData();
+    if(!d) return null;
+    if(!d.staff) d.staff = Object.keys(d.names || {}).map(function(id){ return { id: id, name: d.names[id] }; });
+    return d;
+  }
+  function rbNextMon(d){ return addDays(d.week, 7); }
+  function rbEditable(d, mon){ return mon === d.week || mon === rbNextMon(d); }
+  function rbWeekOf(d, mon){ return RE.cloneWeek(mon === d.week ? d.thisWeek : mon === rbNextMon(d) ? d.nextWeek : null); }
+  /* "last week" for the week being built: the one before it, as kept */
+  function rbRefOf(d, mon){
+    var r = addDays(mon, -7);
+    if(r === d.week) return { roster: RE.cloneWeek(d.thisWeek), names: d.names || {} };
+    if(d.lastWeek && d.lastWeek.week === r) return { roster: RE.cloneWeek(d.lastWeek.roster), names: Object.assign({}, d.names || {}, d.lastWeek.names || {}) };
+    return null;
+  }
+  function rbCtx(d){ return { staff: d.staff, close: RE.CLOSE }; }
+  function rbSaver(mon){ return function(days){ return host.setRosterDays ? host.setRosterDays(mon, days) : null; }; }
+  function rbWho(d, id, names){ return id === d.me ? 'you' : (names || {})[id] || (d.names || {})[id] || 'someone'; }
+  function rbIs(n){ return n === 'you' ? "you're" : n + "'s"; }
+  function rbStaffName(d, id){ var s = (d.staff || []).filter(function(x){ return x.id === id; })[0]; return s ? s.name : rbWho(d, id); }
+  /* a day, earliest first, the same times together: "Anil at 3, Nathan and you at 4" */
+  function rbDaySay(d, entries, names){
+    var list = RE.dayList({ x: entries || {} }, 'x');
+    if(!list.length) return 'nobody';
+    var groups = [];
+    list.forEach(function(x){
+      var g = groups[groups.length - 1];
+      if(g && g.start === x.start && g.end === x.end) g.ids.push(x.id); else groups.push({ start: x.start, end: x.end, ids: [x.id] });
+    });
+    return groups.map(function(g){
+      var nm = g.ids.map(function(id){ return rbWho(d, id, names); }).sort(function(a, b){ return a === 'you' ? 1 : b === 'you' ? -1 : a < b ? -1 : a > b ? 1 : 0; });
+      return joinAnd(nm) + ' at ' + rbTime(g.start) + (g.end ? ' till ' + rbTime(g.end) : '');
+    }).join(', ');
+  }
+  function rbSession(){ var s = get(RB_KEY, null); return s && s.v === 1 && s.week && s.days ? s : null; }
+  function rbKeep(s){ s.at = now(); put(RB_KEY, s); rbOther = false; return s; }
+  function rbLive(s, d){ return !!(s && !s.finished && !s.paused && now() - (s.at || 0) < RB_LIVE_MS && d && rbEditable(d, s.week)); }
+  function rbLearned(){ var w = get(RB_NAMES_KEY, {}); return w && typeof w === 'object' ? w : {}; }
+  function rbLearn(word, id){ if(!word || !id) return; var w = rbLearned(); w[word] = id; put(RB_NAMES_KEY, w); }
+  function rbFinder(d, fix){
+    var idx = rbIndex(d.staff, d.me), learned = rbLearned(), ids = (fix && fix.ids) || {};
+    return function(w){ return ids[w] ? { ids: [ids[w]], sure: true } : rbMatch(w, idx, learned); };
+  }
+  function rbWeekWord(d, mon){ return mon === d.week ? 'This week' : 'Next week'; }
+  function rbSay(status, lines, log, extra){
+    rbOther = false;
+    var ax = Object.assign({}, extra || {}), pre = ax.logPre;
+    delete ax.logPre;
+    return ans(status, Object.assign({ say: (lines || []).filter(Boolean), log: (pre ? pre + ' | ' : '') + log }, ax));
+  }
+  /* a question in the roster: kept in the session too, so "yes" still
+     answers it after the card has closed (it closes 10 s after quiet) */
+  function rbAsk(kind, lines, q, options, data, s, log, extra){
+    askN++;
+    pending = Object.assign({ id: 'ask-' + askN, kind: kind, options: options || [], say: q }, data || {});
+    if(s){ s.asked = Object.assign({ kind: kind, q: q, options: options || [] }, data || {}); rbKeep(s); }
+    rbOther = false;
+    var say = (lines || []).filter(Boolean), ax = Object.assign({}, (extra && extra.ans) || {}), pre = ax.logPre;
+    delete ax.logPre;
+    say = say.length >= 3 ? say.slice(0, 2).concat([say.slice(2).join(' ') + ' ' + q]) : say.concat([q]);
+    return ans('ask', Object.assign({ say: say, ask: { id: pending.id, expect: (extra && extra.expect) || 'choice', options: (options || []).slice(0, 4) },
+      log: (pre ? pre + ' | ' : '') + (log || 'rb ask ' + kind) }, ax));
+  }
+  /* the session's question again, after an answer to something else */
+  function rbReask(s, lines, log, extra){
+    if(s && s.asked && s.asked.kind){
+      var a = s.asked, data = {};
+      Object.keys(a).forEach(function(k){ if(k !== 'kind' && k !== 'q' && k !== 'options') data[k] = a[k]; });
+      return rbAsk(a.kind, lines, a.q, a.options, data, s, log, extra);
+    }
+    return rbSay('answer', lines, log, extra ? extra.ans : null);
+  }
+  function rbWarn(ws, d, mon){
+    var ref = rbRefOf(d, mon), out = [];
+    (ws || []).forEach(function(w){
+      var n = w.id ? rbWho(d, w.id) : '', you = w.id === d.me;
+      if(w.code === 'afterClose') out.push(cap(n) + (you ? ' start' : ' starts') + ' at ' + rbTime(w.start) + ', after close.');
+      else if(w.code === 'empty') out.push("Nobody's on " + DAY_FULL[w.day] + ' now.');
+      else if(w.code === 'cover') out.push(cap(n) + (you ? " don't" : " doesn't") + ' usually work ' + DAY_FULL[w.day] + "s, so it's a cover.");
+      else if(w.code === 'gone') out.push(joinAnd(w.ids.map(function(id){ return (ref && ref.names[id]) || 'someone'; })) + (w.ids.length === 1 ? " isn't" : " aren't")
+        + ' on the staff list any more, so I left ' + (w.ids.length === 1 ? 'them' : 'them') + ' out.');
+    });
+    return out.join(' ');
+  }
+  function rbOpLog(o){
+    if(o.op === 'add') return 'add ' + o.day + ' ' + o.id + ' ' + o.start + (o.end ? '-' + o.end : '') + (o.station ? '/' + o.station : '');
+    if(o.op === 'remove') return 'remove ' + o.day + ' ' + o.id;
+    if(o.op === 'replace') return 'replace ' + o.day + ' ' + o.from + '>' + o.to + (o.start ? ' ' + o.start : '');
+    if(o.op === 'setTime') return 'time ' + o.day + ' ' + o.id + (o.start != null ? ' s' + o.start : '') + (o.end != null ? ' e' + (o.end || 'none') : '');
+    if(o.op === 'shift') return 'shift ' + (o.days || []).join(',') + ' ' + o.id + ' ' + (o.minutes > 0 ? '+' : '') + o.minutes + (o.part && o.part !== 'both' ? ' ' + o.part : '');
+    if(o.op === 'station') return 'station ' + o.day + ' ' + o.id + ' ' + o.station;
+    if(o.op === 'copy') return 'copy ' + o.day;
+    if(o.op === 'clear') return 'clear ' + o.day;
+    return o.op;
+  }
+
+  /* ---- his sentence as engine changes ----
+     env: { mon, day (in focus, or null), base ('ref': last week's day is
+     copied in first, because that's what was read out), session, last
+     ({ id, day, field }: what "make that 4" means), fix (answers to earlier
+     questions: ids, ampm, times, day) }. Returns { ops, days, did, issue }. */
+  var RB_SWAP = ['swap', 'switch', 'sub', 'substitute', 'replace', 'trade', 'swop', 'change'];
+  var RB_COVER = ['instead', 'replacing', 'covering', 'cover', 'place'];
+  var RB_TAKE = ['take', 'get', 'knock', 'pull', 'bump', 'kick', 'scratch', 'cross', 'strike'];
+  var RB_REMOVE = ['remove', 'cut', 'ditch', 'lose', 'scrap', 'delete', 'cancel', 'bin', 'drop'];
+  var RB_ADD = ['put', 'add', 'have', 'get', 'bring', 'stick', 'pop', 'chuck', 'throw', 'book', 'schedule', 'need', 'roster', 'give', 'on'];
+  function rbKind(cl){
+    var tk = cl.tk, ty = cl.ty, i, j;
+    var PU = function(x){ return ty[x] === 'P' || ty[x] === 'U'; };
+    var nextPU = function(x){ for(; x < tk.length; x++) if(PU(x)) return x; return -1; };
+    // replace: "swap Z for W", "replace Z with W", "change Z to W"
+    for(i = 0; i < tk.length; i++){
+      if(RB_SWAP.indexOf(tk[i]) < 0) continue;
+      var a = nextPU(i + 1);
+      if(a < 0) break;
+      // "swap Nathan and Anil", "switch Nathan with Anil" when both are on: an exchange (the plan decides)
+      if((tk[a + 1] === 'and' || tk[a + 1] === 'around') && PU(a + 2) && ['swap', 'switch', 'swop', 'trade'].indexOf(tk[i]) > -1) return { kind: 'exchange', a: a, b: a + 2 };
+      for(j = a + 1; j < tk.length; j++){
+        if(['for', 'with', 'by'].indexOf(tk[j]) > -1 || (tk[j] === 'to' && tk[i] !== 'switch')){
+          var b = nextPU(j + 1);
+          if(b > -1 && b - j <= 3) return { kind: 'replace', from: a, to: b };
+        }
+      }
+    }
+    // "W in for Z", "W instead of Z", "W covering Z", "put W on for Z"
+    for(i = 0; i < tk.length; i++){
+      if(!PU(i)) continue;
+      for(j = i + 1; j < Math.min(tk.length, i + 6); j++){
+        if(PU(j)) break;
+        if(tk[j] === 'for' || RB_COVER.indexOf(tk[j]) > -1){
+          var b2 = nextPU(j + 1);
+          if(b2 > -1 && b2 - j <= 3) return { kind: 'replace', from: b2, to: i };
+        }
+      }
+    }
+    // "Z out, W in"
+    for(i = 0; i < tk.length - 3; i++){
+      if(PU(i) && tk[i + 1] === 'out'){ var c2 = nextPU(i + 2); if(c2 > -1 && tk[c2 + 1] === 'in') return { kind: 'replace', from: i, to: c2 }; }
+    }
+    var hasTime = !!(cl.start || cl.end), offAt = /\boff (at|by|around)\b/.test(cl.text);
+    // remove: "take Y off", "remove Y", "Y's off", "Y can't make it", "no Y"
+    var people = []; for(i = 0; i < tk.length; i++) if(PU(i)) people.push(i);
+    if(people.length && !offAt && !cl.rel){
+      var takeAt = -1; for(i = 0; i < tk.length; i++) if(RB_TAKE.indexOf(tk[i]) > -1){ takeAt = i; break; }
+      if(takeAt > -1 && tk.indexOf('off', takeAt) > -1 && !hasTime) return { kind: 'remove', who: people };
+      for(i = 0; i < tk.length; i++) if(RB_REMOVE.indexOf(tk[i]) > -1 && nextPU(i + 1) > -1 && !hasTime) return { kind: 'remove', who: people };
+      if(/ P( and P)* (is |are |s )?(off|out|sick|away|not working|not on|not in|isnt working|isnt on|isnt in|cant make it|cant work|cant come|wont be in|wont be on|not coming|has the day off|day off|taking the day off)\b/.test(cl.shape) && !hasTime) return { kind: 'remove', who: people };
+      if(/^ (no|without) P\b/.test(cl.shape) && !hasTime) return { kind: 'remove', who: people };
+    }
+    if(cl.rel) return { kind: 'shift', who: people };
+    if(hasTime || cl.endClear) return { kind: people.length || cl.everyone ? 'time' : 'correct', who: people };
+    if(cl.station && people.length) return { kind: 'station', who: people };
+    if(people.length && (tk.some(function(w){ return RB_ADD.indexOf(w) > -1; }) || cl.days.length)) return { kind: 'add', who: people };
+    return null;
+  }
+  function rbPlan(text, env){
+    var d = env.d, fix = env.fix || {}, find = rbFinder(d, fix), mon = env.mon;
+    var res = { mon: mon, ops: [], days: [], did: [], issue: null, last: null, pre: [], any: false };
+    var itemWords = null;
+    try{ itemWords = catWords(catalogue(host.data(), taught())); }catch(e){ itemWords = null; }
+    var maybeNew = rbNewNames(text, itemWords);
+    var clauses = rbClauses(text, find).map(function(c){ return rbClause(c, find, maybeNew); });
+    // the week to change: the draft, with last week's day copied in first when that's what was read out
+    var week = rbWeekOf(d, mon);
+    if(env.day && env.base === 'ref'){
+      var ref = rbRefOf(d, mon), Rd = ref && ref.roster[env.day];
+      if(Rd && RE.dayList({ x: Rd }, 'x').length && !RE.sameDay(week[env.day], Rd)) res.pre.push({ op: 'copy', day: env.day, from: Rd });
+    }
+    if(res.pre.length){ var pr = RE.apply(week, { op: 'batch', ops: res.pre }, rbCtx(d)); if(pr.ok) week = pr.week; else res.pre = []; }
+    var ops = [], lastP = null, carryDays = null, carryPeople = [], touched = {}, draft = rbWeekOf(d, mon);
+    var dayTxt = function(x){ return x === env.day ? '' : env.session ? DAY_FULL[x] : rbDateSay(RE.dateOf(mon, x)); };
+    var on = function(x, id){ return !!(week[x] && week[x][id] && week[x][id].start); };
+    var startFor = function(cl, id, x){
+      var st = rbStartOf(cl.start, { owner: id === d.me, day: x }, RE);
+      if(st && st.ask){
+        if(fix.ampm) return { time: fix.ampm === 'am' ? st.am : st.pm };
+        return { issue: { ampm: true, h: cl.start.h, m: cl.start.m || 0, am: st.am, pm: st.pm } };
+      }
+      return st;
+    };
+    for(var ci = 0; ci < clauses.length && !res.issue; ci++){
+      var cl = clauses[ci];
+      if(/^(go back to|back to|go to|lets do|lets go to|now|what about|how about|onto|on to|actually go back to)\b/.test(cl.text) && cl.days.length && !cl.people.length){
+        carryDays = cl.days.filter(function(x){ return RE.DAYS.indexOf(x) > -1; }); res.goto = carryDays[0]; continue;
+      }
+      // the next clause sees the week as this sentence has changed it so far ("put W on, make him start at 4")
+      if(ci > 0 && ops.length){ var cur = RE.apply(draft, { op: 'batch', ops: res.pre.concat(ops) }, rbCtx(d)); if(cur.ok) week = cur.week; }
+      var k = rbKind(cl);
+      // "Who's on?" with no roster to go by: nothing but names ("Anil and Nathan", "me and Anil") puts them on
+      var onlyNames = cl.tk.length && cl.tk.every(function(w, i){ return cl.ty[i] === 'P' || cl.ty[i] === 'U' || /^(and|just|only|also|too|plus|um|uh|er|oh|yeah|ok|okay|so|then|maybe)$/.test(w); });
+      if(!k && env.addBare && onlyNames && (cl.people.length || cl.unknown.length)) k = { kind: 'add', who: cl.tk.map(function(w, i){ return i; }).filter(function(i){ return cl.ty[i] === 'P' || cl.ty[i] === 'U'; }) };
+      if(!k) continue;
+      res.any = true;
+      // which days
+      var days = cl.allWeek ? RE.DAYS.slice() : cl.days.filter(function(x){ return RE.DAYS.indexOf(x) > -1; });
+      var shut = cl.days.filter(function(x){ return x === 'mon' || x === 'tue'; })[0];
+      if(shut && !days.length){ res.issue = { closed: shut }; break; }
+      if(cl.last){ res.issue = { lastWeek: true }; break; }
+      if(!days.length) days = carryDays || (env.day ? [env.day] : fix.day ? [fix.day] : []);
+      if(cl.days.length || cl.allWeek) carryDays = days;
+      // the people, in the order said; "him" is the last one named
+      var byTok = {}, unknownAt = {};
+      for(var pj = 0; pj < cl.people.length && !res.issue; pj++){
+        var pp = cl.people[pj];
+        if(pp.me) byTok[pp.at] = d.me;
+        else if(pp.pron){ var hw = lastP || (env.last && env.last.id); if(hw) byTok[pp.at] = hw; else res.issue = { who: true }; }
+        else if(pp.ids.length > 1 || !pp.sure) res.issue = { pick: true, ids: pp.ids, word: pp.word };
+        else byTok[pp.at] = pp.ids[0];
+        if(byTok[pp.at]) lastP = byTok[pp.at];
+      }
+      if(res.issue) break;
+      cl.unknown.forEach(function(u){ unknownAt[u.at] = u.word; });
+      var idAt = function(t){ if(byTok[t]) return byTok[t]; if(unknownAt[t]){ res.issue = res.issue || { unknown: unknownAt[t] }; } return null; };
+      var who = (k.who || []).map(idAt).filter(Boolean);
+      if(res.issue && res.issue.unknown && ['remove', 'shift', 'exchange'].indexOf(k.kind) > -1) res.issue.noAdd = true;
+      if(res.issue) break;
+      if(!who.length && ci > 0 && (k.kind === 'time' || k.kind === 'shift' || k.kind === 'correct') && carryPeople.length && !cl.everyone){ who = carryPeople.slice(); if(k.kind === 'correct') k.kind = 'time'; }
+      if(who.length) carryPeople = who;
+      if(k.kind === 'correct'){
+        if(!env.last || !env.last.id){ res.issue = { who: true }; break; }
+        who = [env.last.id]; days = [env.last.day]; k.kind = 'time';
+        if(env.last.field === 'end' && cl.start && !cl.end){ cl.end = cl.start; cl.start = null; }
+      }
+      if(!days.length){ res.issue = { needDay: true }; break; }
+      if(k.kind === 'exchange'){
+        var xa = idAt(k.a), xb = idAt(k.b);
+        if(res.issue){ res.issue.noAdd = true; break; }
+        for(var xi = 0; xi < days.length; xi++){
+          var xd = days[xi], aOn = on(xd, xa), bOn = on(xd, xb), xt = dayTxt(xd);
+          if(aOn && bOn && week[xd][xa].start === week[xd][xb].start && (week[xd][xa].end || '') === (week[xd][xb].end || '')){
+            res.did.push(rbWho(d, xa) + ' and ' + rbWho(d, xb) + ' are both at ' + rbTime(week[xd][xa].start) + (xt ? ' on ' + xt : '') + ' already');
+            continue;
+          }
+          if(aOn && bOn){
+            var sa = week[xd][xa], sb = week[xd][xb];
+            ops.push({ op: 'setTime', day: xd, id: xa, start: sb.start, end: sb.end || '' }, { op: 'station', day: xd, id: xa, station: sb.station || '' },
+                     { op: 'setTime', day: xd, id: xb, start: sa.start, end: sa.end || '' }, { op: 'station', day: xd, id: xb, station: sa.station || '' });
+            res.did.push(rbWho(d, xa) + ' and ' + rbWho(d, xb) + ' have swapped' + (xt ? ' on ' + xt : '') + ': ' + rbWho(d, xa) + ' at ' + rbTime(sb.start) + ', ' + rbWho(d, xb) + ' at ' + rbTime(sa.start));
+          }
+          else if(aOn || bOn){
+            var fr = aOn ? xa : xb, tt = aOn ? xb : xa;
+            ops.push({ op: 'replace', day: xd, from: fr, to: tt });
+            res.did.push(rbIs(rbWho(d, tt)) + ' in for ' + rbWho(d, fr) + (xt ? ' on ' + xt : ''));
+          }
+          else { res.issue = { neitherOn: [xa, xb], day: xd }; break; }
+          touched[xd] = 1;
+        }
+      }
+      else if(k.kind === 'replace'){
+        var from = idAt(k.from), to = idAt(k.to);
+        if(res.issue && res.issue.unknown && !from) res.issue.noAdd = true;
+        if(res.issue) break;
+        for(var di = 0; di < days.length; di++){
+          var op = { op: 'replace', day: days[di], from: from, to: to };
+          if(cl.start){ var st0 = startFor(cl, to, days[di]) || {}; if(st0.issue){ res.issue = st0.issue; break; } if(st0.time) op.start = st0.time; }
+          ops.push(op); touched[days[di]] = 1;
+          res.did.push(rbIs(rbWho(d, to)) + ' in for ' + rbWho(d, from) + (dayTxt(days[di]) ? ' on ' + dayTxt(days[di]) : '') + (op.start ? ', starting at ' + rbTime(op.start) : ''));
+        }
+        res.last = { id: to, day: days[days.length - 1], field: 'start' };
+      }
+      else if(k.kind === 'remove'){
+        if(res.issue) break;
+        who.forEach(function(id){
+          var ds = cl.allWeek ? RE.daysOn(week, id) : days;
+          if(cl.allWeek && !ds.length){ res.issue = res.issue || { notOnWeek: id }; return; }
+          ds.forEach(function(x){ ops.push({ op: 'remove', day: x, id: id }); touched[x] = 1; });
+          var dt = cl.allWeek ? daysSay(ds) : ds.map(dayTxt).filter(Boolean).join(' and ');
+          res.did.push(rbIs(rbWho(d, id)) + ' off' + (dt ? ' ' + dt : ''));
+          res.removeAll = cl.allWeek ? (res.removeAll || []).concat([{ id: id, days: ds }]) : res.removeAll;
+        });
+      }
+      else if(k.kind === 'shift'){
+        var part = /\bstart/.test(cl.text) && !RB_END.test(cl.text) ? 'start' : RB_END.test(cl.text) && !/\bstart/.test(cl.text) ? 'end' : 'both';
+        var targets = cl.everyone || !who.length ? ['all'] : who;
+        var amt = Math.abs(cl.rel) === 30 ? 'half an hour' : Math.abs(cl.rel) === 60 ? 'an hour' : Math.abs(cl.rel) === 90 ? 'an hour and a half'
+          : Math.abs(cl.rel) % 60 === 0 ? Math.abs(cl.rel) / 60 + ' hours' : Math.abs(cl.rel) + ' minutes';
+        targets.forEach(function(id){
+          ops.push({ op: 'shift', days: days.slice(), id: id, minutes: cl.rel, part: part });
+          days.forEach(function(x){ touched[x] = 1; });
+          var nm = id === 'all' ? 'everyone' : rbWho(d, id);
+          var dt = days.map(dayTxt).filter(Boolean);
+          res.did.push((nm === 'you' ? "you're " : nm === 'everyone' ? "everyone's " : nm + "'s ") + amt + (cl.rel > 0 ? ' later' : ' earlier') + (dt.length ? ' on ' + joinAnd(dt) : ''));
+        });
+      }
+      else if(k.kind === 'time' || k.kind === 'station' || k.kind === 'add'){
+        var ids = cl.everyone && !who.length ? null : who, didFrom = res.did.length;
+        for(var dj = 0; dj < days.length && !res.issue; dj++){
+          var x = days[dj];
+          var list = ids || RE.dayList(week, x).map(function(e){ return e.id; });
+          if(!list.length && cl.everyone){ res.issue = { emptyDay: x }; break; }
+          for(var li = 0; li < list.length && !res.issue; li++){
+            var id = list[li], nm = rbWho(d, id), dt = dayTxt(x), isOn = on(x, id), o2 = null;
+            var start = null, end = null;
+            if(cl.start){ var st1 = startFor(cl, id, x) || {}; if(st1.issue){ res.issue = st1.issue; break; } start = st1.time || null; }
+            if(!start && !isOn && fix.times && fix.times[id + '@' + x]) start = fix.times[id + '@' + x];
+            var from0 = start || (isOn ? week[x][id].start : null);
+            if(cl.end) end = rbEndOf(cl.end, from0);
+            else if(cl.endClear) end = '';
+            if(isOn){
+              if(start != null || end != null){
+                o2 = { op: 'setTime', day: x, id: id };
+                if(start != null) o2.start = start;
+                if(end != null) o2.end = end;
+                ops.push(o2);
+                res.did.push(start != null ? (nm === 'you' ? 'you start' : nm + ' starts') + ' at ' + rbTime(start) + (dt ? ' on ' + dt : '') + (end ? ', finishing at ' + rbTime(end) : '')
+                  : end ? (nm === 'you' ? 'you finish' : nm + ' finishes') + ' at ' + rbTime(end) + (dt ? ' on ' + dt : '')
+                  : 'no early finish for ' + nm + (dt ? ' on ' + dt : ''));
+                res.last = { id: id, day: x, field: start != null ? 'start' : 'end' };
+              }
+              if(cl.station){ ops.push({ op: 'station', day: x, id: id, station: cl.station }); res.did.push(rbIs(nm) + ' on ' + roStation(cl.station) + (dt ? ' on ' + dt : '')); }
+              if(!o2 && !cl.station) res.did.push(rbIs(nm) + ' already on ' + (dt || DAY_FULL[x]) + ' at ' + rbTime(week[x][id].start));
+              else touched[x] = 1;
+            } else {
+              if(!start){ res.issue = { needTime: id, day: x }; break; }
+              ops.push({ op: 'add', day: x, id: id, start: start, end: end || '', station: cl.station || '' });
+              touched[x] = 1;
+              res.did.push(rbIs(nm) + ' on' + (dt ? ' ' + dt : '') + ' at ' + rbTime(start) + (end ? ' till ' + rbTime(end) : '') + (cl.station ? ' on ' + roStation(cl.station) : ''));
+              res.last = { id: id, day: x, field: 'start' };
+            }
+          }
+        }
+        if(!ids && cl.start && !res.issue && res.did.length > didFrom){
+          var allAt = /at (.+?)( on |,|$)/.exec(res.did[didFrom]);
+          res.did.splice(didFrom, res.did.length - didFrom, 'everyone starts at ' + (allAt ? allAt[1] : 'that time') + (days.length === 1 && dayTxt(days[0]) ? ' on ' + dayTxt(days[0]) : ''));
+        }
+      }
+    }
+    res.ops = res.pre.concat(ops);
+    res.days = RE.DAYS.filter(function(x){ return touched[x]; });
+    // folded: "W's in for Z" then "W starts at 3" is one change, said once
+    var folded = [];
+    res.did.forEach(function(t){
+      var prev = folded[folded.length - 1], m = /^(\w+) starts at (.+)$/.exec(t) || /^(you) start at (.+)$/.exec(t);
+      if(prev && m && prev.indexOf((m[1] === 'you' ? "you're" : m[1] + "'s") + ' in for ') === 0 && prev.indexOf(', starting at') < 0) folded[folded.length - 1] = prev + ', starting at ' + m[2];
+      else folded.push(t);
+    });
+    var joined = [];
+    folded.forEach(function(t){
+      var m = /^(.+?)(?:'s|'re) on( .+)$/.exec(t), prev = joined[joined.length - 1];
+      if(m && prev && prev.tail === m[2]){ prev.names.push(m[1]); return; }
+      joined.push(m ? { names: [m[1]], tail: m[2] } : { text: t });
+    });
+    res.did = joined.map(function(j){
+      if(j.text) return j.text;
+      return j.names.length > 1 ? joinAnd(j.names) + ' are on' + j.tail : rbIs(j.names[0]) + ' on' + j.tail;
+    });
+    return res;
+  }
+  /* the week a change outside a session means: the coming one of that day
+     (today included), "next Friday" the week after, or today / tomorrow */
+  function rbWhen(c, d){
+    var today = tsToday(), date = null;
+    if(/\b(today|tonight|todays|tonights)\b/.test(c)) date = today;
+    else if(/\btomorrows?\b/.test(c)) date = addDays(today, 1);
+    else {
+      var tk = c.split(' ');
+      for(var i = 0; i < tk.length && !date; i++){
+        var dk = rbDayOf(tk[i]);
+        if(!dk || dk === 'mon' || dk === 'tue' || tk[i - 1] === 'last') continue;
+        date = today;
+        while(dayOf(date) !== dk) date = addDays(date, 1);
+        if(tk[i - 1] === 'next' && mondayOf(date) === mondayOf(today)) date = addDays(date, 7);
+        else if(date === today && tk[i - 1] !== 'this') return { mon: mondayOf(date), day: dk, todayOrNext: true, next: mondayOf(addDays(date, 7)) };
+      }
+    }
+    return date ? { mon: mondayOf(date), day: dayOf(date) } : null;
+  }
+  /* a change: understood, asked about, confirmed, or done */
+  function rbEdit(text, env, lead){
+    var d = rbData();
+    if(!d || !RE) return null;
+    var s = env.session ? rbSession() : null;
+    if(!rbEditable(d, env.mon)) return rbSay('cant', ["I can only change this week's and next week's roster."], 'rb week out');
+    var plan = rbPlan(text, Object.assign({}, env, { d: d }));
+    if(plan.issue) return rbIssue(plan, text, env, s, d, lead || []);
+    var edits = plan.ops.length - plan.pre.length;
+    if(!edits && !plan.did.length){
+      if(plan.goto && s) return rbGoTo(s, d, plan.goto, lead);
+      return null;
+    }
+    if(!edits) return s ? rbReask(s, (lead || []).concat([cap(plan.did.join('. ')) + '.']), 'rb nothing to do') : rbSay('answer', (lead || []).concat([cap(plan.did.join('. ')) + '.']), 'rb nothing to do');
+    if(plan.days.length > 1){
+      var rb = plan.removeAll && plan.removeAll.length === 1 && plan.did.length === 1
+        ? 'That takes ' + rbWho(d, plan.removeAll[0].id) + ' off ' + daysSay(plan.removeAll[0].days) + '.'
+        : 'That changes ' + daysSay(plan.days) + ': ' + plan.did.join('; ') + '.';
+      return confirming('roster', [rb], 'Go ahead?', { plan: plan, env: env }, 'rb confirm ' + plan.ops.map(rbOpLog).join('; '));
+    }
+    return rbDo(plan, env, s, lead || []);
+  }
+  function rbIssue(plan, text, env, s, d, lead){
+    var is = plan.issue, keep = { text: text, env: env };
+    if(is.pick){
+      var names = is.ids.map(function(id){ return rbStaffName(d, id); });
+      var opts = is.ids.slice(0, 3).map(function(id, i){ return { label: names[i], value: id }; }).concat([{ label: 'Neither', value: 'none' }]);
+      return rbAsk('rbPick', lead, is.ids.length === 1 ? 'Did you mean ' + names[0] + '?' : joinOr(names.slice(0, 3)) + '?', opts, Object.assign({ ids: is.ids, word: is.word }, keep), s, 'rb pick ' + is.word);
+    }
+    if(is.unknown){
+      var nm = cap(is.unknown);
+      if(is.noAdd) return rbReaskOrSay(s, lead.concat(["I don't have " + nm + ' on the staff list. Nothing changed.']), 'rb unknown ' + is.unknown);
+      return rbAsk('rbNew', lead, "I don't have " + nm + ' on the staff list. Add them?', [{ label: 'Yes, add ' + nm, value: 'yes' }, { label: 'No', value: 'no' }],
+        Object.assign({ name: nm }, keep), s, 'rb unknown ' + is.unknown);
+    }
+    if(is.who) return s ? rbReask(s, lead.concat(['Who do you mean?']), 'rb who') : rbSay('cant', lead.concat(['Who do you mean? Say their name.']), 'rb who');
+    if(is.needDay){
+      var opts2 = RE.DAYS.map(function(x){ return { label: DAY_FULL[x], value: x }; }).slice(0, 4);
+      return rbAsk('rbWhichDay', lead, 'Which day?', opts2, keep, s, 'rb which day', { expect: 'choice' });
+    }
+    if(is.ampm){
+      var hs = is.h + (is.m ? ':' + pad2(is.m) : '');
+      return rbAsk('rbAmPm', lead, hs + ' in the morning, or ' + hs + ' at night?', [{ label: 'Morning', value: 'am' }, { label: 'Night', value: 'pm' }], keep, s, 'rb am or pm');
+    }
+    if(is.needTime) return rbAsk('rbTime', lead, 'What time for ' + rbWho(d, is.needTime) + ' on ' + DAY_FULL[is.day] + '?', [], Object.assign({ id: is.needTime, day: is.day }, keep), s, 'rb need time', { expect: 'time' });
+    if(is.closed) return rbSay('cant', lead.concat(["The kitchen's closed on " + DAY_FULL[is.closed] + 's, so the roster has no ' + DAY_FULL[is.closed] + '.']), 'rb closed day');
+    if(is.lastWeek) return rbSay('cant', lead.concat(["I can't change last week's roster, only this week's and next week's."]), 'rb last week');
+    if(is.notOnWeek) return rbSay('cant', lead.concat([cap(rbWho(d, is.notOnWeek)) + (is.notOnWeek === d.me ? " aren't" : " isn't") + ' on any day that week.']), 'rb not on week');
+    if(is.neitherOn) return rbReaskOrSay(s, lead.concat(['Neither ' + rbWho(d, is.neitherOn[0]) + ' nor ' + rbWho(d, is.neitherOn[1]) + ' is on ' + DAY_FULL[is.day] + '. Nothing changed.']), 'rb neither on');
+    if(is.emptyDay) return rbSay('cant', lead.concat(["Nobody's on " + DAY_FULL[is.emptyDay] + ' yet.']), 'rb empty day');
+    return rbSay('cant', lead.concat(["I didn't catch that for the roster."]), 'rb issue');
+  }
+  /* saves it, then says what's stored */
+  function rbDo(plan, env, s, lead){
+    var d = rbData();
+    if(!d || !rbEditable(d, plan.mon)) return rbSay('cant', ["I can only change this week's and next week's roster."], 'rb week out');
+    var r = RE.commit(rbWeekOf(d, plan.mon), { op: 'batch', ops: plan.ops }, rbCtx(d), rbSaver(plan.mon));
+    var log = 'rb ' + plan.mon + ' ' + plan.ops.map(rbOpLog).join('; ');
+    if(!r.ok) return rbRefused(r, plan, s, lead, log);
+    log += ' saved';
+    var lab = 'Roster: ' + plan.did.join('; ');
+    var aid = r.undo ? remember(lab, [{ k: 'ro', mon: plan.mon, rec: r.undo }]) : null;
+    var extra = aid ? { action: { id: aid, label: lab, undo: true } } : {};
+    var one = plan.days.length === 1 ? plan.days[0] : null;
+    var focus = s ? s.focus : null;
+    var line1 = (one && s && one === focus ? 'Done. ' : '') + cap(plan.did.join('. ')) + '.';
+    var w = rbWarn(r.warnings, d, plan.mon);
+    if(w) line1 += ' ' + w;
+    var line2 = one ? (s ? DAY_FULL[one] : rbDateSay(RE.dateOf(plan.mon, one))) + ' is now ' + rbDaySay(d, r.week[one]) + '.' : '';
+    if(!s){
+      if(one) extra.show = { title: 'Roster · ' + rbDateSay(RE.dateOf(plan.mon, one)), lines: RE.dayList(r.week, one).map(function(x){ return { text: cap(rbWho(d, x.id)) + ' · ' + rbTime(x.start) + (x.end ? ' – ' + rbTime(x.end) : ''), tone: 'ok' }; }) };
+      return rbSay('done', lead.concat([line1, line2]), log, extra);
+    }
+    if(plan.last) s.last = plan.last;
+    if(one && one !== focus){
+      var back = focus && (s.days[focus] === 'pending' || s.days[focus] === 'skipped') ? focus : null;
+      s.focus = one; s.back = back;
+      if(back) return rbAsk('rbBack', lead.concat([line1, line2]), 'Back to ' + DAY_FULL[back] + '?', [{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }], { day: one, back: back }, s, log, { ans: extra });
+    }
+    var fd = one || s.focus;
+    if(fd) return rbAsk('rbElse', lead.concat([line1, line2]), 'Anything else for ' + DAY_FULL[fd] + '?', [{ label: 'No, next day', value: 'no' }], { day: fd }, s, log, { ans: extra });
+    return rbAsk('rbChanges', lead.concat([line1, line2]), 'Anything else?', [{ label: "No, that's it", value: 'no' }], {}, s, log, { ans: extra });
+  }
+  function rbRefused(r, plan, s, lead, log){
+    var d = rbData() || { names: {}, staff: [] }, op = plan.ops[r.at] || {}, day = r.day || op.day;
+    var n = r.id ? rbWho(d, r.id) : '', you = r.id === d.me, msg;
+    if(r.error === 'notSaved'){
+      var still = plan.days.length === 1 && rbEditable(d, plan.mon) ? ' ' + DAY_FULL[plan.days[0]] + ' is still ' + rbDaySay(d, rbWeekOf(d, plan.mon)[plan.days[0]]) + '.' : '';
+      msg = "I couldn't save that, so nothing changed." + still;
+    }
+    else if(r.error === 'notOn') msg = cap(n) + (you ? " aren't" : " isn't") + ' on ' + (day ? DAY_FULL[day] : 'those days') + '. Nothing changed.';
+    else if(r.error === 'alreadyOn') msg = cap(rbIs(n)) + ' already on ' + DAY_FULL[day] + ' at ' + rbTime(r.shift.start) + '. Nothing changed.';
+    else if(r.error === 'sameStaff') msg = "That's the same person. Nothing changed.";
+    else if(r.error === 'endBeforeStart') msg = 'That finish is before ' + n + (you ? ' start' : ' starts') + '. Nothing changed.';
+    else if(r.error === 'outOfDay') msg = 'That would go past midnight. Nothing changed.';
+    else if(r.error === 'empty') msg = "Nobody's on " + (r.days ? daysSay(r.days) : 'that day') + ' yet.';
+    else if(r.error === 'noStaff') msg = "I don't have that person on the staff list. Nothing changed.";
+    else msg = "I couldn't do that. Nothing changed.";
+    log += (r.error === 'notSaved' ? ' NOT SAVED' : ' refused ' + r.error);
+    return s ? rbReask(s, lead.concat([msg]), log) : rbSay(r.error === 'notSaved' ? 'error' : 'cant', lead.concat([msg]), log);
+  }
+
+  /* ---- the walk through the week ---- */
+  function rbPresent(s, d, day, lead, extra){
+    d = rbData() || d;   // as stored now
+    var draft = rbWeekOf(d, s.week), ref = rbRefOf(d, s.week);
+    var D = draft[day] || {}, R = ref ? ref.roster[day] || {} : null;
+    var name = DAY_FULL[day], dl = RE.dayList({ x: D }, 'x'), rl = R ? RE.dayList({ x: R }, 'x') : [];
+    var data = { day: day }, line, q, opts, kind = 'rbDay';
+    s.focus = day; s.back = null;
+    if(rl.length){
+      if(!dl.length || RE.sameDay(D, R)){
+        line = name + '. Last week: ' + rbDaySay(d, R, ref.names) + '.'; q = 'Same again?'; data.base = 'ref';
+        opts = [{ label: 'Same again', value: 'same' }, { label: 'Changes', value: 'no' }, { label: 'Skip for now', value: 'skip' }];
+      } else {
+        line = name + '. Last week: ' + rbDaySay(d, R, ref.names) + ". It's set to " + rbDaySay(d, D) + '.'; q = 'Keep that, or same as last week?'; data.base = 'draft';
+        opts = [{ label: 'Keep it', value: 'keep' }, { label: 'Same as last week', value: 'same' }, { label: 'Changes', value: 'no' }, { label: 'Skip for now', value: 'skip' }];
+      }
+    } else {
+      line = name + '. ' + (ref ? 'Nobody was on last ' + name + '.' : "There's no roster saved for last " + name + '.');
+      data.base = 'draft';
+      if(dl.length){
+        line += " It's set to " + rbDaySay(d, D) + '.'; q = 'Keep it?';
+        opts = [{ label: 'Keep it', value: 'keep' }, { label: 'Changes', value: 'no' }, { label: 'Skip for now', value: 'skip' }];
+      } else {
+        q = "Who's on?"; kind = 'rbWho';
+        opts = [{ label: 'Nobody, closed', value: 'none' }, { label: 'Skip for now', value: 'skip' }];
+      }
+    }
+    return rbAsk(kind, (lead || []).concat([line]), q, opts, data, s, 'rb day ' + day, { expect: kind === 'rbWho' ? 'item' : 'choice', ans: extra });
+  }
+  function rbOnward(s, d, lead, extra){
+    var nx = RE.nextDay(s, s.focus);
+    if(nx) return rbPresent(s, d, nx, lead, extra);
+    return rbWeekDone(s, d, lead, extra);
+  }
+  function rbGoTo(s, d, day, lead){
+    d = rbData() || d;
+    var back = s.focus && s.focus !== day && (s.days[s.focus] === 'pending' || s.days[s.focus] === 'skipped') ? s.focus : null;
+    if(s.days[day] === 'done' || s.days[day] === 'closed'){
+      s.focus = day; s.back = back;
+      return rbAsk('rbElse', (lead || []).concat([DAY_FULL[day] + ' is ' + rbDaySay(d, rbWeekOf(d, s.week)[day]) + '.']), 'What should change?',
+        [{ label: back ? 'Nothing, back to ' + DAY_FULL[back] : 'Nothing', value: 'no' }], { day: day }, s, 'rb go to ' + day);
+    }
+    var a = rbPresent(s, d, day, lead);
+    s.back = back; rbKeep(s);
+    return a;
+  }
+  /* the day's done: "Wednesday's set." and on to the next one */
+  function rbDayDone(s, d, day, lead, extra){
+    s.days[day] = 'done';
+    var back = s.back;
+    if(back && back !== day && (s.days[back] === 'pending' || s.days[back] === 'skipped')){ s.back = null; return rbPresent(s, d, back, (lead || []).concat([DAY_FULL[day] + "'s set."]), extra); }
+    s.focus = day;
+    return rbOnward(s, d, (lead || []).concat([DAY_FULL[day] + "'s set."]), extra);
+  }
+  /* "same": last week's day, copied in and saved, then the day's done */
+  function rbSame(s, d, day, lead){
+    var ref = rbRefOf(d, s.week), R = ref && ref.roster[day];
+    if(!R || !RE.dayList({ x: R }, 'x').length) return rbReask(s, (lead || []).concat(['There was nobody on last ' + DAY_FULL[day] + ' to copy.']), 'rb same none');
+    var week = rbWeekOf(d, s.week);
+    if(RE.sameDay(week[day], R)) return rbDayDone(s, d, day, lead);
+    var plan = { mon: s.week, ops: [{ op: 'copy', day: day, from: R }], days: [day], did: ['same as last ' + DAY_FULL[day]], pre: [] };
+    var r = RE.commit(week, plan.ops[0], rbCtx(d), rbSaver(s.week));
+    var log = 'rb ' + s.week + ' copy ' + day + ' from last week';
+    if(!r.ok) return rbRefused(r, plan, s, lead || [], log);
+    var lab = 'Roster: ' + DAY_FULL[day] + ' same as last week';
+    var aid = r.undo ? remember(lab, [{ k: 'ro', mon: s.week, rec: r.undo }]) : null;
+    var w = rbWarn(r.warnings, d, s.week);
+    return rbDayDone(s, d, day, (lead || []).concat(w ? [w] : []), aid ? { action: { id: aid, label: lab, undo: true }, logPre: log + ' saved' } : { logPre: log + ' saved' });
+  }
+  function rbClosed(s, d, day, lead){
+    d = rbData() || d;
+    var week = rbWeekOf(d, s.week);
+    if(RE.dayList(week, day).length){
+      return confirming('roster', ['That clears ' + DAY_FULL[day] + ': ' + rbDaySay(d, week[day]) + '.'], 'Clear it and mark it closed?',
+        { plan: { mon: s.week, ops: [{ op: 'clear', day: day }], days: [day], did: [DAY_FULL[day] + ' cleared'], pre: [], closed: day }, env: { mon: s.week, session: true } }, 'rb confirm clear ' + day);
+    }
+    s.days[day] = 'closed'; s.focus = day;
+    return rbOnward(s, d, (lead || []).concat([DAY_FULL[day] + "'s closed, so nobody's on."]));
+  }
+  function rbVerify(d0, mon){
+    var d = rbData();   // read now: a copy from before the last change would write it away
+    if(!d || !rbEditable(d, mon)) return false;
+    var week = rbWeekOf(d, mon), put = {}, back = null;
+    RE.DAYS.forEach(function(x){ put[x] = week[x]; });
+    try{ back = host.setRosterDays ? host.setRosterDays(mon, put) : null; }catch(e){ back = null; }
+    return !!(back && back.ok && back.days) && RE.DAYS.every(function(x){ return RE.sameDay(back.days[x], week[x], true); });
+  }
+  var RB_SAVE_FAILED = "I couldn't save it: the phone wouldn't store the roster. The changes I confirmed earlier were saved at the time. Try 'save it' again in a moment.";
+  function rbWeekDone(s, d, lead, extra){
+    if(!rbVerify(d, s.week)){ rbKeep(s); return rbSay('error', (lead || []).concat([RB_SAVE_FAILED]), 'rb verify NOT SAVED', extra); }
+    s.focus = null;
+    return rbAsk('rbEnd', (lead || []).concat(["That's the week, sir. It's all saved."]), 'Want me to read it out, or show it on screen?',
+      [{ label: 'Read it out', value: 'read' }, { label: 'Show it', value: 'show' }, { label: 'No thanks', value: 'no' }], {}, s, 'rb week done', { ans: extra });
+  }
+  function rbWeekRead(s, d, lead, log){
+    d = rbData() || d;
+    var week = rbWeekOf(d, s.week), title = rbWeekWord(d, s.week) + "'s roster";
+    return rbSay('answer', (lead || []).concat([RE.DAYS.map(function(x){ return DAY_FULL[x] + ': ' + rbDaySay(d, week[x]) + '.'; }).join(' ')]), log || 'rb read week',
+      { show: { title: title, lines: RE.DAYS.map(function(x){ return { text: DAY_FULL[x].slice(0, 3) + ' · ' + rbDaySay(d, week[x]), tone: 'ok' }; }) } });
+  }
+  function rbOpen(s, d){ if(host.open) host.open({ view: 'rosterBuild', week: s.week === d.week ? 'this' : 'next' }); }
+  function rbFinish(s){ s.finished = true; s.asked = null; rbKeep(s); }
+  /* "that's it, save it": checked in storage before it's called saved */
+  function rbSaveIt(s, d){
+    if(!rbVerify(d, s.week)){ rbKeep(s); return rbSay('error', [RB_SAVE_FAILED], 'rb save NOT SAVED'); }
+    var left = RE.DAYS.filter(function(x){ return s.days[x] === 'pending' || s.days[x] === 'skipped'; });
+    rbFinish(s);
+    return rbSay('done', ['Saved, sir. ' + rbWeekWord(d, s.week) + "'s roster is on the phone.",
+      left.length ? "We didn't go through " + daysSay(left) + ': ' + (left.length === 1 ? "it's" : "they're") + ' as ' + (left.length === 1 ? 'it was' : 'they were') + '.' : '',
+      'To send it to the staff, tap Publish on Build Roster.'], 'rb saved');
+  }
+  function rbStart(text, d){
+    var c = rbClean(text);
+    var mon = /\bthis weeks?\b/.test(c) ? d.week : RE.buildWeekFor(tsToday());
+    if(!rbEditable(d, mon)) mon = rbNextMon(d);
+    var range = rbDateSay(addDays(mon, 2)) + ' to ' + rbDateSay(addDays(mon, 6));
+    var s = rbSession();
+    if(s && s.week === mon && !s.finished && RE.DAYS.some(function(x){ return s.days[x] !== 'pending'; })){
+      var at = RE.firstUnfinished(s), done = RE.DAYS.filter(function(x){ return s.days[x] === 'done'; });
+      if(!at) return rbWeekDone(s, d, ["You've done every day of " + range + '.']);
+      return rbAsk('rbResume', [], "You've started " + range + (done.length ? ', with ' + daysSay(done) + ' done' : '') + '. Carry on from ' + DAY_FULL[at] + ', or start again?',
+        [{ label: 'Carry on', value: 'carry' }, { label: 'Start again', value: 'again' }], {}, s, 'rb resume ' + mon);
+    }
+    s = RE.newSession(mon, 'day', now());
+    if(!rbRefOf(d, mon)) return rbPresent(s, d, 'wed', ['Sure, sir. ' + range + ". I don't have last week's roster, so let's go day by day."]);
+    return rbAsk('rbMode', [], 'Sure, sir. ' + range + '. Day by day, or copy last week and just tell me the changes?',
+      [{ label: 'Day by day', value: 'day' }, { label: 'Copy last week', value: 'copy' }], {}, s, 'rb start ' + mon);
+  }
+  function rbContinue(text, d){
+    var s = rbSession();
+    if(!s || s.finished || !rbEditable(d, s.week)) return rbStart(text, d);
+    s.paused = false;
+    var at = RE.firstUnfinished(s);
+    if(!at) return rbWeekDone(s, d, []);
+    return rbPresent(s, d, at, ['Carrying on.']);
+  }
+  /* copy and change: every day that had people last week becomes last
+     week's (asked first: it touches several days), then just the changes */
+  function rbCopyMode(s, d){
+    s.mode = 'copy';
+    var draft = rbWeekOf(d, s.week), ref = rbRefOf(d, s.week), ops = [], differ = [];
+    RE.DAYS.forEach(function(x){
+      var R = ref.roster[x] || {};
+      if(RE.dayList({ x: R }, 'x').length && !RE.sameDay(draft[x], R)){ differ.push(x); ops.push({ op: 'copy', day: x, from: R }); }
+    });
+    if(!ops.length){ rbKeep(s); return rbCopied(s, d, [rbWeekWord(d, s.week) + ' already matches last week.']); }
+    rbKeep(s);
+    return confirming('roster', ['That sets ' + daysSay(differ) + " to last week's roster."], 'Go ahead?',
+      { plan: { mon: s.week, ops: ops, days: differ, did: ['copied last week'], pre: [], copyAll: true }, env: { mon: s.week, session: true } }, 'rb confirm copy week');
+  }
+  function rbCopied(s, d, lead, extra){
+    var ref = rbRefOf(d, s.week), week = rbWeekOf(d, s.week), open = [];
+    s.focus = null; s.back = null;
+    RE.DAYS.forEach(function(x){
+      var had = ref && RE.dayList({ x: ref.roster[x] || {} }, 'x').length;
+      if(had || RE.dayList(week, x).length) s.days[x] = 'done'; else open.push(x);
+    });
+    var note = open.length ? daysSay(open) + (open.length === 1 ? ' had' : ' had') + ' nobody last week, so ' + (open.length === 1 ? "it's" : "they're") + ' empty.' : '';
+    return rbAsk('rbChanges', lead.concat([note]), "What's different?", [{ label: "Nothing, that's it", value: 'no' }], {}, s, 'rb copied', { expect: 'any', ans: extra });
+  }
+  /* "Who worked last Friday?" in a session: last week is the one before
+     the week being built. Read only; then the question again. */
+  function rbRead(text, s, d){
+    var c = rbClean(text);
+    if(/\b(read (it|me|the week|the roster|back|it out|it back)|whats the (week|roster) (look like|now)|how does (it|the week) look)\b/.test(c) && !/\blast\b/.test(c)) return rbWeekRead(s, d, [], 'rb read week');
+    var a = rosterAnswer(text, false, { build: s.week, ref: addDays(s.week, -7) });
+    if(a.status !== 'answer') return a;
+    return rbReask(s, a.say, a.log + ' (in a roster session)', a.show ? { ans: { show: a.show } } : null);
+  }
+  function rbIsStart(c){
+    if(/^(whats|what|how|hows|who|whos|when|is|are|was|were|did|do i|do we|does|am i|have i|any|which|show|tell|read|check)\b/.test(c)) return false;
+    return /\b(do|build|make|create|start|set up|plan|sort out|work on|write|new|draft|prepare|organise|organize|begin|lets do)( (a|an|the|my|our|this|next|new|weeks|next weeks|this weeks|a new|the new|up))* rosters?\b/.test(c)
+      && !/\b(add|put|swap|remove|take|change|move)\b/.test(c);
+  }
+  function rbIsContinue(c){ return /\b(continue|resume|carry on|keep going|get back to|go back to|back to|pick up|finish off|finish)\b.*\brosters?\b/.test(c) && !/\blater\b/.test(c); }
+  function rbIsPause(c){
+    return (/\b(pause|finish (it |this |the roster )?later|do (the rest|it|this) later|stop (here|there|for now|the roster)|lets stop|thats enough for now|ill come back( to it)?|come back to (it|the roster) later)\b/.test(c) || /^(later|maybe later|later on)$/.test(c))
+      && !RB_SKIP.test(c.replace(/\blater\b/, '')) && !rbDayIn(c) && !rbRel(c);   // "an hour later" is a change
+  }
+  function rbIsSave(c){ return /\b(save (it|the roster|that|this)|thats it save|finish (it|the roster) (now|off)|thats the roster done|lock it in|thats it for the roster)\b/.test(c); }
+  function rbIsPublish(c){ return /\b(publish|send (it|the roster|it out|it to the staff|it to everyone)|share (it|the roster)|show (it|me it|me the roster|the roster|me the week|the week)( on (the )?screen)?|open (it|the roster|build roster))\b/.test(c) && !/\b(prep|order|orders|list|timesheet)\b/.test(c); }
+  function rbDayIn(c){ return c.split(' ').map(rbDayOf).filter(function(x){ return x && RE.DAYS.indexOf(x) > -1; })[0] || null; }
+  /* Everything the roster might be said to: a session's own words first,
+     then a change, else null (not the roster's: orders carry on as before).
+     p is the roster question just asked (from memory, or from the session
+     when the card has closed since). */
+  async function rbRoute(req, mode, p, otherBefore){
+    if(!RE || !host.setRosterDays) return null;   // a page without it can only read the roster
+    var text = String(req.text || ''), c = rbClean(text), choice = req.reply && req.reply.choice != null ? String(req.reply.choice) : null;
+    if(!c && choice == null) return null;
+    var d = rbData();
+    if(!d) return null;
+    if(RB_UNDO.test(c)) return null;   // undo is the last change, roster or not
+    if(c && rbIsStart(c)) return rbStart(text, d);
+    if(c && rbIsContinue(c)) return rbContinue(text, d);
+    var s = rbSession(), sess = s && !s.finished && rbEditable(d, s.week) ? s : null;
+    var live = !!(sess && (p || rbLive(sess, d)));
+    var asked = p || (live && !otherBefore && sess.asked) || null;
+    /* talk, not a command (his note to Claude, 11 Oct, was 40 words): in the
+       middle of the roster it's ignored, as orders ignore chatter, and the
+       roster's question stays open */
+    var nw = c ? c.split(' ').length : 0;
+    if((live || p) && choice == null && (nw > 16 || (nw >= 8 && req.followUp && !rbAboutRoster(c, d)))){
+      if(p) pending = p;
+      rbOther = false;
+      return notmine('chatter');
+    }
+    if(live){
+      if(choice == null && !(asked && asked.kind === 'rbEnd')){
+        if(rbIsSave(c)) return rbSaveIt(sess, d);
+        if(rbIsPause(c)){ sess.paused = true; sess.asked = null; rbKeep(sess); return rbSay('answer', ["No worries. Everything so far is saved. Say 'let's continue the roster' when you're ready."], 'rb paused'); }
+        if(rbIsPublish(c)){ rbOpen(sess, d); return rbSay('answer', ["It's on screen. Tap Publish when you're ready to send it to the staff."], 'rb show'); }
+        if(/^(who|whos|what|whats|how|when|is|was|did|does|do|are|were|which|tell me|read)\b/.test(c) && (rosterIntent(text, roNames(d)) || /\bread\b/.test(c))) return rbRead(text, sess, d);
+      }
+    }
+    if(asked){ var a = await rbAnswer(asked, req, sess, d); if(a) return a; }
+    if(live){
+      if(c){
+        var dIn = rbDayIn(c);
+        var order = rbOrderSaid(text, d);
+        var e = order ? null : rbEdit(text, { mon: sess.week, day: dIn && dIn !== sess.focus ? null : sess.focus, base: 'draft', session: true, last: sess.last || null });
+        if(e) return e;
+        if(!order && rbAboutRoster(c, d)) return rbReask(sess, ["Sorry, I didn't catch that for the roster."], 'rb not understood (session)');
+      }
+      if(p) return null;
+    }
+    // outside a session: a change that clearly names someone
+    if(!c || choice != null) return null;
+    var find = rbFinder(d), sure = false, any = false;
+    c.split(' ').forEach(function(w){ var m = find(w); if(m){ any = true; if(m.sure && !RB_WORDS[w]) sure = true; } });
+    var me = /\b(me|myself)\b|^(i|im) (on|in|off|start|starting|finish|finishing|working)\b/.test(c);
+    var marker = !!(rbDayIn(c) || /\b(today|tonight|tomorrow)\b/.test(c) || parseClock(c) || rbRel(c) || /\brosters?\b|\brostered\b|\bshifts?\b/.test(c));
+    var verb = RO_WRITE.test(c) || /\b(swap|replace|instead of|in for|off|starts|finishes)\b/.test(c);
+    if(/^(whats|what|how|hows|who|whos|when|is|are|was|were|did|do i|have i|any|which|show|tell|read|check)\b/.test(c)) return null;
+    if(!(((sure || me) && marker && verb) || ((sure || me || any) && /\brosters?\b/.test(c) && verb) || (/\brosters?\b/.test(c) && RO_WRITE.test(c)))) return null;
+    // an order sentence that happens to sound like a name stays an order
+    var cat = catalogue(host.data(), taught());
+    if(!sure && !me && parse(text, cat).items.some(function(it){ return it.exact && it.exact.length; })) return null;
+    var when = rbWhen(c, d);
+    if(when && when.todayOrNext){
+      return rbAsk('rbToday', [], 'Today, or next ' + DAY_FULL[when.day] + '?', [{ label: 'Today', value: 'today' }, { label: 'Next ' + DAY_FULL[when.day], value: 'next' }],
+        { text: text, env: { mon: when.mon, day: null, base: 'draft', session: false, last: null, fix: { day: when.day } }, next: when.next }, null, 'rb today or next');
+    }
+    var e2 = rbEdit(text, { mon: when ? when.mon : rbNextMon(d), day: null, base: 'draft', session: false, last: null, fix: when ? { day: when.day } : {} });
+    return e2 || rbSay('cant', ["I didn't catch that for the roster. Try 'put Anil on Thursday at 4', or 'let's do next week's roster'."], 'rb not understood');
+  }
+  /* his answer to a roster question; null when it isn't one */
+  async function rbAnswer(p, req, s, d){
+    var text = String(req.text || ''), choice = req.reply && req.reply.choice != null ? String(req.reply.choice) : null, c = rbClean(text);
+    pending = null;
+    var n = c.split(' ').length;
+    var yes = choice === 'yes' || (choice == null && (yesNo(text) === 'yes' || (RB_YES.test(c) && n <= 4 && !RB_SAME.test(c) && !RB_NO.test(c))));
+    var no = choice === 'no' || (choice == null && (yesNo(text) === 'no' || (RB_NO.test(c) && n <= 4)));
+    var reEnv = function(extraFix){ var e = Object.assign({}, p.env); e.fix = Object.assign({}, e.fix || {}, extraFix); return e; };
+    var day = p.day;
+    if(p.kind === 'rbMode'){
+      var m = choice || (/\bcopy\b|\bchanges\b|\bjust the changes\b/.test(c) ? 'copy' : /\bday by day\b|\bday\b|\bone at a time\b|\beach day\b/.test(c) ? 'day' : null);
+      if(m === 'copy') return rbCopyMode(s, d);
+      if(m === 'day') return rbPresent(s, d, RE.firstUnfinished(s) || 'wed', []);
+      return null;
+    }
+    if(p.kind === 'rbResume'){
+      var rm = choice || (/\b(start again|start over|from scratch|restart|again)\b/.test(c) ? 'again' : /\b(carry on|continue|keep going|yes|yeah|yep)\b/.test(c) ? 'carry' : null);
+      if(rm === 'carry') return rbPresent(s, d, RE.firstUnfinished(s) || 'wed', ['Carrying on.']);
+      if(rm === 'again'){
+        var s2 = RE.newSession(s.week, 'day', now());
+        if(!rbRefOf(d, s.week)) return rbPresent(s2, d, 'wed', ["Starting again from Wednesday. The roster keeps what's on it."]);
+        return rbAsk('rbMode', ["Starting again. The roster keeps what's on it."], 'Day by day, or copy last week and just tell me the changes?',
+          [{ label: 'Day by day', value: 'day' }, { label: 'Copy last week', value: 'copy' }], {}, s2, 'rb start again');
+      }
+      return null;
+    }
+    if(p.kind === 'rbEnd'){
+      var em = choice || (/\bread\b|\bsay it\b|\btell me\b/.test(c) ? 'read' : /\bshow\b|\bscreen\b|\bopen\b/.test(c) ? 'show' : no || RB_NEXT.test(c) ? 'no' : null);
+      if(em === 'read'){ rbFinish(s); var rd = rbWeekRead(s, d, [], 'rb read week'); rd.say.push('To send it to the staff, tap Publish on Build Roster.'); return rd; }
+      if(em === 'show'){ rbFinish(s); rbOpen(s, d); return rbSay('answer', ["It's on screen. Tap Publish when you're ready to send it to the staff."], 'rb show'); }
+      if(em === 'no'){ rbFinish(s); return rbSay('answer', ["No worries. It's saved. Tap Publish on Build Roster when you want to send it."], 'rb end'); }
+      return null;
+    }
+    if(p.kind === 'rbPick'){
+      var pick = choice;
+      if(!pick && c){
+        var full = p.ids.filter(function(id){ return (' ' + c + ' ').indexOf(' ' + clean(rbStaffName(d, id)) + ' ') > -1; });
+        if(full.length === 1) pick = full[0];
+      }
+      if(!pick && c){
+        var idx = rbIndex(d.staff.filter(function(x){ return p.ids.indexOf(x.id) > -1; }), d.me);
+        var hit = c.split(' ').map(function(w){ return rbMatch(w, idx, {}); }).filter(function(x){ return x && x.sure && x.ids.length === 1; })[0];
+        if(hit) pick = hit.ids[0];
+        else if(p.ids.length === 1 && yes) pick = p.ids[0];
+        else if(/^(the )?first( one)?$/.test(c)) pick = p.ids[0];
+        else if(/^(the )?second( one)?$/.test(c)) pick = p.ids[1];
+        else if(no || /^(neither|none|nobody)\b/.test(c)) pick = 'none';
+      }
+      if(!pick) return null;
+      if(pick === 'none') return rbReaskOrSay(s, ['Left it. Nothing changed. Say the name again.'], 'rb pick none');
+      if(!rbIndex(d.staff, d.me).some(function(x){ return x.keys.indexOf(p.word) > -1; })) rbLearn(p.word, pick);   // a misheard name, learned
+      var ids = {}; ids[p.word] = pick;
+      return rbEdit(p.text, reEnv({ ids: ids }));
+    }
+    if(p.kind === 'rbNew'){
+      if(!yes && !no && !/\b(add (them|him|her)|yes add)\b/.test(c)) return null;
+      if(no) return rbReaskOrSay(s, ['Left it. Nothing changed.'], 'rb new staff no');
+      var added = null;
+      try{ added = host.addStaff ? host.addStaff(p.name) : null; }catch(e){ added = null; }
+      if(!added || !added.ok) return rbReaskOrSay(s, ["I couldn't add " + p.name + ' to the staff list. Nothing changed.'], 'rb new staff failed');
+      return rbEdit(p.text, reEnv({}), ['Added ' + p.name + ' to the staff list.']) || rbSay('answer', ['Added ' + p.name + ' to the staff list.'], 'rb new staff');
+    }
+    if(p.kind === 'rbAmPm'){
+      var ap = choice || (/\b(morning|am|a m|breakfast|day)\b/.test(c) ? 'am' : /\b(night|evening|pm|p m|afternoon|tonight)\b/.test(c) ? 'pm' : null);
+      if(!ap) return null;
+      return rbEdit(p.text, reEnv({ ampm: ap }));
+    }
+    if(p.kind === 'rbTime'){
+      var pc = parseClock(c);
+      if(!pc || pc.now) return null;
+      var st = rbStartOf(pc, { owner: p.id === d.me, day: p.day }, RE);
+      var t = st && st.time ? st.time : null;
+      if(!t){ return rbAsk('rbAmPm', [], pc.h + (pc.m ? ':' + pad2(pc.m) : '') + ' in the morning, or at night?', [{ label: 'Morning', value: 'am' }, { label: 'Night', value: 'pm' }],
+        { text: p.text + ' at ' + pc.h + (pc.m ? ':' + pad2(pc.m) : ''), env: p.env }, s, 'rb am or pm'); }
+      var times = {}; times[p.id + '@' + p.day] = t;
+      return rbEdit(p.text, reEnv({ times: times }));
+    }
+    if(p.kind === 'rbToday'){
+      var tn = choice || (/\b(today|tonight|this one)\b/.test(c) ? 'today' : /\bnext\b/.test(c) ? 'next' : null);
+      if(!tn) return null;
+      var e3 = Object.assign({}, p.env);
+      if(tn === 'next') e3.mon = p.next;
+      return rbEdit(p.text, e3);
+    }
+    if(p.kind === 'rbWhichDay'){
+      var wd = choice || rbDayIn(c);
+      if(!wd) return null;
+      var e2 = Object.assign({}, p.env);
+      if(!e2.session){ var w2 = rbWhen(DAY_FULL[wd].toLowerCase(), d); if(w2) e2.mon = w2.mon; }
+      e2.fix = Object.assign({}, e2.fix || {}, { day: wd });
+      return rbEdit(p.text, e2);
+    }
+    // the walk through the week: rbDay, rbWho, rbElse, rbBack, rbChanges
+    if(!s) return null;
+    if(choice == null && rbOrderSaid(text, d)) return null;
+    var dIn = rbDayIn(c);
+    var same = choice === 'same' || (choice == null && RB_SAME.test(c));
+    var keep = choice === 'keep' || (choice == null && RB_KEEP.test(c));
+    var skip = choice === 'skip' || (choice == null && RB_SKIP.test(c));
+    var fday = day || s.focus;
+    var plainEnv = function(base){ return { mon: s.week, day: dIn && dIn !== fday ? null : fday, base: base, session: true, last: s.last || null }; };
+    if(skip && !/\b(put|add|swap|take|remove)\b/.test(c)){
+      var sd = dIn || day || s.focus;
+      if(!sd) return null;
+      s.days[sd] = 'skipped';
+      var lead = [DAY_FULL[sd] + "'s skipped for now. We'll come back to it."];
+      if(sd !== s.focus && s.focus) return rbReask(s, lead, 'rb skip ' + sd);
+      s.focus = sd;
+      return rbOnward(s, d, lead);
+    }
+    if(p.kind === 'rbDay' || p.kind === 'rbChange'){
+      // "same as Wednesday": that day of this week
+      var fromDay = /\bsame as\b/.test(c) && dIn && dIn !== day ? dIn : null;
+      if(fromDay && !/\blast\b/.test(c)){
+        var wk = rbWeekOf(d, s.week);
+        return rbDoCopy(s, d, day, wk[fromDay], 'same as ' + DAY_FULL[fromDay]);
+      }
+      var base = same && rbRefOf(d, s.week) ? 'ref' : (p.base || 'draft');
+      var ed = c && !(same && n <= 5 && !/\b(but|except|and)\b/.test(c)) ? rbEdit(text, plainEnv(base)) : null;
+      if(ed) return ed;
+      if(same || (yes && p.base === 'ref')) return rbSame(s, d, day);
+      if(keep || yes) return rbDayDone(s, d, day);
+      if(no || /^(changes|some changes|a few changes|not quite)\b/.test(c)){
+        if(p.kind === 'rbChange') return rbDayDone(s, d, day);
+        return rbAsk('rbChange', [], "What's different on " + DAY_FULL[day] + '?', [{ label: 'Nothing', value: 'keep' }], { day: day, base: p.base }, s, 'rb what changes', { expect: 'any' });
+      }
+      if(p.kind === 'rbChange' && /^(nothing|never mind|no changes|all good)\b/.test(c)) return p.base === 'ref' ? rbSame(s, d, day) : rbDayDone(s, d, day);
+      return null;
+    }
+    if(p.kind === 'rbWho'){
+      if(choice === 'none' || (choice == null && RB_CLOSED.test(c) && !/\b(put|add)\b/.test(c)) || no) return rbClosed(s, d, day);
+      return c ? rbEdit(text, Object.assign(plainEnv('draft'), { addBare: true })) : null;
+    }
+    if(p.kind === 'rbElse' || p.kind === 'rbChanges'){
+      if(no || (choice == null && RB_NEXT.test(c))){
+        if(p.kind === 'rbChanges' || !day) return rbOnwardOrDone(s, d);
+        return rbDayDone(s, d, day);
+      }
+      if(yes) return rbAsk(p.kind, [], 'What else?', p.kind === 'rbElse' ? [{ label: 'No, next day', value: 'no' }] : [{ label: "No, that's it", value: 'no' }], { day: day }, s, 'rb what else', { expect: 'any' });
+      return c ? rbEdit(text, plainEnv('draft')) : null;
+    }
+    if(p.kind === 'rbBack'){
+      if(yes) return rbPresent(s, d, p.back, []);
+      if(no) return rbAsk('rbElse', [], 'Anything else for ' + DAY_FULL[day] + '?', [{ label: 'No, next day', value: 'no' }], { day: day }, s, 'rb stay ' + day);
+      return c ? rbEdit(text, plainEnv('draft')) : null;
+    }
+    return null;
+  }
+  /* "add 2 kilos of mozzarella" in the middle of the roster: an item on the
+     orders or the prep list, and no staff name for sure, is the orders' */
+  function rbOrderSaid(text, d){
+    var find = rbFinder(d), named = rbClean(text).split(' ').some(function(w){ var m = find(w); return m && m.sure && !RB_WORDS[w]; });
+    if(named || /\b(me|myself)\b/.test(rbClean(text))) return false;
+    try{ return parse(text, catalogue(host.data(), taught())).items.some(function(it){ return it.exact && it.exact.length; }); }catch(e){ return false; }
+  }
+  /* names someone on the staff for sure, or says the roster's own words */
+  function rbAboutRoster(c, d){
+    var find = rbFinder(d);
+    return c.split(' ').some(function(w){ var m = find(w); return m && m.sure && !RB_WORDS[w]; })
+      || /\brosters?\b|\bshifts?\b/.test(c);
+  }
+  function rbReaskOrSay(s, lines, log){ return s && !s.finished ? rbReask(s, lines, log) : rbSay('answer', lines, log); }
+  function rbOnwardOrDone(s, d){
+    var at = RE.firstUnfinished(s);
+    if(at) return rbPresent(s, d, at, []);
+    return rbWeekDone(s, d, []);
+  }
+  function rbDoCopy(s, d, day, from, what){
+    var plan = { mon: s.week, ops: [{ op: 'copy', day: day, from: from }], days: [day], did: [what], pre: [] };
+    var week = rbWeekOf(d, s.week);
+    if(RE.sameDay(week[day], from)) return rbDayDone(s, d, day);
+    var r = RE.commit(week, plan.ops[0], rbCtx(d), rbSaver(s.week));
+    var log = 'rb ' + s.week + ' copy ' + day + ' ' + what;
+    if(!r.ok) return rbRefused(r, plan, s, [], log);
+    var lab = 'Roster: ' + DAY_FULL[day] + ' ' + what;
+    var aid = r.undo ? remember(lab, [{ k: 'ro', mon: s.week, rec: r.undo }]) : null;
+    return rbDayDone(s, d, day, [], aid ? { action: { id: aid, label: lab, undo: true }, logPre: log + ' saved' } : { logPre: log + ' saved' });
+  }
+  /* after a yes to a multi-day change, a copy of the week, or clearing a day */
+  function rbConfirmed(c){
+    var d = rbData();
+    if(!d || !RE) return cant("I can't reach the roster.", 'rb none');
+    var s = c.env && c.env.session ? rbSession() : null;
+    if(s && (s.finished || s.week !== c.plan.mon)) s = null;
+    if(c.plan.copyAll || c.plan.closed){
+      var r = RE.commit(rbWeekOf(d, c.plan.mon), { op: 'batch', ops: c.plan.ops }, rbCtx(d), rbSaver(c.plan.mon));
+      var log = 'rb ' + c.plan.mon + ' ' + c.plan.ops.map(rbOpLog).join('; ');
+      if(!r.ok) return rbRefused(r, c.plan, s, [], log);
+      var lab = 'Roster: ' + (c.plan.copyAll ? 'copied last week' : c.plan.did.join('; '));
+      var aid = r.undo ? remember(lab, [{ k: 'ro', mon: c.plan.mon, rec: r.undo }]) : null;
+      var extra = aid ? { action: { id: aid, label: lab, undo: true }, logPre: log + ' saved' } : { logPre: log + ' saved' };
+      if(!s) return rbSay('done', [cap(c.plan.did.join('. ')) + '.'], 'rb confirmed', extra);
+      if(c.plan.copyAll) return rbCopied(s, rbData(), ["Done: it's last week's roster now."], extra);
+      s.days[c.plan.closed] = 'closed'; s.focus = c.plan.closed;
+      return rbOnward(s, rbData(), [DAY_FULL[c.plan.closed] + "'s cleared and closed."], extra);
+    }
+    return rbDo(c.plan, c.env, s, []);
+  }
+  /* "Undid that: Y's back on Thursday." from what the undo put back */
+  function rbUndoSay(d, changes){
+    return changes.map(function(ch){
+      var n = rbWho(d, ch.id), day = DAY_FULL[ch.day];
+      if(ch.kind === 'added') return rbIs(n) + ' back on ' + day;
+      if(ch.kind === 'removed') return rbIs(n) + ' off ' + day + ' again';
+      return rbIs(n) + ' back to ' + rbTime(ch.after.start) + ' on ' + day;
+    });
   }
 
   /* ---------- the doorway ---------- */
@@ -2007,7 +3154,7 @@ function createRoom(host){
     var l = undoList();
     var u = id ? l.filter(function(x){ return x.id === id; })[0] : l[l.length - 1];
     if(!u) return cant(id ? "That's too old to undo now." : "There's nothing to undo.", 'undo none');
-    var said = [], skipped = [];
+    var said = [], skipped = [], roUndone = false;
     var data = host.data();
     var qtyOps = [];
     for(var i = u.ops.length - 1; i >= 0; i--){
@@ -2037,6 +3184,13 @@ function createRoom(host){
         if(!tnow || tnow.start !== o.after.start || tnow.end !== o.after.end || !host.setTimesheetDay(o.day, o.before)){ skipped.push(DAY_FULL[o.day] + "'s timesheet"); continue; }
         said.push(DAY_FULL[o.day] + "'s timesheet is back how it was.");
       }
+      else if(o.k === 'ro'){   // v3.10.0: through the engine, refused if the day changed since
+        var rd = rbData(), dn = Object.keys((o.rec && o.rec.days) || {}).map(function(x){ return DAY_FULL[x]; });
+        var ru = rd && RE && rbEditable(rd, o.mon) ? RE.commit(rbWeekOf(rd, o.mon), { op: 'undo', rec: o.rec }, rbCtx(rd), rbSaver(o.mon)) : null;
+        if(!ru || !ru.ok){ skipped.push(joinAnd(dn) + "'s roster"); continue; }
+        roUndone = true;
+        said.push(cap(joinAnd(rbUndoSay(rd, ru.changes))) + '. ' + ru.days.map(function(x){ return DAY_FULL[x] + ' is ' + rbDaySay(rd, ru.week[x]) + '.'; }).join(' '));
+      }
       else if(o.k === 'restore'){
         var s2 = (data.suppliers || []).filter(function(x){ return x.id === o.sid; })[0];
         if(!s2){ skipped.push(o.sname); continue; }
@@ -2049,6 +3203,10 @@ function createRoom(host){
     if(skipped.length) said.push(joinAnd(skipped) + ' changed since, so I left ' + (skipped.length === 1 ? 'it' : 'them') + '.');
     if(!said.length) return cant("I couldn't undo that.", 'undo failed');
     ctx = null;
+    // v3.10.0: in the middle of the roster, its question again
+    var rs = roUndone ? rbSession() : null, rdd = roUndone ? rbData() : null;
+    if(rs && rbLive(rs, rdd)) return rbReask(rs, said.slice(0, 2), 'undo ' + u.label);
+    if(roUndone) rbOther = false;
     return ans('done', { say: said.slice(0, 3), more: said.slice(3), action: { id: 'undo-' + u.id, label: 'Undid: ' + u.label, undo: false }, log: 'undo ' + u.label });
   }
 
@@ -2336,8 +3494,17 @@ function createRoom(host){
   async function handle(req){
     req = req || {};
     var mode = req.mode === 'tab' ? 'tab' : 'pluto';
+    var otherBefore = rbOther;
+    rbOther = true;   // until the roster answers this one itself
     try{
-      if(req.reply && pending && req.reply.to === pending.id) return await answerAsk(pending, req, mode);
+      if(req.reply && pending && req.reply.to === pending.id){
+        if(!/^rb/.test(pending.kind)) return await answerAsk(pending, req, mode);
+        var rbp = pending;   // v3.10.0: a roster question; something else said instead carries on below
+        pending = null;
+        var rba = await rbRoute(req, mode, rbp, false);
+        if(rba) return rba;
+        if(!req.text) return cant('That one expired. Ask me again.', 'ask expired');
+      }
       if(req.reply && req.reply.choice != null && !req.text){ pending = null; return cant('That one expired. Ask me again.', 'ask expired'); }
       pending = null;
       if(isClose(req.text || '')) return notmine('close');
@@ -2347,8 +3514,10 @@ function createRoom(host){
         if(tsk && parse(req.text || '', (await fresh()).cat).items.some(function(it){ return it.exact && it.exact.length; })) tsk = null;
       }
       if(tsk) return tsHandle(tsk, req.text || '');
+      var rbr = await rbRoute(req, mode, null, otherBefore);   // v3.10.0: building the roster
+      if(rbr) return rbr;
       var roN = roNames(roData());
-      if(rosterWrite(req.text || '', roN)) return cant("I can't change the roster by voice yet. I can read it: try 'who's on Wednesday?'.", 'roster write');   // v3.9.13
+      if(rosterWrite(req.text || '', roN)) return cant(RE && host.setRosterDays ? "I didn't catch that for the roster. Try 'put Anil on Thursday at 4', or 'let's do next week's roster'." : "I can't change the roster from here.", 'roster write');
       if(rosterIntent(req.text || '', roN)) return rosterAnswer(req.text || '');   // v3.9.11: read only
       /* v3.9.3: long talk while it listens for a follow-up, with no verb and
          few names or amounts in it, is chatter (his log: talking to Claude
@@ -2456,6 +3625,7 @@ function createRoom(host){
           show: { title: 'Timesheet', lines: [{ text: DAY_FULL[t.day] + ' · ' + timeSay(t.start) + ' – ' + timeSay(t.end) + ' · ' + fmt(th) + ' h', tone: 'ok' }] },
           keep: false, log: 'ts saved ' + t.day });
       }
+      if(c.kind === 'roster') return rbConfirmed(c);   // v3.10.0
       if(c.kind === 'again'){
         var cmd = c.cmd;
         cmd[c.flag] = true; cmd.fromAsk = true;
@@ -2547,8 +3717,9 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.9.13',
+  version: 'v3.10.0',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
+  rosterTime: rbTime, rosterClauses: rbClauses,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
   parse: parse, catalogue: catalogue, findItems: findItems, isClose: isClose, yesNo: yesNo,
   amount: amount, itemSay: itemSay, supSay: supSay, sound: sound,
