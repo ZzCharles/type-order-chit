@@ -552,6 +552,53 @@ function rosterIntent(text, names){
   }
   return false;
 }
+/* v3.9.13 (his log, 11 Oct): "add me on roster for Friday", "add rabindra on
+   Wednesday starting at 9", "create new roster" were answered as questions
+   ("You're not on the roster on Friday"), which reads as if it tried. Until
+   he describes building the roster by voice, changing it gets an honest
+   "not yet". A change is a change word with the roster, or with a staff name
+   and a day, a time or a station. */
+var RO_WRITE = /\b(add|put|set|change|move|swap|remove|take off|drop|create|make|build|schedule|book|fill|start a|new)\b/;
+var RO_WHEN = /\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)s?\b|\b(today|tomorrow|tonight|start|starting|finish|finishing|shift|shifts)\b|\b(on|in) (pasta|oven|dough|toppings|finisher|kh|pizza)\b|\bat \d/;
+function rosterWrite(text, names){
+  var c = clean(text).replace(/^(hey pluto|ok pluto|pluto) /, '');
+  if(/^(whats|what|how|hows|who|whos|when|is|are|was|were|did|do i|have i|any|which|show|tell|read|check)\b/.test(c)) return false;
+  if(!RO_WRITE.test(c)) return false;
+  if(/\brosters?\b|\brostered\b/.test(c)) return true;
+  return (names || []).some(function(n){ return n && new RegExp('\\b' + n + '\\b').test(c); }) && RO_WHEN.test(c);
+}
+
+/* v3.9.13 (owner, 11 Oct: "when I ask what can you do, or can you do XYZ, it
+   should be able to tell what it can or cannot"): "can you …" with nothing
+   to act on is a question about The Pass itself, answered honestly. A real
+   command said politely ("can you add 2 kilos of mozz") still just runs. */
+var HELP_SAY = 'I can add, change and take things off your orders and the prep list, tick prep off, read them back, get an order ready to send, fill in and read your timesheet, and read the roster.';
+var HELP_TRY = "Try 'add 2 kilos of mozzarella', 'add today's timesheet' or 'who's on tonight?'.";
+function canTopic(text){
+  var c = clean(text).replace(/^(hey pluto|ok pluto|pluto) /, '');
+  if(!/^(can you|could you|are you able to|do you know how to|will you be able to|is it possible to)\b/.test(c)) return null;
+  if(/\brosters?\b|\brostered\b|\bshifts?\b/.test(c)) return RO_WRITE.test(c) && !/\b(read|tell|check|show|say)\b/.test(c) ? 'roster-write' : 'roster-read';
+  if(/\btime ?sheets?\b|\bmy hours\b/.test(c)) return 'timesheet';
+  if(/\b(send|email|text|message|call|ring)\b/.test(c)) return 'send';
+  if(/\brecipes?\b|\bhow (do|to) (i )?(make|cook)\b/.test(c)) return 'recipe';
+  if(/\btrains?\b|\bbus(es)?\b/.test(c)) return 'trains';
+  if(/\b(remember|note|notes|remind|reminder|alarm|timer|calendar)\b/.test(c)) return 'notyet';
+  if(/\bprep\b/.test(c)) return 'prep';
+  if(/\b(order|orders|ordering|supplier|suppliers)\b/.test(c)) return 'orders';
+  return 'other';
+}
+var CAN_SAY = {
+  'roster-write': "Not yet. I can read the roster, like 'who's on tonight?', but I can't change it. Building it by voice is coming.",
+  'roster-read': "Yes. Ask me 'who's on tonight?', 'how many worked on Wednesday?' or 'what was last week's roster?'.",
+  'timesheet': "Yes. Say 'add today's timesheet', change a day, or ask 'how many hours this week?'. Sending it to accounts is still you, on the Timesheet screen.",
+  'send': "I can get an order ready to send, but you tap Send yourself. I can't send messages for you.",
+  'recipe': "Not yet. Recipes are on the Recipes screen.",
+  'trains': "Not here. RK Trips does the trains.",
+  'notyet': "Not yet. Reminders and notes are coming with Pluto.",
+  'prep': "Yes. Say 'add pizza sauce to the prep list', or 'pizza sauce is done'.",
+  'orders': "Yes. Say what to add, change or take off, like 'add 2 kilos of mozzarella to the Aziz order'.",
+  'other': "I'm not sure I can. I can help with orders, the prep list, your timesheet and the roster."
+};
 
 /* ================= aliases: how the kitchen says the names =================
    From almo-voice-brain.md section 7 (lines marked "check" there are still
@@ -978,6 +1025,15 @@ var QUALITY = { exact: 4, superset: 3, subset: 2, fuzzy: 1 };
    superset  every word said is in the name ("garlic" -> three garlics)
    subset    a whole name is in what was said ("fresh mozzarella")
    fuzzy     sounds like it ("time" -> thyme): always asked about */
+var WORD_OF_N = Object.assign({}, SMALL, TENS);   // number words ("one", "twenty")
+/* every word any item's name or alias has (v3.9.13), kept on the catalogue */
+function catWords(cat){
+  if(cat._words) return cat._words;
+  var w = {};
+  cat.entries.forEach(function(e){ e.keys.forEach(function(x){ x.set.forEach(function(y){ w[y] = 1; }); }); });
+  cat._words = w;
+  return w;
+}
 function findItems(item, cat, kinds){
   var ok = function(e){ return kinds.indexOf(e.kind) > -1; };
   var said = contentSet(item.stems);
@@ -1006,6 +1062,11 @@ function findItems(item, cat, kinds){
   if(sub.length){
     var most = Math.max.apply(null, sub.map(function(x){ return x.n; }));
     var top = sub.filter(function(x){ return x.n === most; }).map(function(x){ return x.e; });
+    /* v3.9.13 (his log, 11 Oct: "add 5 L of thickened cream" added Pure Cream,
+       whose name "cream" sits inside it): a word said that no item has at all
+       makes it a guess, so it asks "Did you mean …?" (and learns on a pick) */
+    var known = catWords(cat);   // units and numbers ("one more box of pepperoni") are never odd
+    if(said.some(function(w){ return !known[w] && !UNIT_WORDS[w] && !/^[0-9]/.test(w) && !STOP[w] && !WORD_OF_N[w]; })) return { how: 'fuzzy', list: top, top: top.length, odd: true };
     return { how: 'subset', list: top, top: top.length };
   }
   var fz = [];
@@ -2009,10 +2070,10 @@ function createRoom(host){
 
     if(cmd.empty) return mode === 'pluto' ? notmine('empty') : cant("I didn't catch that.", 'empty');
     // questions that aren't about the lists belong to someone else
-    if(cmd.question && ['read', 'help', 'last'].indexOf(cmd.verb) < 0) return mode === 'pluto' ? notmine('question') : cant('I can only help with orders and the prep list.', 'question');
+    if(cmd.question && ['read', 'help', 'last'].indexOf(cmd.verb) < 0) return mode === 'pluto' ? notmine('question') : cant('I can only help with orders, the prep list, your timesheet and the roster.', 'question');
     if(cmd.verb === 'help'){
       if(mode === 'pluto') return notmine('help');
-      return ans('answer', { say: ['I can add, change and take things off your orders and the prep list, tick prep off, read them back, and get an order ready to send.', "Try 'add 2 kilos of mozzarella' or 'pizza sauce is done'."], log: 'help' });
+      return ans('answer', { say: [HELP_SAY, HELP_TRY], log: 'help' });   // v3.9.13: the timesheet and the roster too
     }
     if(cmd.verb === 'last'){
       var lu = undoList();
@@ -2200,6 +2261,15 @@ function createRoom(host){
     var cmd = p.cmd;
     if(/^ts/.test(p.kind)) return await tsAnswer(p, req, mode);   // v3.9.6
     if(p.kind === 'roDay') return rosterReply(p, req, mode);      // v3.9.11
+    if(p.kind === 'ofwhat'){                                      // v3.9.13: "5 kilos of what?"
+      pending = null;
+      var ow = parse(text, (await fresh()).cat);
+      if(!ow.items.length) return ans('answer', { say: ['Left it. Nothing changed.'], log: 'ofwhat dropped' });
+      if(!ow.verb) ow.verb = p.verb;
+      if(!ow.items[0].qty) ow.items[0].qty = p.q;
+      ow.fromAsk = true;
+      return run(ow, req, mode);
+    }
     if(p.kind === 'howmany' || p.kind === 'unit'){
       var ns = numbersIn(choice != null ? choice : text);
       if(!ns.length){
@@ -2225,6 +2295,16 @@ function createRoom(host){
       cmd.items[p.item].qtyFix = ns[0];
       cmd.fromAsk = true; pending = null;
       return run(cmd, req, mode);
+    }
+    /* v3.9.13: "Did you mean Pure Cream?" answered by saying "second cream"
+       again isn't a pick: nothing new was said, so it never learns from it */
+    if(choice == null && p.kind === 'item' && p.teach){
+      var rw = contentSet(toks(text).filter(function(t){ return !STOP[t.r]; }).map(function(t){ return t.s; }));
+      var ow = String(p.teach).split(' ');
+      if(rw.length && rw.every(function(w){ return ow.indexOf(w) > -1; })){
+        pending = null;
+        return ans('answer', { say: ["Left it. Nothing changed. Say the item's name if it's one of those."], log: 'ask repeated' });
+      }
     }
     if(choice == null && p.options.length) choice = matchOption(text, p.options);
     if(choice == null){
@@ -2267,7 +2347,9 @@ function createRoom(host){
         if(tsk && parse(req.text || '', (await fresh()).cat).items.some(function(it){ return it.exact && it.exact.length; })) tsk = null;
       }
       if(tsk) return tsHandle(tsk, req.text || '');
-      if(rosterIntent(req.text || '', roNames(roData()))) return rosterAnswer(req.text || '');   // v3.9.11: read only
+      var roN = roNames(roData());
+      if(rosterWrite(req.text || '', roN)) return cant("I can't change the roster by voice yet. I can read it: try 'who's on Wednesday?'.", 'roster write');   // v3.9.13
+      if(rosterIntent(req.text || '', roN)) return rosterAnswer(req.text || '');   // v3.9.11: read only
       /* v3.9.3: long talk while it listens for a follow-up, with no verb and
          few names or amounts in it, is chatter (his log: talking to Claude
          about the app made it ask "Which garlic?"). Ignored, as RK Trips
@@ -2295,7 +2377,27 @@ function createRoom(host){
         }
       }
       var f = await fresh();
-      return await run(parse(req.text || '', f.cat), req, mode);
+      // v3.9.13: "drop it down to 9 kilos", "bring the mozz up to 10" are "make it …"
+      var said = String(req.text || '').replace(/\b(?:drop|bring|cut|knock|turn|bump|move|take)\b(.{0,40}?)\b(?:down|up) to\b/i, 'make$1');
+      var c1 = parse(said, f.cat);
+      /* v3.9.13 (his log): "add five kilos of" was cut off by the mic, and it
+         added 5 kilos to the last item. An amount "of" nothing asks what. */
+      if(/\bof( the| some)?$/.test(clean(said)) && !c1.items.length && c1.looseQty){
+        return asking('ofwhat', cap(amount(c1.looseQty.n, c1.looseQty.unit)) + ' of what?', [], { verb: c1.verb || 'add', q: c1.looseQty }, 'item');
+      }
+      // v3.9.13: "can you …?" with nothing to act on is about The Pass itself
+      var topic = canTopic(said);
+      if(topic){
+        var target = c1.items.some(function(it){ return it.exact && it.exact.length; }) || (c1.sids || []).length || c1.looseQty || c1.refs;
+        var about = ['send', 'recipe', 'trains', 'notyet', 'roster-read', 'roster-write', 'timesheet'].indexOf(topic) > -1;
+        /* a verb it knows is a command, even cut off ("can you add" → "Add what?") or
+           with a misheard name ("can you add pearly garlic" → "Did you mean …?") */
+        if(!target && (about || !c1.verb)){
+          if(mode === 'pluto' && topic === 'other') return notmine('can other');
+          return ans('answer', { say: [CAN_SAY[topic]], log: 'can ' + topic });
+        }
+      }
+      return await run(c1, req, mode);
     }catch(err){
       return ans('error', { say: ["I couldn't check the list."], log: 'error ' + String(err && err.message || err).slice(0, 80) });
     }
@@ -2445,7 +2547,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.9.12',
+  version: 'v3.9.13',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
   parse: parse, catalogue: catalogue, findItems: findItems, isClose: isClose, yesNo: yesNo,
