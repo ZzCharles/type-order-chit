@@ -49,8 +49,12 @@ function clean(s){
 /* Plurals folded so "tomatoes", "boxes" and "punnets" meet their names.
    Used the same way on both sides, so a rough fold is enough. */
 var IRREG = { tomatoes: 'tomato', potatoes: 'potato', leaves: 'leaf', halves: 'half', loaves: 'loaf' };
+/* v3.10.2: kitchen words Google writes as everyday ones (his log, 12 Oct:
+   "config garlic cream" for Confit Garlic Cream) */
+var HEARD_AS = { config: 'confit', configs: 'confit' };
 function stem(w){
   if(w.length <= 3 || /\d/.test(w)) return w;
+  if(HEARD_AS[w]) return HEARD_AS[w];
   if(IRREG[w]) return IRREG[w];
   if(/ies$/.test(w)) return w.slice(0, -3) + 'y';
   if(/(ches|shes|xes|sses|oes)$/.test(w)) return w.slice(0, -2);
@@ -313,6 +317,8 @@ var ORDER_VERBS = { 'order': 1, 'order more': 1, 'order some': 1 };
 
 var LISTS = [
   [['prep', 'list'], 'prep'], [['prep', 'lists'], 'prep'], [['prep', 'sheet'], 'prep'], [['to', 'do', 'list'], 'prep'],
+  // v3.10.2: Google's "trip list" for "prep list" (his log, 12 Oct); "trip" alone is still nothing
+  [['trip', 'list'], 'prep'], [['trip', 'lists'], 'prep'],
   [['prep'], 'prep'], [['preps'], 'prep'], [['prepping'], 'prep'], [['prepped'], 'prep'], [['list'], 'list'], [['lists'], 'list'],
   [['orders'], 'order'], [['order'], 'order'], [['suppliers'], 'order'], [['supplier'], 'order'], [['ordering'], 'order']
 ].map(function(v){ return { w: v[0], list: v[1] }; });
@@ -1151,17 +1157,57 @@ function parse(text, cat){
       items.push(mk({ segAt: run.parts[0], words: run.parts.map(function(p){ return p.w; }), stems: run.parts.map(function(p){ return p.s; }), exact: null }, run.parts[0]));
       return;
     }
-    var groups = named.map(function(p){ return { item: p, extra: [] }; });
+    /* v3.10.2 (his log, 12 Oct: "add the following to the prep list mushroom
+       paste confit garlic cream" added Confit Garlic Cream and lost the
+       mushroom paste without a word): loose words join the name next to them
+       when, said together, they still mean something that name could be, and
+       that thing uses them ("fresh mozz", "blue royal potatoes"). Two or more
+       in a row that don't, and that name something on their own, are an item
+       ("paste mushroom truffle mayo" was Truffle Mushroom Paste alone). */
+    var loose = [], block = [];
+    run.parts.concat([null]).forEach(function(p){
+      if(p && p.type === 'word'){ block.push(p); return; }
+      if(block.length) loose.push(block);
+      block = [];
+    });
+    var KINDS = ['order', 'prep', 'line'];
+    var topOf = function(f){ return f.list.slice(0, f.top || f.list.length); };
+    var apart = loose.filter(function(b){
+      var stems = b.map(function(x){ return x.s; }), said = contentSet(stems);
+      if(said.length < 2) return false;
+      var next = named.filter(function(n){ return n.i > b[0].i; })[0] || named.filter(function(n){ return n.i < b[0].i; }).pop();
+      var joined = findItems({ stems: next.i > b[0].i ? stems.concat(next.key.split(' ')) : next.key.split(' ').concat(stems), exact: null }, cat, KINDS);
+      if(topOf(joined).some(function(e){
+        return next.entries.indexOf(e) > -1 && e.keys.some(function(x){ return said.some(function(w){ return x.set.indexOf(w) > -1; }); });
+      })) return false;
+      var own = findItems({ stems: stems, exact: null }, cat, KINDS);
+      return own.how === 'exact' || own.how === 'superset' || own.how === 'subset';
+    });
+    apart.forEach(function(b){ items.push(mk({ segAt: b[0], words: b.map(function(x){ return x.w; }), stems: b.map(function(x){ return x.s; }), exact: null }, b[0])); });
+    /* v3.10.2: the same thing named twice in a row is one item ("add 5 kilos
+       of potatoes royal blue" added 5 kilos, then 1 more: both names mean
+       Royal Blue Potatoes); the second name joins the first as extra words */
+    var heads = [];
+    named.forEach(function(p){
+      var h = heads[heads.length - 1];
+      if(!(h && h.entries.some(function(e){ return p.entries.indexOf(e) > -1; }))) heads.push(p);
+    });
+    var groups = heads.map(function(p){ return { item: p, extra: [] }; });
     var g = 0;
     run.parts.forEach(function(p){
-      if(p.type === 'item'){ g = named.indexOf(p); return; }
-      var k = named.filter(function(n){ return n.i > p.i; })[0];
-      (k ? groups[named.indexOf(k)] : groups[g]).extra.push(p);
+      if(heads.indexOf(p) > -1){ g = heads.indexOf(p); return; }
+      if(p.type === 'item'){ groups[g].extra.push(p); return; }
+      if(apart.some(function(b){ return b.indexOf(p) > -1; })) return;
+      var k = heads.filter(function(n){ return n.i > p.i; })[0];
+      (k ? groups[heads.indexOf(k)] : groups[g]).extra.push(p);
     });
+    var wordsOf = function(x){ return x.type === 'item' ? t.slice(x.i, x.end).map(function(y){ return y.r; }) : [x.w]; };
+    var stemsOf = function(x){ return x.type === 'item' ? x.key.split(' ') : [x.s]; };
+    var flat = function(list, f){ return list.reduce(function(a, x){ return a.concat(f(x)); }, []); };
     groups.forEach(function(gr){
       var p = gr.item, before = gr.extra.filter(function(x){ return x.i < p.i; }), after = gr.extra.filter(function(x){ return x.i > p.i; });
-      var words = before.map(function(x){ return x.w; }).concat(t.slice(p.i, p.end).map(function(x){ return x.r; })).concat(after.map(function(x){ return x.w; }));
-      var stems = before.map(function(x){ return x.s; }).concat(p.key.split(' ')).concat(after.map(function(x){ return x.s; }));
+      var words = flat(before, wordsOf).concat(wordsOf(p)).concat(flat(after, wordsOf));
+      var stems = flat(before, stemsOf).concat(stemsOf(p)).concat(flat(after, stemsOf));
       items.push(mk({ segAt: p, words: words, stems: stems, exact: gr.extra.length ? null : p.entries }, p));
     });
   });
@@ -3792,7 +3838,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.10.1',
+  version: 'v3.10.2',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
