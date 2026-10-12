@@ -479,6 +479,7 @@ var css = ''
   + '.vc-lines ul{list-style:none;margin:0;padding:0;flex:1;min-width:0;font-size:13px;}'
   + '.vc-lines li{padding:1px 0;}'
   + '.vc-lines li.muted{color:var(--muted);text-decoration:line-through;}'
+  + '.vc-lines li.note{color:var(--muted);}'   /* v3.11.0: grey, not crossed out (a list being read out) */
   + '.vc-btn{border:none;border-radius:999px;background:#EDEBDF;color:var(--ink);font-family:inherit;font-weight:700;font-size:12px;padding:8px 14px;cursor:pointer;}'
   + '.vc-btn:active{background:#E3E0D2;}'
   + '.vc-btn.dark{background:var(--ink);color:#fff;}'
@@ -574,9 +575,11 @@ function paint(){
   if(c.say && c.say.length) h += '<div class="vc-say">' + c.say.map(function(s){ return '<p>' + esc(s) + '</p>'; }).join('') + '</div>';
   if(c.note) h += '<div class="vc-note">' + esc(c.note) + '</div>';
   if(!c.say && !c.note && !heardLine && phase !== 'thinking') h += '<div class="vc-note">Say something like “add 2 kilos of mozzarella”.</div>';
-  var lines = c.show && c.show.lines && c.show.lines.length && (c.status === 'done' || c.status === 'answer') ? c.show.lines : [];
+  var lines = c.show && c.show.lines && c.show.lines.length && (c.status === 'done' || c.status === 'answer' || c.show.reading) ? c.show.lines : [];
+  // v3.11.0: a list being read out ("add the following …") shows on the card while it asks, with its heading and a hint
+  if(lines.length && c.show.reading) lines = [{ text: c.show.title, tone: 'note' }].concat(lines, c.show.hint ? [{ text: c.show.hint, tone: 'note' }] : []);
   if(lines.length || c.action){
-    h += '<div class="vc-lines"><ul>' + lines.map(function(x){ return '<li' + (x.tone === 'muted' ? ' class="muted"' : '') + '>' + esc(x.text) + '</li>'; }).join('') + '</ul>'
+    h += '<div class="vc-lines"><ul>' + lines.map(function(x){ return '<li' + (x.tone === 'muted' ? ' class="muted"' : x.tone === 'note' ? ' class="note"' : '') + '>' + esc(x.text) + '</li>'; }).join('') + '</ul>'
       + (c.action ? '<button class="vc-btn" data-v="undo">Undo</button>' : '') + '</div>';
   }
   if(c.ask && c.ask.options && c.ask.options.length){

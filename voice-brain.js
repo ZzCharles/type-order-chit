@@ -2861,7 +2861,7 @@ function createRoom(host){
       verbs: ['add', 'chuck in', 'we need', 'put', 'get', 'order', 'remove', 'take off', 'scrap', 'drop', 'change', 'make it', 'read', 'whats on', 'send', 'tick off', 'clear'],
       examples: ['add salad dressing to the prep list', 'chuck in 2 kilos of mozzarella', 'whats on the aziz order', 'take the speck off', 'pizza sauce is done', 'send the aziz order', 'add todays timesheet'] };
   }
-  function reset(){ ctx = null; pending = null; tsLast = null; }
+  function reset(){ ctx = null; pending = null; tsLast = null; dict = null; }
 
   /* ---------- reading ---------- */
   function readPrep(cat, d){
@@ -3247,6 +3247,8 @@ function createRoom(host){
     var deltas = {};
     ops.forEach(function(o){ if(o.k === 'qty') deltas['p:' + o.pid] = { before: o.before, after: o.after }; });
     ctx = { at: now(), verb: lastVerb || 'add', items: done, deltas: deltas };
+    // v3.11.0: what was done, for a list read out ("Done. 5 added to the prep list.")
+    cmd.out = { prep: toAdd.length, order: ops.filter(function(o){ return o.k === 'qty'; }).length, extra: nothing.concat(notes) };
     var title = openView && openView.view === 'prep' ? 'Prep list' : orderChanges[0] ? supSay(orderChanges[0].e.sname) + ' order' : 'Done';
     return ans('done', { say: talk, show: { title: title, lines: show.slice(0, 6), open: openView },
       action: { id: id, label: lab, undo: true }, log: ops.map(function(o){ return o.k === 'qty' ? o.name + ' ' + o.before + '>' + o.after : o.k; }).join(', ') });
@@ -3487,6 +3489,221 @@ function createRoom(host){
     return await change(cmd, cat, d);
   }
 
+  /* ---------- "add the following …": reading out a list (v3.11.0) ----------
+     His request (12 Oct): "add the following to the list", then he reads the
+     items out over several sentences, and it reads them back. His picks:
+     - after each part a short "Got it."; anything it didn't catch is said
+       straight away ("Say it again, or carry on");
+     - "that's it" (or "no", "done", "read it back") reads back every name,
+       and nothing is added before a plain yes;
+     - going quiet keeps the list on the card: tap the mic and carry on;
+     - the prep list and orders; an order item said without an amount is
+       asked about before the read-back.
+     The card's Cancel button has the value 'no', so the page passes a spoken
+     "no" here (meaning "no more") instead of cancelling the list itself.
+     After the yes, the list goes through run() like any spoken add, so
+     doubles, Undo and the card work as they always have. */
+  var DICT_MS = 10 * 60 * 1000;   // a list nobody added to for 10 minutes is dropped
+  var dict = null;
+  var DICT_DONE = /^(no|nope|nah|no more|nothing else|nothing more|done|im done|all done|finished|stop|stop there|thats it|thats all|that is it|that is all|thats everything|thats the lot|thats the list|end of list|end of the list|read it back|read them back|read back|read it out|read the list back|no thats it|no thats all|yes thats it|yeah thats it|thank you|thanks|cheers)( (thanks|thank you|pluto|mate|please|for now))?$/;
+  var DICT_CANCEL = /^(cancel|cancel it|cancel that|cancel the list|never mind|nevermind|forget it|forget that|forget the list|scrap it|scrap that|scrap the list|leave it)( (thanks|please|pluto))?$/;
+  var DICT_OPTS = [{ label: "That's it", value: 'done' }, { label: 'Cancel', value: 'no' }];
+  function isFollowing(text){ return /\b(the following|following|these things)\b/.test(clean(text)); }
+  function dictName(){ return dict.list === 'prep' ? 'prep list' : dict.sids.length === 1 ? 'order' : 'orders'; }
+  function dictShow(){
+    var lines = dict.items.map(function(x){
+      return { text: itemSay(x.name) + (dict.list === 'order' ? ' · ' + (x.amount == null ? 'how many?' : fmt(x.amount) + ' ' + x.unit) : ''), tone: x.amount == null && dict.list === 'order' ? 'note' : 'ok' };
+    });
+    return { title: (dict.list === 'prep' ? 'Prep list' : 'Order') + ' so far (' + lines.length + ')', lines: lines.slice(-6), reading: true,
+             hint: "Tap the mic to carry on, or tap That's it." };
+  }
+  function dictAsked(say, log){
+    var a = asking('dict', say, DICT_OPTS, {}, 'items');
+    a.show = dictShow(); a.log = 'dict ' + (log || 'part'); return a;
+  }
+  /* The amount said for an order item, in its own unit; null when there is
+     none or it can't be converted (asked before the read-back). */
+  function dictAmount(q, e){
+    if(!q || q.vague) return null;
+    var cv = convert(q.n, q.unit, canonUnit(e.unit));
+    return cv == null || cv <= 0 ? null : Math.round(cv * 1000) / 1000;
+  }
+  /* One part he said: what it caught, and what it didn't. */
+  function dictTake(cm, cat){
+    var kinds = dict.list === 'prep' ? ['prep'] : ['order'], took = 0, problems = [];
+    dict.offer = null;
+    cm.items.forEach(function(it){
+      var shown = it.words.join(' ');
+      var f = findItems(it, cat, kinds), list = dedupe(f.list.slice(0, f.top || f.list.length));
+      if(dict.list === 'order' && dict.sids.length === 1){
+        var mine = list.filter(function(e){ return e.sid === dict.sids[0]; });
+        if(mine.length) list = mine;
+      }
+      var e = f.how !== 'fuzzy' && f.how !== 'none' && list.length === 1 ? list[0] : null;
+      if(!e && f.how !== 'fuzzy' && list.length > 1 && list.every(function(x){ return clean(x.name) === clean(list[0].name); })){
+        problems.push('"' + shown + '" is on more than one order: ' + joinOr(list.slice(0, 3).map(function(x){ return supSay(x.sname); })) + '.');
+        dict.left.push(shown); return;
+      }
+      if(!e && f.how !== 'fuzzy' && list.length > 1){
+        problems.push('"' + shown + '" could be ' + joinOr(list.slice(0, 3).map(label)) + '.');
+        dict.left.push(shown); return;
+      }
+      if(!e){
+        // sounds like one thing: a yes takes it; like a few: he says which
+        var guess = f.how === 'fuzzy' ? dedupe(f.list).slice(0, 3) : [];
+        if(guess.length === 1) dict.offer = guess[0];
+        problems.push('I didn\'t catch "' + shown + '".' + (guess.length ? ' Did you mean ' + joinOr(guess.map(label)) + '?' : ''));
+        dict.left.push(shown); return;
+      }
+      dictPut(e, dict.list === 'order' ? dictAmount(it.qty, e) : null);
+      took++;
+    });
+    return { took: took, problems: problems };
+  }
+  function dictPut(e, amount){
+    var had = dict.items.filter(function(x){ return x.id === e.id; })[0];
+    if(had){ if(amount != null) had.amount = amount; return; }
+    dict.items.push({ id: e.id, name: e.name, kind: e.kind, sid: e.sid || '', sname: e.sname || '', unit: e.unit || '', amount: amount });
+  }
+  function dictPartSay(r){
+    if(!r.problems.length) return 'Got it.';
+    var p = r.problems.join(' '), more = r.problems.length > 1 || dict.offer ? (dict.offer ? ' Say yes, say it again, or carry on.' : ' Say them again, or carry on.') : ' Say it again, or carry on.';
+    return (r.took ? 'Got it, but ' + p : p) + more;
+  }
+
+  async function dictStart(c1, cat){
+    dict = { list: c1.list === 'prep' ? 'prep' : (c1.list === 'order' || (c1.sids || []).length || ORDER_VERBS[c1.verbWords]) ? 'order' : null,
+             sids: (c1.sids || []).slice(), items: [], left: [], offer: null, at: now(), first: null };
+    if(!dict.list){
+      dict.first = c1.items.length ? c1 : null;
+      var a = asking('dictlist', 'Prep list or an order?', [{ label: 'Prep list', value: 'prep' }, { label: 'An order', value: 'order' }, { label: 'Cancel', value: 'no' }], {});
+      a.log = 'dict which list'; return a;
+    }
+    if(!c1.items.length) return dictAsked('Go ahead.', 'start ' + dict.list);
+    return dictAsked(dictPartSay(dictTake(c1, cat)), 'start ' + dict.list + ' with items');
+  }
+
+  async function dictAnswer(p, req, mode){
+    var choice = req.reply && req.reply.choice != null ? String(req.reply.choice) : null;
+    var text = String(req.text || ''), c = clean(text);
+    pending = null;
+    if(!dict || now() - dict.at > DICT_MS){
+      dict = null;
+      if(choice != null || !text) return cant('That list timed out, so nothing was added.', 'dict expired');
+      return await handle({ v: 1, id: req.id, text: text, alts: req.alts || [], followUp: false, reply: null, mode: mode });
+    }
+    dict.at = now();
+    // the card's Cancel, or a cancel word, drops the whole list (a spoken "no" means "no more")
+    if(choice === 'no' || (choice == null && (DICT_CANCEL.test(c) || (p.kind === 'dictlist' && yesNo(text) === 'no')))){
+      dict = null;
+      return ans('answer', { say: ['Okay. Nothing added.'], log: 'dict cancelled' });
+    }
+    var cat = (await fresh()).cat;
+    if(p.kind === 'dictlist'){
+      var cm0 = parse(text, cat);
+      var lk = choice || (cm0.list === 'prep' || cm0.list === 'order' ? cm0.list : (cm0.sids || []).length ? 'order' : null);
+      if(!lk){
+        if(p.again){ dict = null; return ans('answer', { say: ['Okay. Nothing added.'], log: 'dict list dropped' }); }
+        var a2 = asking('dictlist', 'Sorry, the prep list or an order?', p.options, { again: true }); a2.log = 'dict which list again'; return a2;
+      }
+      dict.list = lk;
+      if((cm0.sids || []).length) dict.sids = cm0.sids.slice();
+      var first = dict.first; dict.first = null;
+      if(first && first.items.length) return dictAsked(dictPartSay(dictTake(first, cat)), 'list ' + lk + ' with items');
+      return dictAsked('Go ahead.', 'list ' + lk);
+    }
+    if(p.kind === 'dictqty'){
+      var x = dict.items[p.idx];
+      if(choice === 'skip' || (choice == null && /^(skip|skip it|none|no|nope|leave it out|leave that out|take it out)$/.test(c))){
+        if(x) dict.items.splice(p.idx, 1);
+        return dictFinish(x ? 'Left ' + itemSay(x.name) + ' out.' : '');
+      }
+      var aq = choice == null ? firstQty(text) : null, ns = numbersIn(choice != null ? choice : text), n = null;
+      if(x && aq && aq.unit){ n = dictAmount(aq, x); }
+      else if(ns.length && ns[0] > 0) n = ns[0];
+      if(x && n != null) x.amount = n;
+      if(x && x.amount == null && !p.again){
+        var us = unitSay(x.unit)[1];
+        var a3 = asking('dictqty', 'Sorry, how many ' + (us ? us + ' of ' : '') + itemSay(x.name) + '? Or say skip.', p.options, { idx: p.idx, again: true }, 'number');
+        a3.show = dictShow(); a3.log = 'dict amount again'; return a3;
+      }
+      if(x && x.amount == null) dict.items.splice(p.idx, 1);
+      return dictFinish(x && x.amount == null ? 'Left ' + itemSay(x.name) + ' out.' : '');
+    }
+    // p.kind === 'dict': another part of the list
+    if(choice === 'done' || (choice == null && DICT_DONE.test(c))) return dictFinish('');
+    if(choice == null && yesNo(text) === 'yes'){
+      if(dict.offer){ dictPut(dict.offer, null); dict.offer = null; return dictAsked('Got it.', 'offer taken'); }
+      return dictAsked("Say the next one, or say that's it.", 'yes to nothing');
+    }
+    var cm = parse(text, cat);
+    if(cm.question || (cm.verb && cm.verb !== 'add' && cm.verb !== 'set')){
+      return dictAsked("You're still reading out the " + dictName() + ". Say that's it to hear it back, or cancel.", 'other while reading');
+    }
+    // "3 kilos" on its own: the last order item's amount
+    if(!cm.items.length && cm.looseQty && dict.list === 'order' && dict.items.length){
+      var lx = dict.items[dict.items.length - 1], la = dictAmount(cm.looseQty, lx);
+      if(la != null){ lx.amount = la; return dictAsked('Got it.', 'amount for the last one'); }
+    }
+    if(!cm.items.length) return dictAsked("I didn't catch that. Say it again, or say that's it.", 'nothing caught');
+    return dictAsked(dictPartSay(dictTake(cm, cat)), 'part');
+  }
+
+  /* "that's it": amounts still missing are asked for, then every name is read back. */
+  function dictFinish(lead){
+    if(!dict.items.length){
+      dict = null;
+      return ans('answer', { say: [(lead ? lead + ' ' : '') + 'Nothing to add, so nothing changed.'], log: 'dict empty' });
+    }
+    if(dict.list === 'order'){
+      for(var i = 0; i < dict.items.length; i++){
+        if(dict.items[i].amount != null) continue;
+        var us = unitSay(dict.items[i].unit)[1];
+        var a = asking('dictqty', (lead ? lead + ' ' : '') + 'How many ' + (us ? us + ' of ' : '') + itemSay(dict.items[i].name) + '?',
+          [{ label: 'Skip it', value: 'skip' }, { label: 'Cancel', value: 'no' }], { idx: i }, 'number');
+        a.show = dictShow(); a.log = 'dict amount'; return a;
+      }
+    }
+    var n = dict.items.length, things = n === 1 ? 'One thing' : n + ' things', rb;
+    if(dict.list === 'prep') rb = things + ' for the prep list: ' + joinAnd(dict.items.map(function(x){ return itemSay(x.name); })) + '.';
+    else {
+      var groups = [];
+      dict.items.forEach(function(x){
+        var g = groups.filter(function(y){ return y.sid === x.sid; })[0];
+        if(!g) groups.push(g = { sid: x.sid, sname: x.sname, items: [] });
+        g.items.push(amountOf(x.amount, x.unit, itemSay(x.name)));
+      });
+      rb = groups.length === 1 ? things + ' for the ' + supSay(groups[0].sname) + ' order: ' + joinAnd(groups[0].items) + '.'
+        : things + ': ' + groups.map(function(g){ return 'for ' + supSay(g.sname) + ', ' + joinAnd(g.items); }).join('; ') + '.';
+    }
+    var readBack = (lead ? [lead] : []).concat([rb]);
+    if(dict.left.length) readBack.push('I left out ' + joinAnd(uniq(dict.left).map(function(w){ return '"' + w + '"'; })) + '.');
+    var data = { list: dict.list, items: dict.items.slice() };
+    dict = null;
+    var c = confirming('dict', readBack, n === 1 ? 'Add it?' : 'Add them?', data, 'dict read back ' + n);
+    c.show = { title: (data.list === 'prep' ? 'Prep list' : 'Order') + ': ' + n + (n === 1 ? ' thing' : ' things'), reading: true, lines: data.items.slice(0, 6).map(function(x){
+      return { text: itemSay(x.name) + (data.list === 'order' ? ' · ' + fmt(x.amount) + ' ' + x.unit : ''), tone: 'ok' }; }) };
+    return c;
+  }
+
+  /* The yes: the list goes through run() like any spoken add. */
+  async function dictAdd(c){
+    var cmd = { text: '', verb: 'add', verbWords: 'add', list: c.list, sids: [], refs: false, looseQty: null, fromAsk: true, okMany: true,
+      question: false, empty: false, and: false, nTok: 0, nHit: 0, moreWord: false,
+      items: c.items.map(function(x){
+        return { words: [itemSay(x.name)], stems: keyOf(x.name).split(' '), pick: x.id, qtyFix: c.list === 'order' ? x.amount : null,
+                 verb: 'add', verbWords: 'add', list: c.list, sids: [] };
+      }) };
+    var a = await run(cmd, {}, 'tab');
+    if(a.status !== 'done' || !cmd.out) return a;
+    var n = c.list === 'prep' ? cmd.out.prep : cmd.out.order, sups = uniq(c.items.map(function(x){ return x.sname; }));
+    var line = c.list === 'prep' ? 'Done. ' + n + ' added to the prep list.'
+      : sups.length === 1 ? (n === 1 ? "Done. It's on the " : n === 2 ? 'Done. Both are on the ' : 'Done. All ' + n + ' are on the ') + supSay(sups[0]) + ' order.'
+      : 'Done. ' + n + ' added to the orders.';
+    a.say = [line].concat(cmd.out.extra);
+    return a;
+  }
+
   /* ---------- the owner answering this room's question ---------- */
   function matchOption(text, options){
     var c = clean(text);
@@ -3523,6 +3740,7 @@ function createRoom(host){
     var choice = req.reply && req.reply.choice != null ? String(req.reply.choice) : null;
     var text = String(req.text || '');
     var cmd = p.cmd;
+    if(/^dict/.test(p.kind)) return await dictAnswer(p, req, mode);   // v3.11.0
     if(/^ts/.test(p.kind)) return await tsAnswer(p, req, mode);   // v3.9.6
     if(p.kind === 'roDay') return rosterReply(p, req, mode);      // v3.9.11
     if(p.kind === 'ofwhat'){                                      // v3.9.13: "5 kilos of what?"
@@ -3675,6 +3893,8 @@ function createRoom(host){
       if(/\bof( the| some)?$/.test(clean(said)) && !c1.items.length && c1.looseQty){
         return asking('ofwhat', cap(amount(c1.looseQty.n, c1.looseQty.unit)) + ' of what?', [], { verb: c1.verb || 'add', q: c1.looseQty }, 'item');
       }
+      // v3.11.0: "add the following (to the prep list)": he reads the list out, then it's read back
+      if(mode === 'tab' && (!c1.verb || c1.verb === 'add') && !c1.question && isFollowing(said)) return await dictStart(c1, f.cat);
       // v3.9.13: "can you …?" with nothing to act on is about The Pass itself
       var topic = canTopic(said);
       if(topic){
@@ -3747,6 +3967,7 @@ function createRoom(host){
           keep: false, log: 'ts saved ' + t.day });
       }
       if(c.kind === 'roster') return rbConfirmed(c);   // v3.10.0
+      if(c.kind === 'dict') return await dictAdd(c);    // v3.11.0
       if(c.kind === 'again'){
         var cmd = c.cmd;
         cmd[c.flag] = true; cmd.fromAsk = true;
@@ -3838,7 +4059,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.10.2',
+  version: 'v3.11.0',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
