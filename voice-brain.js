@@ -68,7 +68,10 @@ function heardFix(text){
     .replace(/\b(?:cran|kran|crans|krans) ?(?:ski|skis|skies|key|keys)\b/gi, 'kransky')
     .replace(/(^|\b(?:add|order|and|get|need|plus|also|some|of|the|following|a|an|one|two|three|four|five|six|\d+)\s+|,\s*)speak\b(?!\s+(?:to|with|up|louder|slower|english|more|again|clearly|properly)\b)/gi, '$1speck')
     .replace(/\b(person|people|persons|staff|who|whos|who's|anyone|everyone|many)((?: is| are| was| were| be)?) roasted\b/gi, '$1$2 rostered')
-    .replace(new RegExp('\\broasted ((?:on|for) (?:' + DAY_WORDS + ')s?)\\b', 'gi'), 'rostered $1');
+    .replace(new RegExp('\\broasted ((?:on|for) (?:' + DAY_WORDS + ')s?)\\b', 'gi'), 'rostered $1')
+    // v3.11.2 (his log, 13 Oct: "how many hours am I roasted for this week")
+    .replace(/\b(am i|are we|are they|is he|is she|i am|im|i'm|will i be|ill be|i'll be)\s+roasted\b/gi, '$1 rostered')
+    .replace(/\broasted(?=\s+(?:on|for|in|this|next)\s+(?:this\s+|next\s+|the\s+)?(?:week|weeks|weekend|weekends)\b)/gi, 'rostered');
 }
 function stem(w){
   if(w.length <= 3 || /\d/.test(w)) return w;
@@ -1689,19 +1692,62 @@ function createRoom(host){
     var run = list.length >= 3 && idx.every(function(x, i){ return !i || x === idx[i - 1] + 1; });
     return run ? DAY_FULL[list[0]] + ' to ' + DAY_FULL[list[list.length - 1]] : joinAnd(list.map(function(d){ return DAY_FULL[d]; }));
   }
+  /* v3.11.2 (owner, 13 Oct: "it needs to understand the difference between
+     this week and last week and up until now"; his rule, from Claude's
+     proposal): "this week" is this week, on a Monday or Tuesday too (it meant
+     the week just finished there). Before any of it is on the timesheet it
+     says so, with his first rostered shift still to come and last week's
+     total. "How many hours am I doing / rostered" is the roster (handle). */
   function tsReadWeek(last){
     var sheet = tsSheet();
     if(!sheet) return cant("I can't reach the timesheet.", 'ts none');
     var today = tsToday(), mon = keyDate(mondayOf(today));
-    if(last || TS_DAYS.indexOf(dayOf(today)) < 0) mon.setDate(mon.getDate() - 7);   // Mon/Tue: the week just finished
-    var isLast = dateKey(mon) !== mondayOf(today);
-    var total = 0, done = [], gone = [], later = null;
+    if(last) mon.setDate(mon.getDate() - 7);
+    var isLast = !!last;
     tsNote(null);
+    var sum = tsWeekSum(sheet, mon, today), total = sum.total, done = sum.done, gone = sum.gone, later = sum.later;
+    var name = isLast ? 'Last week' : 'This week so far';
+    var say;
+    if(done.length) say = [name + ': ' + hoursSay(total) + ', ' + daysSay(done) + '.'];
+    else if(isLast) say = ['Nothing for last week on the timesheet.'];
+    else {
+      var wed = addDays(mondayOf(today), RO_OFFSET.wed), lm = keyDate(mondayOf(today));
+      lm.setDate(lm.getDate() - 7);
+      var prev = tsWeekSum(sheet, lm, today), first = roFirstShift(today);
+      say = [today < wed ? 'None yet this week.' : 'Nothing on the timesheet for this week yet.'];
+      if(first) say.push(first);
+      if(prev.done.length) say.push('Last week you did ' + hoursSay(prev.total) + '.');
+    }
+    if(later) say.push("Today's " + timeSay(later.start) + ' to ' + timeSay(later.end) + " isn't counted yet.");
+    if(gone.length) say.push("I don't have " + (isLast ? "last week's " : '') + joinAnd(gone.map(function(d){ return DAY_FULL[d]; })) + ' any more: newer times are on ' + (gone.length === 1 ? 'it' : 'them') + '.');
+    return ans('answer', { say: say, log: 'ts read week ' + (isLast ? 'last' : 'this') + ' ' + fmt(total) });
+  }
+  /* his first shift still to come this week, from the roster: "Your first shift is Wednesday at 3:30 pm." */
+  function roFirstShift(today){
+    var d = roData();
+    if(!d || !d.me) return '';
+    var mon = mondayOf(today), w = roWeek(d, mon);
+    if(w.missing) return '';
+    for(var i = 0; i < TS_DAYS.length; i++){
+      var day = TS_DAYS[i], date = addDays(mon, RO_OFFSET[day]);
+      if(date < today) continue;
+      var x = roEntries(d, w, day).filter(function(y){ return y.id === d.me; })[0];
+      if(x && date === today && toMin(x.s.start) <= tsNowMin()) return '';   // today's has started: it isn't still to come
+      if(x) return 'Your first shift is ' + (date === today ? 'today' : DAY_FULL[day]) + ' at ' + timeSay(x.s.start) + '.';
+    }
+    return '';
+  }
+  /* one week of the timesheet up to today: hours, the days done, days whose row holds a newer date, today's shift still on */
+  function tsWeekSum(sheet, mon, today){
+    var total = 0, done = [], gone = [], later = null;
     TS_DAYS.forEach(function(d, i){
       var dt = new Date(mon); dt.setDate(mon.getDate() + 2 + i);   // Wed is Monday + 2
       var date = dateKey(dt);
       if(date > today) return;
       var r = tsRow(sheet, date);
+      /* v3.11.2: a row still holding an older date isn't filled in yet this week
+         (it said "newer times are on it" of last week's Wednesday); only a newer one is gone */
+      if(r.other && r.other !== 'unknown' && r.other < date) return;
       if(r.other){ gone.push(d); return; }
       if(!(r.start && r.end)) return;
       /* v3.9.10: today counts once its finish has passed (his log: at 8:58 am
@@ -1714,11 +1760,7 @@ function createRoom(host){
       }
       total += hoursOf(r.start, r.end); done.push(d);
     });
-    var name = isLast ? 'Last week' : 'This week so far';
-    var say = [done.length ? name + ': ' + hoursSay(total) + ', ' + daysSay(done) + '.' : (isLast ? 'Nothing for last week on the timesheet.' : 'Nothing on the timesheet for this week yet.')];
-    if(later) say.push("Today's " + timeSay(later.start) + ' to ' + timeSay(later.end) + " isn't counted yet.");
-    if(gone.length) say.push("I don't have " + (isLast ? "last week's " : '') + joinAnd(gone.map(function(d){ return DAY_FULL[d]; })) + ' any more: newer times are on ' + (gone.length === 1 ? 'it' : 'them') + '.');
-    return ans('answer', { say: say, log: 'ts read week ' + (isLast ? 'last' : 'this') + ' ' + fmt(total) });
+    return { total: total, done: done, gone: gone, later: later };
   }
   function tsReadBegin(text){
     var c = clean(text);
@@ -1832,7 +1874,14 @@ function createRoom(host){
   var RO_DAY_RE = new RegExp('\\b(?:(?:on|for) )?(?:(?:this|next|last) )?(?:' + DAY_WORDS + ')s?\\b', 'g');
   function roFollowDay(text, lastR){
     var r = roRecent();
-    if(!r || !r.date || (tsLast && tsLast.at > r.at) || lastR) return null;   // lastR: a list was read just now
+    if(!r || (tsLast && tsLast.at > r.at) || lastR) return null;   // lastR: a list was read just now
+    // v3.11.2 (his log, 13 Oct): "for this weekend" after a question about the week
+    var cw = clean(text), we = cw.match(/^(?:(?:and|so|ok|okay|for|what about|how about|on|over|the|just|only) )*((?:this |next )?weekend)$/);
+    if(we){
+      var bw = clean(r.text).replace(RO_DAY_RE, ' ').replace(/\b(?:for |over |on )?(?:the )?(?:this |next |last )?(?:whole )?weeks?(?:ends?)?\b/g, ' ').replace(/\s+/g, ' ').trim();
+      return rosterAnswer(bw + ' ' + (/^(this|next) /.test(we[1]) ? we[1] : 'this ' + we[1]), false, null);
+    }
+    if(!r.date) return null;
     var c = clean(text), days = c.match(RO_DAY_RE);
     if(!days || days.length !== 1) return null;
     var rest = c.replace(RO_DAY_RE, ' ').replace(/\b(and|also|so|ok|okay|now|then|check|what|whats|how|hows|about|same|for|with|on|the|please|as|well|too|again|one|day|is|it)\b/g, ' ').trim();
@@ -1853,7 +1902,11 @@ function createRoom(host){
   function rosterAnswer1(text, forceWeek, sess){
     var d = roData();
     if(!d) return cant("I can't reach the roster.", 'roster none');
-    var c = clean(text), when = roWhen(text, d, sess), w = roWeek(d, when.mon), detail = RO_DETAIL.test(c);
+    var c = clean(text), when = roWhen(text, d, sess), detail = RO_DETAIL.test(c);
+    /* v3.11.2 (his log, 13 Oct: "for this weekend"): the weekend is Saturday and Sunday */
+    var weekend = !when.date && /\bweekends?\b/.test(c);
+    if(weekend && !sess) when = { date: null, mon: /\bnext weekends?\b/.test(c) ? addDays(d.week, 7) : /\blast weekends?\b/.test(c) ? addDays(d.week, -7) : d.week };
+    var w = roWeek(d, when.mon);
     if(w.missing) return roMissing(w, d);
     // who it's about: a station, a person (or "I"), or how many
     var station = (d.stations || []).filter(function(s){ return new RegExp('\\b' + clean(roStation(s)) + '\\b|\\b' + clean(s) + '\\b').test(c); })[0] || null;
@@ -1867,11 +1920,11 @@ function createRoom(host){
     var person = me ? d.me : Object.keys(d.names || {}).filter(function(id){ var n = clean(d.names[id]); return n && new RegExp('\\b' + n + 's?\\b').test(c); })[0] || null;
     var count = /\bhow many\b/.test(c);
     var off = /\b(off|days? off|not working|not on)\b/.test(c) && !/\b(take|took|taking|put|get) \w+( \w+)? off\b/.test(c), hours = /\bhours?\b/.test(c);
-    var days = when.date ? [dayOf(when.date)] : TS_DAYS.slice();
+    var days = when.date ? [dayOf(when.date)] : weekend ? ['sat', 'sun'] : TS_DAYS.slice();
     if(when.date && TS_DAYS.indexOf(days[0]) < 0) return ans('answer', { say: ["The kitchen's closed on " + DAY_FULL[days[0]] + 's.'], log: 'roster closed day' });
     var dateOf = function(day){ return addDays(when.mon, RO_OFFSET[day]); };
-    var wk = w.label.toLowerCase();
-    if(!when.date && !section && !person && !count && !forceWeek && !/\b(week|whole|all)\b/.test(c)){
+    var lab = weekend ? w.label + 'end' : w.label, wk = lab.toLowerCase();   // "This weekend"
+    if(!when.date && !section && !person && !count && !forceWeek && !weekend && !/\b(week|whole|all)\b/.test(c)){
       // last or next week: say the day; this week: today and tomorrow are a tap away
       return asking('roDay', 'Which day, or the whole week?', [{ label: 'Whole week', value: 'week' }].concat(when.mon === d.week
         ? [{ label: 'Today', value: 'today' }, { label: 'Tomorrow', value: 'tomorrow' }] : []), { text: text, sess: sess || null }, 'choice');
@@ -1922,7 +1975,7 @@ function createRoom(host){
         if(!xs.length) return ans('answer', { say: ['Nobody on ' + dateSay(when.date) + '.'], log: 'roster count 0' });
         return ans('answer', { say: [xs.length + (xs.length === 1 ? ' person' : ' people') + ' on ' + dateSay(when.date) + ': ' + joinAnd(xs.map(function(y){ return roWho(d, w, y.id); })) + '.'], log: 'roster count ' + xs.length });
       }
-      return ans('answer', { say: [w.label + ': ' + days.map(function(day){ return DAY_FULL[day] + ' ' + roEntries(d, w, day).length; }).join(', ') + '.'], log: 'roster count week' });
+      return ans('answer', { say: [lab + ': ' + days.map(function(day){ return DAY_FULL[day] + ' ' + roEntries(d, w, day).length; }).join(', ') + '.'], log: 'roster count week' });
     }
     if(when.date){
       var es = roEntries(d, w, days[0]);
@@ -1932,8 +1985,8 @@ function createRoom(host){
     }
     // the whole week: names spoken, times on the card
     var lines = days.map(function(day){ var es2 = roEntries(d, w, day); return DAY_FULL[day] + ': ' + (es2.length ? joinAnd(es2.map(function(y){ return roWho(d, w, y.id) + (detail ? ' ' + roShift(y) : ''); })) : 'nobody') + '.'; });
-    return ans('answer', { say: [w.label + '. ' + lines.join(' ')],
-      show: { title: w.label + "'s roster", lines: days.map(function(day){ var es3 = roEntries(d, w, day); return { text: DAY_FULL[day].slice(0, 3) + ' · ' + (es3.length ? es3.map(function(y){ return cap(roWho(d, w, y.id)) + ' ' + timeSay(y.s.start); }).join(', ') : '—'), tone: 'ok' }; }) },
+    return ans('answer', { say: [lab + '. ' + lines.join(' ')],
+      show: { title: lab + "'s roster", lines: days.map(function(day){ var es3 = roEntries(d, w, day); return { text: DAY_FULL[day].slice(0, 3) + ' · ' + (es3.length ? es3.map(function(y){ return cap(roWho(d, w, y.id)) + ' ' + timeSay(y.s.start); }).join(', ') : '—'), tone: 'ok' }; }) },
       log: 'roster week' + (detail ? ' detail' : '') });
   }
   /* "more details" / "which section?" just after a roster answer (2 minutes) */
@@ -4034,6 +4087,8 @@ function createRoom(host){
       if(other === (rdH && rdH.me)) other = null;
       if(/\bhours?\b/.test(clean(roT))){
         if(rdH && (other || /\b(rostered|rosters?)\b/.test(clean(roT)))) return rosterAnswer(roT);
+        // v3.11.2 (his rule): hours he's doing / working / on are his rostered hours; "have I done" stays the timesheet
+        if(rdH && /\b(am i|will i be|will i|i am|im|i will|ill|ill be) (doing|working|on|getting|down for|scheduled|booked)\b/.test(clean(roT))) return rosterAnswer(roT);
         // "how many hours is she doing" with nobody just asked about: never his own timesheet
         if(/\b(he|she|hes|shes|they|theyre|his|her|their|him|them)\b/.test(clean(roT))) return ans('answer', { say: ['Who do you mean? Say their name.'], log: 'hours who' });
       }
@@ -4256,7 +4311,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.1',
+  version: 'v3.11.2',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
