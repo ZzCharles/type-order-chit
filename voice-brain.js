@@ -51,7 +51,25 @@ function clean(s){
 var IRREG = { tomatoes: 'tomato', potatoes: 'potato', leaves: 'leaf', halves: 'half', loaves: 'loaf' };
 /* v3.10.2: kitchen words Google writes as everyday ones (his log, 12 Oct:
    "config garlic cream" for Confit Garlic Cream) */
-var HEARD_AS = { config: 'confit', configs: 'confit' };
+var HEARD_AS = { config: 'confit', configs: 'confit',
+  // v3.11.1 (his log, 13 Oct): "barbecue sauce" is BBQ Sauce (it asked "Did you mean …?" every time)
+  barbecue: 'bbq', barbeque: 'bbq', barbecues: 'bbq', barbeques: 'bbq' };
+/* v3.11.1 (his log, 13 Oct): words Google hears for his, fixed before
+   anything reads the sentence. Each only where it can't mean the everyday
+   word: "beef means" (mince), "cran ski" (Kransky), "speak" opening an item
+   or after an add (Speck, not "speak to"), and "roasted" asked about people
+   or a day (rostered; "roasted red peppers" stays). */
+var DAY_WORDS = 'monday|tuesday|wednesday|thursday|friday|saturday|sunday|today|tonight|tomorrow';
+function heardFix(text){
+  return String(text == null ? '' : text)
+    // "and how about can you mark …" is a request, not a "how" question
+    .replace(/^\s*(?:(?:and|so|ok|okay)[\s,]+)*(?:how|what) about[\s,]+(?=(?:can|could|would|will) you\b|please\b|(?:add|put|mark|tick|remove|take|order|get|make|change)\b)/i, '')
+    .replace(/\b(beef|pork|lamb|veal|chicken|turkey) means\b/gi, '$1 mince')
+    .replace(/\b(?:cran|kran|crans|krans) ?(?:ski|skis|skies|key|keys)\b/gi, 'kransky')
+    .replace(/(^|\b(?:add|order|and|get|need|plus|also|some|of|the|following|a|an|one|two|three|four|five|six|\d+)\s+|,\s*)speak\b(?!\s+(?:to|with|up|louder|slower|english|more|again|clearly|properly)\b)/gi, '$1speck')
+    .replace(/\b(person|people|persons|staff|who|whos|who's|anyone|everyone|many)((?: is| are| was| were| be)?) roasted\b/gi, '$1$2 rostered')
+    .replace(new RegExp('\\broasted ((?:on|for) (?:' + DAY_WORDS + ')s?)\\b', 'gi'), 'rostered $1');
+}
 function stem(w){
   if(w.length <= 3 || /\d/.test(w)) return w;
   if(HEARD_AS[w]) return HEARD_AS[w];
@@ -295,6 +313,12 @@ var VERBS = [
   [['is', 'done'], 'tick', 1], [['are', 'done'], 'tick', 1], [['is', 'finished'], 'tick', 1], [['are', 'finished'], 'tick', 1],
   [['is', 'ready'], 'tick', 1], [['are', 'ready'], 'tick', 1], [['is', 'complete'], 'tick', 1], [['done'], 'tick', 1], [['finished'], 'tick', 1],
   [['completed'], 'tick', 1], [['ticked', 'off'], 'tick', 1], [['ticked'], 'tick', 1],
+  /* v3.11.1 (his log, 13 Oct): "mark barbecue sauce as completed", "can I have the
+     barbeque sauce marked as completed" (it learned "barbeque sauce marked" as a name) */
+  [['marked', 'as', 'completed'], 'tick', 1], [['marked', 'as', 'complete'], 'tick', 1], [['marked', 'as', 'done'], 'tick', 1],
+  [['marked', 'as', 'finished'], 'tick', 1], [['marked', 'done'], 'tick', 1], [['marked', 'off'], 'tick', 1],
+  [['as', 'completed'], 'tick', 1], [['as', 'complete'], 'tick', 1], [['as', 'done'], 'tick', 1], [['as', 'finished'], 'tick', 1],
+  [['mark', 'off'], 'tick', 0], [['mark'], 'tick', 0],
   [['untick'], 'untick', 0], [['un', 'tick'], 'untick', 0], [['uncheck'], 'untick', 0], [['isnt', 'done'], 'untick', 1], [['arent', 'done'], 'untick', 1],
   [['is', 'not', 'done'], 'untick', 1], [['not', 'done'], 'untick', 1], [['not', 'finished'], 'untick', 1],
   [['make', 'it'], 'set', 0], [['make', 'that'], 'set', 0], [['make', 'them'], 'set', 0], [['make'], 'set', 0], [['set'], 'set', 0],
@@ -319,6 +343,8 @@ var LISTS = [
   [['prep', 'list'], 'prep'], [['prep', 'lists'], 'prep'], [['prep', 'sheet'], 'prep'], [['to', 'do', 'list'], 'prep'],
   // v3.10.2: Google's "trip list" for "prep list" (his log, 12 Oct); "trip" alone is still nothing
   [['trip', 'list'], 'prep'], [['trip', 'lists'], 'prep'],
+  // v3.11.1 (his log, 13 Oct): "what's on my purpose", "what's on my playlist"; "purple list" (12 Oct)
+  [['purpose'], 'prep'], [['playlist'], 'prep'], [['play', 'list'], 'prep'], [['purple', 'list'], 'prep'],
   [['prep'], 'prep'], [['preps'], 'prep'], [['prepping'], 'prep'], [['prepped'], 'prep'], [['list'], 'list'], [['lists'], 'list'],
   [['orders'], 'order'], [['order'], 'order'], [['suppliers'], 'order'], [['supplier'], 'order'], [['ordering'], 'order']
 ].map(function(v){ return { w: v[0], list: v[1] }; });
@@ -558,6 +584,8 @@ function rosterIntent(text, names){
   for(var i = 0; i < who.length; i++){
     var n = who[i];
     if(new RegExp('\\b(is|was|does|did) ' + n + ' (on|working|rostered|work)\\b|\\b(when|what days) (is|was|does|did) ' + n + '\\b|\\b' + n + 's (shifts?|days|roster)\\b').test(c)) return true;
+    // v3.11.1 (his log, 13 Oct): "what date is he off" (he = Anil), and his request: someone's hours
+    if(new RegExp('\\b(is|was|are) ' + n + ' off\\b|\\b' + n + 's? (days? )?off\\b|\\bhours? (is|does|did|has|will|for) ' + n + '\\b|\\b' + n + 's hours\\b').test(c)) return true;
   }
   return false;
 }
@@ -1780,11 +1808,47 @@ function createRoom(host){
      asked for detail, the answer says each person's station; "more details"
      right after a roster answer asks that same question again, in detail */
   var RO_DETAIL = /\b(more details?|in detail|full details?|the details|tell me more|more info|which (sections?|stations?)|what (sections?|stations?)|whos on what|who is on what|whos doing what|sections|stations)\b/;
-  var roLast = null;
+  var roLast = null, roSeq = 0;   // roSeq: which came last, a roster answer or a change (the clock can tie)
+  /* v3.11.1: roLast also keeps the day asked about and the one person named,
+     for "and Friday", "remove Sanjay as well" and "what date is he off" */
+  var RO_FOLLOW_MS = 2 * 60 * 1000;
+  var RO_END = '21:00';   // owner, 13 Oct: the finish isn't set, "generally assumed to be 9pm"
   function rosterAnswer(text, forceWeek, sess){
     var a = rosterAnswer1(text, forceWeek, sess);
-    if(a && a.status === 'answer') roLast = { text: String(text || ''), sess: sess || null, at: now() };
+    if(a && a.status === 'answer'){
+      var d = roData(), w = d ? roWhen(text, d, sess) : null;
+      roLast = { text: String(text || ''), sess: sess || null, at: now(), seq: ++roSeq, date: w && w.date || null, who: d ? roPersonIn(text, d) : null };
+    }
     return a;
+  }
+  function roPersonIn(text, d){
+    var c = clean(text), ids = Object.keys(d.names || {}).filter(function(id){ var n = clean(d.names[id]); return n && new RegExp('\\b' + n + 's?\\b').test(c); });
+    return ids.length === 1 ? ids[0] : null;
+  }
+  function roRecent(){ return roLast && !roLast.sess && now() - roLast.at <= RO_FOLLOW_MS ? roLast : null; }
+  /* "and Friday", "check Saturday as well", "what about Sunday" right after a
+     roster answer about one day: the same question, about that day. Only when
+     the roster answered last (not the timesheet or a list read since). */
+  var RO_DAY_RE = new RegExp('\\b(?:(?:on|for) )?(?:(?:this|next|last) )?(?:' + DAY_WORDS + ')s?\\b', 'g');
+  function roFollowDay(text, lastR){
+    var r = roRecent();
+    if(!r || !r.date || (tsLast && tsLast.at > r.at) || lastR) return null;   // lastR: a list was read just now
+    var c = clean(text), days = c.match(RO_DAY_RE);
+    if(!days || days.length !== 1) return null;
+    var rest = c.replace(RO_DAY_RE, ' ').replace(/\b(and|also|so|ok|okay|now|then|check|what|whats|how|hows|about|same|for|with|on|the|please|as|well|too|again|one|day|is|it)\b/g, ' ').trim();
+    if(rest) return null;
+    var base = clean(r.text).replace(RO_DAY_RE, ' ').replace(/\s+/g, ' ').trim();
+    return rosterAnswer(base + ' ' + days[0].trim(), false, null);
+  }
+  /* "what date is he off", "how many hours is she doing": he/she is the one
+     person the last roster answer named (2 minutes) */
+  function roPronoun(text){
+    var r = roRecent(), d = r && r.who ? roData() : null;
+    if(!d || !d.names[r.who] || roPersonIn(text, d)) return text;
+    var c = clean(text);
+    if(!/\b(he|she|him|her|his|hes|shes|they|them|their)\b/.test(c)) return text;
+    var n = d.names[r.who];
+    return c.replace(/\b(his|her|their)\b/g, n + 's').replace(/\b(hes|shes)\b/g, n + ' is').replace(/\b(he|she|him|they|them)\b/g, n);
   }
   function rosterAnswer1(text, forceWeek, sess){
     var d = roData();
@@ -1802,6 +1866,7 @@ function createRoom(host){
     var me = /\b(am i|do i|my|me|i work|i on)\b/.test(c.replace(/\b(tell|give|show|read|send) me\b/g, ' ')) && !/\bwho\b/.test(c);
     var person = me ? d.me : Object.keys(d.names || {}).filter(function(id){ var n = clean(d.names[id]); return n && new RegExp('\\b' + n + 's?\\b').test(c); })[0] || null;
     var count = /\bhow many\b/.test(c);
+    var off = /\b(off|days? off|not working|not on)\b/.test(c) && !/\b(take|took|taking|put|get) \w+( \w+)? off\b/.test(c), hours = /\bhours?\b/.test(c);
     var days = when.date ? [dayOf(when.date)] : TS_DAYS.slice();
     if(when.date && TS_DAYS.indexOf(days[0]) < 0) return ans('answer', { say: ["The kitchen's closed on " + DAY_FULL[days[0]] + 's.'], log: 'roster closed day' });
     var dateOf = function(day){ return addDays(when.mon, RO_OFFSET[day]); };
@@ -1815,8 +1880,31 @@ function createRoom(host){
       var pn = person === d.me ? 'You' : (w.names[person] || 'They');
       var shifts = days.map(function(day){ var x = roEntries(d, w, day).filter(function(y){ return y.id === person; })[0]; return x ? { day: day, x: x } : null; }).filter(Boolean);
       var where = when.date ? 'on ' + dateSay(when.date) : wk;
-      if(!shifts.length) return ans('answer', { say: [(person === d.me ? "You're not" : pn + " isn't") + ' on the roster ' + where + '.'], log: 'roster person none' });
-      return ans('answer', { say: [pn + ' ' + where + ': ' + joinAnd(shifts.map(function(s){ return (when.date ? '' : DAY_FULL[s.day] + ' ') + roShiftT(s.x); })) + '.'], log: 'roster person ' + shifts.length });
+      var you = person === d.me, list = joinAnd(shifts.map(function(s){ return (when.date ? '' : DAY_FULL[s.day] + ' ') + roShiftT(s.x); }));
+      // v3.11.1 (his log, 13 Oct: "what date is he off"): the open days without a shift
+      if(off && when.date) return ans('answer', { say: [shifts.length ? 'No, ' + (you ? "you're on " : pn + "'s on ") + dateSay(when.date) + ' ' + roTimes(shifts[0].x) + '.' : 'Yes, ' + (you ? "you're off " : pn + "'s off ") + dateSay(when.date) + '.'], log: 'roster off day' });
+      if(!shifts.length) return ans('answer', { say: [(you ? "You're not" : pn + " isn't") + ' on the roster ' + where + '.'], log: 'roster person none' });
+      if(off){
+        var offDays = days.filter(function(day){ return !shifts.some(function(x){ return x.day === day; }); });
+        if(!offDays.length) return ans('answer', { say: [(you ? "You're on" : pn + "'s on") + ' every day ' + where + '.'], log: 'roster off none' });
+        return ans('answer', { say: [(you ? "You're off " : pn + "'s off ") + joinAnd(offDays.map(function(day){ return dateSay(dateOf(day)); })) + '.'], log: 'roster off ' + offDays.length });
+      }
+      /* v3.11.1 (owner, 13 Oct): "how many hours is someone doing that week or
+         that day". A shift with no finish is counted to 9 pm, and said so. */
+      if(hours){
+        var tot = 0, guessed = 0;
+        shifts.forEach(function(x){ if(!x.x.s.end) guessed++; tot += hoursOf(x.x.s.start, x.x.s.end || RO_END); });
+        var hrs = (you ? "You're on " : pn + "'s on ") + (guessed ? 'about ' : '') + hoursSay(tot);
+        if(when.date){
+          var x0 = shifts[0].x.s;
+          return ans('answer', { say: [hrs + ' on ' + dateSay(when.date) + ': ' + (x0.end ? timeSay(x0.start) + ' to ' + timeSay(x0.end) : 'from ' + timeSay(x0.start) + ', counted to ' + timeSay(RO_END)) + '.'], log: 'roster hours day' });
+        }
+        var nS = shifts.length;
+        return ans('answer', { say: [hrs + ' ' + wk + ': ' + nS + (nS === 1 ? ' shift' : ' shifts') + (guessed ? (guessed === nS ? ', counted to ' + timeSay(RO_END) : ', ' + guessed + ' of them counted to ' + timeSay(RO_END)) : '') + '.'], log: 'roster hours ' + nS });
+      }
+      // v3.11.1 (his log): "how many days is Anil working this week" says the number first
+      if(count && !when.date) return ans('answer', { say: [(you ? "You're working " : pn + "'s working ") + shifts.length + (shifts.length === 1 ? ' day ' : ' days ') + where + ': ' + list + '.'], log: 'roster person ' + shifts.length });
+      return ans('answer', { say: [pn + ' ' + where + ': ' + list + '.'], log: 'roster person ' + shifts.length });
     }
     if(section){
       var on = days.map(function(day){ return { day: day, xs: roEntries(d, w, day).filter(function(y){ return section.set.indexOf(y.s.station) > -1; }) }; }).filter(function(o){ return o.xs.length; });
@@ -2284,7 +2372,9 @@ function createRoom(host){
     }
     if(is.who) return s ? rbReask(s, lead.concat(['Who do you mean?']), 'rb who') : rbSay('cant', lead.concat(['Who do you mean? Say their name.']), 'rb who');
     if(is.needDay){
-      var opts2 = RE.DAYS.map(function(x){ return { label: DAY_FULL[x], value: x }; }).slice(0, 4);
+      var cd = env && env.ctxDay;
+      var opts2 = (cd ? [cd] : []).concat(RE.DAYS.filter(function(x){ return x !== cd; })).map(function(x){ return { label: DAY_FULL[x], value: x }; }).slice(0, 4);
+      if(cd) return rbAsk('rbWhichDay', lead, 'On ' + rbDateSay(RE.dateOf(env.mon, cd)) + '?', opts2, keep, s, 'rb which day ' + cd + '?', { expect: 'choice' });
       return rbAsk('rbWhichDay', lead, 'Which day?', opts2, keep, s, 'rb which day', { expect: 'choice' });
     }
     if(is.ampm){
@@ -2298,6 +2388,21 @@ function createRoom(host){
     if(is.neitherOn) return rbReaskOrSay(s, lead.concat(['Neither ' + rbWho(d, is.neitherOn[0]) + ' nor ' + rbWho(d, is.neitherOn[1]) + ' is on ' + DAY_FULL[is.day] + '. Nothing changed.']), 'rb neither on');
     if(is.emptyDay) return rbSay('cant', lead.concat(["Nobody's on " + DAY_FULL[is.emptyDay] + ' yet.']), 'rb empty day');
     return rbSay('cant', lead.concat(["I didn't catch that for the roster."]), 'rb issue');
+  }
+  /* v3.11.1 (his log, 13 Oct): "remove Sanjay as well" right after Saturday's
+     roster or a change on Saturday went to the orders ("couldn't find sanjay"):
+     a change needed a day said. The day the conversation is on (2 minutes)
+     now counts, and is asked back first ("On Saturday the 17th?"): his choice
+     of "check first" was left to Claude, and a wrong-day change is silent. */
+  var rbLastEdit = null;
+  function rbCtxDay(d){
+    var c = [], r = roRecent();
+    if(r && r.date) c.push({ seq: r.seq, date: r.date });
+    if(rbLastEdit && now() - rbLastEdit.at <= RO_FOLLOW_MS) c.push(rbLastEdit);
+    if(!c.length) return null;
+    c.sort(function(a, b){ return b.seq - a.seq; });
+    var mon = mondayOf(c[0].date);
+    return rbEditable(d, mon) ? { mon: mon, day: dayOf(c[0].date) } : null;
   }
   /* saves it, then says what's stored */
   function rbDo(plan, env, s, lead){
@@ -2317,6 +2422,7 @@ function createRoom(host){
     if(w) line1 += ' ' + w;
     var line2 = one ? (s ? DAY_FULL[one] : rbDateSay(RE.dateOf(plan.mon, one))) + ' is now ' + rbDaySay(d, r.week[one]) + '.' : '';
     if(!s){
+      rbLastEdit = one ? { at: now(), seq: ++roSeq, date: RE.dateOf(plan.mon, one) } : null;
       if(one) extra.show = { title: 'Roster · ' + rbDateSay(RE.dateOf(plan.mon, one)), lines: RE.dayList(r.week, one).map(function(x){ return { text: cap(rbWho(d, x.id)) + ' · ' + rbTime(x.start) + (x.end ? ' – ' + rbTime(x.end) : ''), tone: 'ok' }; }) };
       return rbSay('done', lead.concat([line1, line2]), log, extra);
     }
@@ -2602,10 +2708,19 @@ function createRoom(host){
     var marker = !!(rbDayIn(c) || /\b(today|tonight|tomorrow)\b/.test(c) || parseClock(c) || rbRel(c) || /\brosters?\b|\brostered\b|\bshifts?\b/.test(c));
     var verb = RO_WRITE.test(c) || /\b(swap|replace|instead of|in for|off|starts|finishes)\b/.test(c);
     if(/^(whats|what|how|hows|who|whos|when|is|are|was|were|did|do i|have i|any|which|show|tell|read|check)\b/.test(c)) return null;
-    if(!(((sure || me) && marker && verb) || ((sure || me || any) && /\brosters?\b/.test(c) && verb) || (/\brosters?\b/.test(c) && RO_WRITE.test(c)))) return null;
+    /* v3.11.1: no day said ("remove Sanjay as well", "remove Sanjay for now"), a
+       clear change to someone on the staff takes the day the conversation is on,
+       asked back first. Only a sure name and a change word ("cuts me off" isn't one). */
+    var noDay = !rbDayIn(c) && !/\b(today|tonight|tomorrow)\b|\b(this|next|last) weeks?\b/.test(c) && !rbRel(c);
+    var ctxDay = noDay && sure && RO_WRITE.test(c) ? rbCtxDay(d) : null;
+    if(!(((sure || me) && marker && verb) || ((sure || me || any) && /\brosters?\b/.test(c) && verb) || (/\brosters?\b/.test(c) && RO_WRITE.test(c)) || ctxDay)) return null;
     // an order sentence that happens to sound like a name stays an order
     var cat = catalogue(host.data(), taught());
     if(!sure && !me && parse(text, cat).items.some(function(it){ return it.exact && it.exact.length; })) return null;
+    if(ctxDay && !/\brosters?\b/.test(c)){
+      var ec = rbEdit(text, { mon: ctxDay.mon, day: null, base: 'draft', session: false, last: null, fix: {}, ctxDay: ctxDay.day });
+      return ec || rbSay('cant', ["I didn't catch that for the roster. Try 'put Anil on Thursday at 4', or 'let's do next week's roster'."], 'rb not understood');
+    }
     var when = rbWhen(c, d);
     if(when && when.todayOrNext){
       return rbAsk('rbToday', [], 'Today, or next ' + DAY_FULL[when.day] + '?', [{ label: 'Today', value: 'today' }, { label: 'Next ' + DAY_FULL[when.day], value: 'next' }],
@@ -2699,10 +2814,31 @@ function createRoom(host){
       return rbEdit(p.text, e3);
     }
     if(p.kind === 'rbWhichDay'){
-      var wd = choice || rbDayIn(c);
+      var cd = p.env && p.env.ctxDay, wd = choice || rbDayIn(c), byCtx = !!cd && wd === cd;
+      if(!wd && cd && choice == null && (yesNo(text) === 'yes' || (RB_YES.test(c) && n <= 4))){ wd = cd; byCtx = true; }
+      if(!wd && cd && choice == null && (yesNo(text) === 'no' || (RB_NO.test(c) && n <= 3))){
+        var e0 = Object.assign({}, p.env, { ctxDay: null });
+        return rbAsk('rbWhichDay', [], 'Which day, then?', RE.DAYS.map(function(x){ return { label: DAY_FULL[x], value: x }; }).slice(0, 4),
+          { text: p.text, env: e0, prev: p.prev || null }, s, 'rb which day', { expect: 'choice' });
+      }
+      /* v3.11.1 (his log, 13 Oct: "all four days", then "on Wednesday Thursday Friday
+         Saturday Sunday"): several days answer it too, as one change over those days,
+         which is read back before anything is done. "All" means that person's days. */
+      var several = uniq(c.split(' ').map(rbDayOf).filter(Boolean));
+      if(choice == null && (several.length > 1 || /\b(all|every|each|both)\b/.test(c))){
+        var mon0 = p.env.mon;
+        if(several.length < 2){
+          var pid = roPersonIn(p.text, d), wkm = (rbCtxDay(d) || {}).mon || d.week, wkr = rbWeekOf(d, wkm);
+          several = pid ? RE.DAYS.filter(function(x){ return wkr[x] && wkr[x][pid] && wkr[x][pid].start; }) : [];
+          mon0 = wkm;
+          if(several.length < 2) return rbAsk('rbWhichDay', [], 'Which days? Say them, like Wednesday and Friday.', RE.DAYS.map(function(x){ return { label: DAY_FULL[x], value: x }; }).slice(0, 4),
+            { text: p.text, env: Object.assign({}, p.env, { ctxDay: null }), prev: p.prev || null }, s, 'rb which days', { expect: 'choice' });
+        } else if(!p.env.session){ var w3 = rbWhen(DAY_FULL[several[0]].toLowerCase(), d); if(w3) mon0 = w3.mon; }
+        return rbEdit(p.text + ' on ' + joinAnd(several.map(function(x){ return DAY_FULL[x]; })), Object.assign({}, p.env, { ctxDay: null, mon: mon0 }));
+      }
       if(!wd) return null;
-      var e2 = Object.assign({}, p.env);
-      if(!e2.session){ var w2 = rbWhen(DAY_FULL[wd].toLowerCase(), d); if(w2) e2.mon = w2.mon; }
+      var e2 = Object.assign({}, p.env, { ctxDay: null });
+      if(!e2.session && !byCtx){ var w2 = rbWhen(DAY_FULL[wd].toLowerCase(), d); if(w2) e2.mon = w2.mon; }
       e2.fix = Object.assign({}, e2.fix || {}, { day: wd });
       return rbEdit(p.text, e2);
     }
@@ -2864,7 +3000,21 @@ function createRoom(host){
   function reset(){ ctx = null; pending = null; tsLast = null; dict = null; }
 
   /* ---------- reading ---------- */
-  function readPrep(cat, d){
+  /* v3.11.1 (owner, 13 Oct): the prep list says five on the first go; "is
+     there more?" says the rest, and "the whole list" / "read them all" says
+     every one ("read them all" read the orders instead). An order still says
+     six, and has the rest and the whole too. lastRead is the list just read,
+     kept only until the next answer. */
+  var PREP_SPOKEN = 5, lastRead = null, READ_FOLLOW_MS = 2 * 60 * 1000;
+  function spoken(head, names, first, how){
+    if(how === 'rest'){
+      var rest = names.slice(first);
+      return rest.length ? 'The rest: ' + joinAnd(rest) + '.' : "That's all of them.";
+    }
+    if(how === 'all' || names.length <= first) return head + joinAnd(names) + '.';
+    return head + names.slice(0, first).join(', ') + ', and ' + (names.length - first) + ' more.';
+  }
+  function readPrep(cat, d, how){
     var lines = (d.prepLines || []).filter(function(l){ return !l.done; });
     var done = (d.prepLines || []).length - lines.length;
     var sec = d.prepSections || [];
@@ -2874,33 +3024,45 @@ function createRoom(host){
       if(ia !== ib) return ia - ib;
       return String(a.text).localeCompare(String(b.text));
     });
-    var show = { title: 'Prep list', lines: lines.slice(0, 6).map(function(l){ return { text: l.text, tone: 'ok' }; }), open: { view: 'prep' } };
+    var shown = how === 'all' ? lines : how === 'rest' ? lines.slice(PREP_SPOKEN) : lines.slice(0, 6);
+    var show = { title: how === 'rest' && lines.length > PREP_SPOKEN ? 'Prep list \u00b7 the rest' : 'Prep list', lines: shown.map(function(l){ return { text: l.text, tone: 'ok' }; }), open: { view: 'prep' } };
+    lastRead = { kind: 'prep', at: now() };
     if(!lines.length){
       return ans('answer', { say: [done ? 'Everything on the prep list is done.' : 'Nothing on the prep list.'], show: show, log: 'read prep 0' });
     }
     var names = lines.map(function(l){ return l.text; });
-    var head = 'Prep list, ' + lines.length + ' to do: ';
-    var say, more = [];
-    if(names.length <= SPOKEN_MAX) say = head + joinAnd(names) + '.';
-    else {
-      say = head + names.slice(0, SPOKEN_MAX).join(', ') + ', and ' + (names.length - SPOKEN_MAX) + ' more.';
-      more = ['The rest: ' + joinAnd(names.slice(SPOKEN_MAX)) + '.'];
-    }
-    return ans('answer', { say: [say], more: more, show: show, log: 'read prep ' + lines.length });
+    var say = spoken('Prep list, ' + lines.length + ' to do: ', names, PREP_SPOKEN, how);
+    var more = !how && names.length > PREP_SPOKEN ? [spoken('', names, PREP_SPOKEN, 'rest')] : [];
+    return ans('answer', { say: [say], more: more, show: show, log: 'read prep ' + (how ? how + ' ' : '') + lines.length });
   }
-  function readOrder(s){
+  function readOrder(s, how){
     var items = onOrder(s), name = supSay(s.name);
-    var show = { title: name + ' order', lines: items.slice(0, 6).map(function(p){ return { text: itemSay(p.name) + ' \u00b7 ' + fmt(+p.qty) + ' ' + p.unit, tone: 'ok' }; }), open: { view: 'supplier', id: s.id } };
+    var shown = how === 'all' ? items : how === 'rest' ? items.slice(SPOKEN_MAX) : items.slice(0, 6);
+    var show = { title: name + ' order', lines: shown.map(function(p){ return { text: itemSay(p.name) + ' \u00b7 ' + fmt(+p.qty) + ' ' + p.unit, tone: 'ok' }; }), open: { view: 'supplier', id: s.id } };
+    lastRead = { kind: 'order', sid: s.id, at: now() };
     if(!items.length) return ans('answer', { say: ['Nothing on the ' + name + ' order yet.'], show: show, log: 'read order ' + name + ' 0' });
-    var lines = items.map(lineOf), more = [];
-    var head = name + ' order, ' + items.length + (items.length === 1 ? ' item: ' : ' items: ');
-    var say;
-    if(lines.length <= SPOKEN_MAX) say = head + joinAnd(lines) + '.';
-    else {
-      say = head + lines.slice(0, SPOKEN_MAX).join(', ') + ', and ' + (lines.length - SPOKEN_MAX) + ' more.';
-      more = ['The rest: ' + joinAnd(lines.slice(SPOKEN_MAX)) + '.'];
-    }
-    return ans('answer', { say: [say], more: more, show: show, log: 'read order ' + name + ' ' + items.length });
+    var lines = items.map(lineOf);
+    var say = spoken(name + ' order, ' + items.length + (items.length === 1 ? ' item: ' : ' items: '), lines, SPOKEN_MAX, how);
+    var more = !how && lines.length > SPOKEN_MAX ? [spoken('', lines, SPOKEN_MAX, 'rest')] : [];
+    return ans('answer', { say: [say], more: more, show: show, log: 'read order ' + name + ' ' + (how ? how + ' ' : '') + items.length });
+  }
+  /* "is there more?", "what else", "the whole list", "read them all": about the
+     list just read (or the one named in it). Anything else is left alone. */
+  var RD_REST = /^(?:(?:and|so|ok|okay|um|uh|yeah|yes|right|alright) )*(?:is there (?:any )?more|are there (?:any )?more|any more|anymore|more|more please|what else|whats else|what else is (?:there|on (?:it|there|the list))|anything else|and the rest|the rest|whats the rest|what are the (?:rest|others)|the others|tell me more|read (?:me )?the rest|read the others|(?:is that|was that|thats) (?:all|it|everything))(?: please| on (?:it|there|the list))?$/;
+  var RD_ALL = /\b(?:(?:whole|full|entire|complete) (?:list|prep list|order|thing|lot)|(?:read|tell|say|give|show)(?: me)?(?: them| it| the lot)? all|all of (?:them|it)|everything|every item|all the (?:items|prep|prep items|things|names)|the lot)\b/;
+  async function readMore(text, last){
+    var c = clean(text), rest = RD_REST.test(c), all = !rest && RD_ALL.test(c);
+    if(!rest && !all) return null;
+    var f = await fresh(), cm = parse(text, f.cat);
+    if(all && cm.verb && cm.verb !== 'read' && cm.verb !== 'open') return null;   // "clear everything", "add the lot"
+    if(cm.items.some(function(it){ return it.exact && it.exact.length; })) return null;
+    var target = cm.list === 'prep' ? { kind: 'prep' } : (cm.sids || []).length === 1 ? { kind: 'order', sid: cm.sids[0] }
+      : (!cm.list || cm.list === 'list') && last && now() - last.at <= READ_FOLLOW_MS ? last   // "the whole list": the one just read
+      : cm.list === 'list' && all ? { kind: 'prep' } : null;                                   // else "the list" is the prep list, as when reading
+    if(!target) return null;
+    if(target.kind === 'prep') return readPrep(f.cat, f.data, rest ? 'rest' : 'all');
+    var sp = supplier(f.cat, target.sid);
+    return sp ? readOrder(sp, rest ? 'rest' : 'all') : null;
   }
   function readAll(cat){
     var parts = cat.suppliers.map(function(s){ var n = onOrder(s).length; return n ? supSay(s.name) + ' ' + n + (n === 1 ? ' item' : ' items') : ''; }).filter(Boolean);
@@ -3530,7 +3692,7 @@ function createRoom(host){
   }
   /* One part he said: what it caught, and what it didn't. */
   function dictTake(cm, cat){
-    var kinds = dict.list === 'prep' ? ['prep'] : ['order'], took = 0, problems = [];
+    var kinds = dict.list === 'prep' ? ['prep'] : ['order'], took = 0, problems = [], elsewhere = [];
     dict.offer = null;
     cm.items.forEach(function(it){
       var shown = it.words.join(' ');
@@ -3548,6 +3710,16 @@ function createRoom(host){
         problems.push('"' + shown + '" could be ' + joinOr(list.slice(0, 3).map(label)) + '.');
         dict.left.push(shown); return;
       }
+      /* v3.11.1 (his log, 13 Oct): Aziz products read into the prep list ("speck",
+         "pork mince") got "I didn't catch" or a wrong guess (Pork Ragu). Named on
+         the other list, it says where it is instead, and adds nothing. */
+      if(!e){
+        var of = findItems(it, cat, dict.list === 'prep' ? ['order'] : ['prep']), ol = dedupe(of.list.slice(0, of.top || of.list.length));
+        if(of.how !== 'fuzzy' && of.how !== 'none' && ol.length && ol.every(function(x){ return clean(x.name) === clean(ol[0].name); })){
+          elsewhere.push({ name: label(ol[0]), from: dict.list === 'prep' ? joinOr(uniq(ol.map(function(x){ return supSay(x.sname); }))) : '' });
+          dict.left.push(shown); return;
+        }
+      }
       if(!e){
         // sounds like one thing: a yes takes it; like a few: he says which
         var guess = f.how === 'fuzzy' ? dedupe(f.list).slice(0, 3) : [];
@@ -3558,7 +3730,7 @@ function createRoom(host){
       dictPut(e, dict.list === 'order' ? dictAmount(it.qty, e) : null);
       took++;
     });
-    return { took: took, problems: problems };
+    return { took: took, problems: problems, elsewhere: elsewhere };
   }
   function dictPut(e, amount){
     var had = dict.items.filter(function(x){ return x.id === e.id; })[0];
@@ -3566,8 +3738,16 @@ function createRoom(host){
     dict.items.push({ id: e.id, name: e.name, kind: e.kind, sid: e.sid || '', sname: e.sname || '', unit: e.unit || '', amount: amount });
   }
   function dictPartSay(r){
-    if(!r.problems.length) return 'Got it.';
-    var p = r.problems.join(' '), more = r.problems.length > 1 || dict.offer ? (dict.offer ? ' Say yes, say it again, or carry on.' : ' Say them again, or carry on.') : ' Say it again, or carry on.';
+    var ps = r.problems.slice(), el = r.elsewhere || [];
+    if(!ps.length && !el.length) return 'Got it.';
+    // v3.11.1: the ones on the other list, together, by where they come from
+    uniq(el.map(function(x){ return x.from; })).forEach(function(from){
+      var ns = el.filter(function(x){ return x.from === from; }).map(function(x){ return x.name; }), many = ns.length > 1;
+      ps.push(dict.list === 'prep' ? joinAnd(ns) + (many ? ' come from ' : ' comes from ') + from + (many ? ", they aren't on the prep list." : ", it isn't on the prep list.")
+                                   : joinAnd(ns) + (many ? " are prep items, they aren't on an order." : " is a prep item, it isn't on an order."));
+    });
+    var p = ps.join(' '), more = !r.problems.length ? " Carry on, or say that's it."
+      : r.problems.length > 1 || dict.offer ? (dict.offer ? ' Say yes, say it again, or carry on.' : ' Say them again, or carry on.') : ' Say it again, or carry on.';
     return (r.took ? 'Got it, but ' + p : p) + more;
   }
 
@@ -3827,9 +4007,12 @@ function createRoom(host){
   /* ---------- the contract's functions ---------- */
   async function handle(req){
     req = req || {};
+    if(req.text) req = Object.assign({}, req, { text: heardFix(req.text) });   // v3.11.1: "beef means", "cran ski"
     var mode = req.mode === 'tab' ? 'tab' : 'pluto';
     var otherBefore = rbOther;
     rbOther = true;   // until the roster answers this one itself
+    var lastR = lastRead;   // v3.11.1: the list read just before, for "is there more?"
+    lastRead = null;
     try{
       if(req.reply && pending && req.reply.to === pending.id){
         if(!/^rb/.test(pending.kind)) return await answerAsk(pending, req, mode);
@@ -3842,8 +4025,20 @@ function createRoom(host){
       if(req.reply && req.reply.choice != null && !req.text){ pending = null; return cant('That one expired. Ask me again.', 'ask expired'); }
       pending = null;
       if(isClose(req.text || '')) return notmine('close');
+      // v3.11.1 (his log, 13 Oct): "and Friday", "check Saturday as well" right after a roster answer
+      var roF = roFollowDay(req.text || '', lastR);
+      if(roF) return roF;
+      /* v3.11.1 (owner, 13 Oct): "how many hours is Anil doing this week" is the
+         roster, not his own timesheet ("how many hours" alone still is) */
+      var roT = roPronoun(req.text || ''), rdH = roData(), other = rdH ? roPersonIn(roT, rdH) : null;
+      if(other === (rdH && rdH.me)) other = null;
+      if(/\bhours?\b/.test(clean(roT))){
+        if(rdH && (other || /\b(rostered|rosters?)\b/.test(clean(roT)))) return rosterAnswer(roT);
+        // "how many hours is she doing" with nobody just asked about: never his own timesheet
+        if(/\b(he|she|hes|shes|they|theyre|his|her|their|him|them)\b/.test(clean(roT))) return ans('answer', { say: ['Who do you mean? Say their name.'], log: 'hours who' });
+      }
       var tsk = tsIntent(req.text || '');   // v3.9.6: his timesheet
-      if(!tsk && tsRecent()){               // v3.9.10: "remove the Sunday" right after a timesheet answer
+      if(!tsk && tsRecent() && !other){     // v3.9.10: "remove the Sunday" right after a timesheet answer (v3.11.1: not "is Anil off on Sunday")
         tsk = tsFollow(req.text || '');
         if(tsk && parse(req.text || '', (await fresh()).cat).items.some(function(it){ return it.exact && it.exact.length; })) tsk = null;
       }
@@ -3853,11 +4048,13 @@ function createRoom(host){
       /* v3.10.1 (replaying his log): a tap on an old card's "No", or a bare yes
          or no with no question open, said "I couldn't find no on the orders" */
       if(/^(yes|yeah|yep|yup|no|nope|nah)( please| thanks| thank you)?$/.test(clean(req.text || ''))) return ans('answer', { say: ['Okay. Nothing changed.'], log: 'yes or no to nothing' });
+      var rm = await readMore(req.text || '', lastR);   // v3.11.1: "is there more?", "read them all"
+      if(rm) return rm;
       var roN = roNames(roData());
       if(rosterWrite(req.text || '', roN)) return cant(RE && host.setRosterDays ? "I didn't catch that for the roster. Try 'put Anil on Thursday at 4', or 'let's do next week's roster'." : "I can't change the roster from here.", 'roster write');
       var rdA = roDetailAgain(req.text || '');   // v3.10.1: "more details" after a roster answer
       if(rdA) return rdA;
-      if(rosterIntent(req.text || '', roN)) return rosterAnswer(req.text || '');   // v3.9.11: read only
+      if(rosterIntent(roT, roN)) return rosterAnswer(roT);   // v3.9.11: read only (v3.11.1: "he" is who was just asked about)
       /* v3.9.3: long talk while it listens for a follow-up, with no verb and
          few names or amounts in it, is chatter (his log: talking to Claude
          about the app made it ask "Which garlic?"). Ignored, as RK Trips
@@ -4059,9 +4256,9 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.0',
+  version: 'v3.11.1',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
-  rosterTime: rbTime, rosterClauses: rbClauses,
+  rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
   parse: parse, catalogue: catalogue, findItems: findItems, isClose: isClose, yesNo: yesNo,
   amount: amount, itemSay: itemSay, supSay: supSay, sound: sound,
