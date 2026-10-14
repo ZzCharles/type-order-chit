@@ -34,6 +34,8 @@
    only the dots and slashes that sit inside numbers kept ("2.5", "1/2"). */
 function clean(s){
   return String(s == null ? '' : s).toLowerCase()
+    // v3.11.9 (his test, 14 Oct): Google wrote Bechamel with an accented e, and the accented letter was thrown away ("B chamel isn't a prep item")
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[\u2018\u2019\u02bc`\u00b4]/g, "'")
     .replace(/&/g, ' and ')
     .replace(/(\d),(?=\d{3}(\D|$))/g, '$1')
@@ -1486,7 +1488,7 @@ function createRoom(host){
     var view = { view: 'recipe', rid: e.recipe };
     if(mode !== 'pluto' && host.open) host.open(view);
     return ans('answer', { say: [mode === 'pluto' ? 'The ' + e.name + ' recipe is on The Pass tab.' : 'Here’s the ' + e.name + ' recipe.'],
-      show: { title: e.name, lines: [], open: view }, log: 'recipe ' + e.name });
+      show: { title: e.name, lines: [], open: view, go: true }, log: 'recipe ' + e.name });   // v3.11.9: go, Pluto opens it (contract 6.5)
   }
   function recipeAsk(text, cat, mode, cmd){
     var words = recipeWords(text);
@@ -1496,7 +1498,7 @@ function createRoom(host){
       if(canTopic(text) === 'recipe') return null;      // "can you do recipes?" is about The Pass itself
       var all = { view: 'recipes' };
       if(mode !== 'pluto' && host.open) host.open(all);
-      return ans('answer', { say: [mode === 'pluto' ? 'Your recipes are on The Pass tab.' : 'Here are your recipes.'], show: { title: 'Recipes', lines: [], open: all }, log: 'recipes' });
+      return ans('answer', { say: [mode === 'pluto' ? 'Your recipes are on The Pass tab.' : 'Here are your recipes.'], show: { title: 'Recipes', lines: [], open: all, go: true }, log: 'recipes' });
     }
     var tk = toks(words.join(' ')).filter(function(t){ return !STOP[t.r]; });
     var rc = recipeCat(cat);
@@ -3161,7 +3163,9 @@ function createRoom(host){
   }
   /* "is there more?", "what else", "the whole list", "read them all": about the
      list just read (or the one named in it). Anything else is left alone. */
-  var RD_REST = /^(?:(?:and|so|ok|okay|um|uh|yeah|yes|right|alright) )*(?:is there (?:any )?more|are there (?:any )?more|any more|anymore|more|more please|what else|whats else|what else is (?:there|on (?:it|there|the list))|anything else|and the rest|the rest|whats the rest|what are the (?:rest|others)|the others|tell me more|read (?:me )?the rest|read the others|(?:is that|was that|thats) (?:all|it|everything))(?: please| on (?:it|there|the list))?$/;
+  /* v3.11.9 (his test, 14 Oct: "what else is in the prep list" said "I can't
+     do that yet"): "in" as well as "on", and the list or order by name */
+  var RD_REST = /^(?:(?:and|so|ok|okay|um|uh|yeah|yes|right|alright) )*(?:is there (?:any )?more|are there (?:any )?more|any more|anymore|more|more please|what else|whats else|what else is (?:there|(?:on|in) (?:it|there|the (?:prep )?list|the (?:[a-z]+ ){1,3}order))|anything else|and the rest|the rest|whats the rest|what are the (?:rest|others)|the others|tell me more|read (?:me )?the rest|read the others|(?:is that|was that|thats) (?:all|it|everything))(?: please| (?:on|in) (?:it|there|the (?:prep )?list|the (?:[a-z]+ ){1,3}order))?$/;
   var RD_ALL = /\b(?:(?:whole|full|entire|complete) (?:list|prep list|order|thing|lot)|(?:read|tell|say|give|show)(?: me)?(?: them| it| the lot)? all|all of (?:them|it)|everything|every item|all the (?:items|prep|prep items|things|names)|the lot)\b/;
   async function readMore(text, last){
     var c = clean(text), rest = RD_REST.test(c), all = !rest && RD_ALL.test(c);
@@ -3376,6 +3380,10 @@ function createRoom(host){
       if(n < 0) n = 0;
       it.amount = n;
       if((v === 'add' || v === 'set') && n > 0 && !it.okBig && tooMuch(e, n)){
+        /* v3.11.9 (his test, 14 Oct): the item asked about is the one being
+           talked about, so "change this to 15" after a no is the mozzarella,
+           not the BBQ sauce added before it */
+        ctx = { at: now(), verb: v, items: [{ id: e.id, kind: 'order', name: e.name }], deltas: {} };
         return asking('unusual', amountOf(n, e.unit, label(e)) + "? That's a lot more than usual.",
           [{ label: 'Yes, ' + fmt(n), value: 'yes' }, { label: 'No', value: 'no' }], { cmd: cmd, item: i });
       }
@@ -3628,6 +3636,9 @@ function createRoom(host){
        bare "and add" (cut off as he carried on) no longer adds the last item
        again (his log, 10 Oct: "and add" → +1 kilo of pork mince); it needs
        "it", a number, or "another"/"more". */
+    /* v3.11.9 (his test, 14 Oct): "actually clear that" right after a change
+       means that item, not the whole order (he then said "remove the mozzarella") */
+    if(cmd.verb === 'clear' && cmd.refs && !cmd.items.length && !cmd.sids.length && !cmd.list && !cmd.tickWords && live && ctx.items.length) cmd.verb = 'remove';
     if(!cmd.items.length && live && ctx.items.length && (cmd.refs || cmd.looseQty || cmd.moreWord) && ['add', 'set', 'remove', 'tick', 'untick', null].indexOf(cmd.verb) > -1){
       var lq = cmd.looseQty;
       var v0 = cmd.verb || (lq ? 'set' : ctx.verb);
@@ -3727,7 +3738,7 @@ function createRoom(host){
       else if(cmd.list === 'order'){ view = { view: 'list' }; said = 'Here are the suppliers.'; }
       if(!view) return cant('Open what? Say a supplier, or the prep list.', 'open what');
       if(host.open) host.open(view);
-      return ans('answer', { say: [said], show: { title: said.replace(/^Here’s the |^Here are the /, '').replace(/\.$/, ''), lines: [], open: view }, log: 'open ' + view.view });
+      return ans('answer', { say: [said], show: { title: said.replace(/^Here’s the |^Here are the /, '').replace(/\.$/, ''), lines: [], open: view, go: true }, log: 'open ' + view.view });
     }
 
     // add, set, remove, tick, untick, or no verb at all
@@ -4083,6 +4094,24 @@ function createRoom(host){
       cmd.fromAsk = true; pending = null;
       return run(cmd, req, mode);
     }
+    /* v3.11.9 (his test, 14 Oct): "50 kilos of Mozzarella? That's a lot more
+       than usual." answered "no, change it to 15" was left: a number in the
+       answer is the amount he meant (checked again like any amount); the
+       same number as asked ("yes 5") is a yes */
+    if(p.kind === 'unusual' && choice == null){
+      var uit = cmd.items[p.item], uns = numbersIn(text);
+      if(uit && uns.length){
+        var un = uns[uns.length - 1], uq = uns.length === 1 ? firstQty(text) : null;
+        if(uq && uq.unit && uit.e && uit.e.kind === 'order'){
+          var ucv = convert(uq.n, uq.unit, canonUnit(uit.e.unit));
+          if(ucv != null) un = Math.round(ucv * 1000) / 1000;
+        }
+        pending = null; cmd.fromAsk = true;
+        if(un === uit.amount) uit.okBig = true;
+        else { uit.qtyFix = un; uit.okBig = false; }
+        return run(cmd, req, mode);
+      }
+    }
     /* v3.9.13: "Did you mean Pure Cream?" answered by saying "second cream"
        again isn't a pick: nothing new was said, so it never learns from it */
     if(choice == null && p.kind === 'item' && p.teach){
@@ -4252,7 +4281,7 @@ function createRoom(host){
         if(!s || !onOrder(s).length) return cant('That order is empty now.', 'send empty');
         if(host.open) host.open({ view: 'ticket', id: s.id });
         return ans('done', { say: ["It's on screen. Check it and tap Send Order."], action: { id: 'a-send-' + now().toString(36), label: 'Opened the ' + supSay(s.name) + ' order to send', undo: false },
-          show: { title: supSay(s.name) + ' order', lines: onOrder(s).slice(0, 6).map(function(p){ return { text: itemSay(p.name) + ' · ' + fmt(+p.qty) + ' ' + p.unit, tone: 'ok' }; }), open: { view: 'ticket', id: s.id } },
+          show: { title: supSay(s.name) + ' order', lines: onOrder(s).slice(0, 6).map(function(p){ return { text: itemSay(p.name) + ' · ' + fmt(+p.qty) + ' ' + p.unit, tone: 'ok' }; }), open: { view: 'ticket', id: s.id }, go: true },
           keep: false, log: 'send ok' });
       }
       if(c.kind === 'clear' || c.kind === 'repeat'){
@@ -4386,7 +4415,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.8',
+  version: 'v3.11.9',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
