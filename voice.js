@@ -262,6 +262,16 @@ function roomStart(){
   try{ window.PlutoRoomHost.ready(JSON.stringify({ hello: room.hello(), menu: m })); }catch(e){}
 }
 if(typeof ROOM !== 'undefined' && ROOM){ roomStart(); return; }
+/* v3.11.7 (Pluto Stage 4): in the app's tab, Pluto opens The Pass at a
+   screen: the order after his yes to send it (he taps Send Order there, his
+   pick, 14 Oct), a recipe, the prep list. The app calls this with the room's
+   own view ({view: 'ticket', id} and the like), through the same host.open
+   the mic uses. Never in Chrome. */
+if(PTAB) window.plutoOpen = function(json){
+  var v = null;
+  try{ v = typeof json === 'string' ? JSON.parse(json) : json; }catch(e){ v = null; }
+  if(v && typeof v === 'object') host.open(v);
+};
 
 /* ---------- speech: the swap point ----------
    Every bit of speech, in and out, goes through these few functions (the
