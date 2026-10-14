@@ -3101,6 +3101,7 @@ function createRoom(host){
     (d.prepCatalogue || []).forEach(function(c){ put2(c.name); });
     Object.keys(taught()).forEach(function(k){ put2(k); });
     put2('prep list');
+    ['trip list', 'purple list'].forEach(put2);              // v3.11.8: Google's "prep list" (LISTS), so Pluto's router sends them here
     ['timesheet', 'time sheet', 'my hours'].forEach(put2);   // v3.9.6
     ['roster', 'rostered'].forEach(put2);                    // v3.9.11
     cues = cues.filter(function(c){ return strong.indexOf(c) < 0; });
@@ -3324,7 +3325,7 @@ function createRoom(host){
         var withQ = list.filter(function(e){ return e.qty > 0; });
         if(withQ.length) list = withQ;
       }
-      if(f.how === 'fuzzy'){
+      if(f.how === 'fuzzy' || (cmd.verbCue && f.how !== 'exact')){   // v3.11.8: see run()
         var choices = list.slice(0, 3);
         return asking('item', 'Did you mean ' + joinOr(choices.map(label)) + '?',
           choices.map(function(e){ return { label: label(e), value: e.id }; }).concat([{ label: 'None of these', value: 'none' }]),
@@ -3602,6 +3603,11 @@ function createRoom(host){
   async function run(cmd, req, mode){
     var f = await fresh(), cat = f.cat, d = f.data;
     var hasCue = !!(cmd.list || cmd.sids.length || cmd.fromAsk || cmd.items.some(function(it){ return it.exact && it.exact.length; }));
+    /* v3.11.8 (Pluto's router exam): "order more basil" is the kitchen's, said
+       as a verb; but with "order" the only kitchen word, a name that's only
+       part of an item's ("order a pizza") asks "Did you mean …?" first */
+    cmd.verbCue = !hasCue && mode === 'pluto' && !!ORDER_VERBS[cmd.verbWords];
+    if(cmd.verbCue) hasCue = true;
     var live = ctx && now() - ctx.at < CTX_MS;
 
     if(cmd.empty) return mode === 'pluto' ? notmine('empty') : cant("I didn't catch that.", 'empty');
@@ -4380,7 +4386,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.7',
+  version: 'v3.11.8',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
