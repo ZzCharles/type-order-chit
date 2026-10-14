@@ -56,6 +56,17 @@ var IRREG = { tomatoes: 'tomato', potatoes: 'potato', leaves: 'leaf', halves: 'h
 var HEARD_AS = { config: 'confit', configs: 'confit',
   // v3.11.1 (his log, 13 Oct): "barbecue sauce" is BBQ Sauce (it asked "Did you mean …?" every time)
   barbecue: 'bbq', barbeque: 'bbq', barbecues: 'bbq', barbeques: 'bbq' };
+/* v3.11.10 (his test through Pluto, 15 Oct: "add sliced spec to the list", twice): Google's words fixed in a
+   one-off's name ("Sliced speck"). Speck itself is found from "spec" already (a name's start, like "mozz") */
+var SHOWN_FIX = { spec: 'speck', specs: 'speck', config: 'confit', configs: 'confit' };
+/* v3.11.10 (his test, 15 Oct: "chopped parsley", "sliced speck"): how a thing
+   is prepped, said before its name. When the whole sentence's words don't
+   name an item, the same words without these are tried, so "chop parsley",
+   "cut parsley" and "parsley" all find Parsley. A name that has the word
+   ("Sliced Pepperoni") still matches first, as said. */
+var PREP_TRIM = { chop: 1, chopped: 1, cut: 1, slice: 1, sliced: 1, dice: 1, diced: 1, pick: 1, picked: 1,
+  peel: 1, peeled: 1, grate: 1, grated: 1, shred: 1, shredded: 1, crush: 1, crushed: 1, julienne: 1, julienned: 1,
+  wash: 1, washed: 1 };
 /* v3.11.1 (his log, 13 Oct): words Google hears for his, fixed before
    anything reads the sentence. Each only where it can't mean the everyday
    word: "beef means" (mince), "cran ski" (Kransky), "speak" opening an item
@@ -68,6 +79,11 @@ function heardFix(text){
     .replace(/^\s*(?:(?:and|so|ok|okay)[\s,]+)*(?:how|what) about[\s,]+(?=(?:can|could|would|will) you\b|please\b|(?:add|put|mark|tick|remove|take|order|get|make|change)\b)/i, '')
     .replace(/\b(beef|pork|lamb|veal|chicken|turkey) means\b/gi, '$1 mince')
     .replace(/\b(?:cran|kran|crans|krans) ?(?:ski|skis|skies|key|keys)\b/gi, 'kransky')
+    // v3.11.10 (his test, 15 Oct): Google's ways of hearing "the prep list" ("to the purpose", "from the process", "the prayer list")
+    .replace(/\b(to|on|onto|in|into|from|off|of|for) (?:the|my|our) (?:purpose|process|prayer list|prayer lists|breath list|breathless|press list)\b/gi, '$1 the prep list')
+    // v3.11.10 (his test, 15 Oct: "can you check mushroom off from the prep list" was taken as "can you …?")
+    .replace(/\bcheck\s+off\b/gi, 'tick off')
+    .replace(/\bcheck\s+((?:the\s+)?[a-z][a-z' ]{1,40}?)\s+off\b/gi, 'tick $1 off')
     .replace(/(^|\b(?:add|order|and|get|need|plus|also|some|of|the|following|a|an|one|two|three|four|five|six|\d+)\s+|,\s*)speak\b(?!\s+(?:to|with|up|louder|slower|english|more|again|clearly|properly)\b)/gi, '$1speck')
     .replace(/\b(person|people|persons|staff|who|whos|who's|anyone|everyone|many)((?: is| are| was| were| be)?) roasted\b/gi, '$1$2 rostered')
     .replace(new RegExp('\\broasted ((?:on|for) (?:' + DAY_WORDS + ')s?)\\b', 'gi'), 'rostered $1')
@@ -1343,6 +1359,12 @@ function findItems(item, cat, kinds){
   var exact = (cat.index[key] || []).filter(ok);
   if(!exact.length && item.exact) exact = item.exact.filter(ok);
   if(exact.length) return { how: 'exact', list: exact };
+  // v3.11.10: the same words without how it's prepped ("chopped parsley" -> Parsley, "sliced speck" -> Speck)
+  var trim = item.stems.filter(function(w){ return !PREP_TRIM[w]; });
+  if(trim.length && trim.length < item.stems.length){
+    var exTrim = (cat.index[trim.join(' ')] || []).filter(ok);
+    if(exTrim.length) return { how: 'exact', list: exTrim, trimmed: true };
+  }
   if(!said.length) return { how: 'none', list: [] };
   var sup = [], sub = [];
   cat.entries.forEach(function(e){
@@ -1418,6 +1440,9 @@ function createRoom(host){
   var pending = null;            // the question this room asked last
   var confirms = {};             // token -> waiting high-stakes action
   var ctx = null;                // the last items talked about, for "make it 3"
+  var lastDone = null;           // v3.11.10: the last add, for a correction ("no, I meant the order")
+  var lastUndone = null;         // v3.11.10: the last add taken back by undo, for "put it back"
+  var goAhead = null;            // v3.11.10: "add the following to the order" through Pluto: that list, for the names that follow
 
   function now(){ return host.now ? host.now() : Date.now(); }
   function get(k, d){ try{ var v = host.get(k); return v == null ? d : v; }catch(e){ return d; } }
@@ -3112,7 +3137,7 @@ function createRoom(host){
       verbs: ['add', 'chuck in', 'we need', 'put', 'get', 'order', 'remove', 'take off', 'scrap', 'drop', 'change', 'make it', 'read', 'whats on', 'send', 'tick off', 'clear'],
       examples: ['add salad dressing to the prep list', 'chuck in 2 kilos of mozzarella', 'whats on the aziz order', 'take the speck off', 'pizza sauce is done', 'send the aziz order', 'add todays timesheet'] };
   }
-  function reset(){ ctx = null; pending = null; tsLast = null; dict = null; }
+  function reset(){ ctx = null; pending = null; tsLast = null; dict = null; lastDone = null; lastUndone = null; goAhead = null; }
 
   /* ---------- reading ---------- */
   /* v3.11.1 (owner, 13 Oct): the prep list says five on the first go; "is
@@ -3195,6 +3220,7 @@ function createRoom(host){
   function kindsFor(cmd, it){
     var v = verbOf(cmd, it);
     var all = v === 'tick' || v === 'untick' ? ['line'] : v === 'remove' ? ['order', 'line'] : v === 'read' || v === 'open' ? ['order', 'line', 'prep'] : ['order', 'prep'];
+    if(it.oneoff) return { strict: ['prep'], all: all, sids: [] };   // v3.11.10: a yes to "… for today": the prep list
     function by(list, sids, words){
       var prep = list === 'prep' || list === 'list', order = list === 'order' || (sids && sids.length > 0) || !!ORDER_VERBS[words];
       if(v === 'tick' || v === 'untick') return ['line'];
@@ -3207,6 +3233,11 @@ function createRoom(host){
     if(own) return { strict: own, all: all, sids: it.sids || [] };
     var whole = by(cmd.list, cmd.sids, cmd.verbWords);
     if(whole) return { prefer: whole, all: all, sids: cmd.sids };
+    /* v3.11.10 (his test, 15 Oct: "could you also add chopped parsley"): how
+       it's prepped, said with no list, points at the prep list; when it isn't
+       a prep item, resolve() says what it is and asks (never guesses an order) */
+    // (an amount means an order; and nothing found as prep falls back to every list, as "prefer" does: "cuts me off I guess" stays not found)
+    if((v === 'add' || v === 'set') && !(it.exact && it.exact.length) && !(it.qty && !it.qty.vague) && (it.stems || []).some(function(w){ return PREP_TRIM[w]; })) return { prefer: ['prep'], all: all, sids: [], prepWords: true };
     if(it.makePrep) return { prefer: ['prep'], all: all, sids: [] };
     return { all: all, sids: [] };
   }
@@ -3234,6 +3265,15 @@ function createRoom(host){
     return lines.filter(function(x){ return x.done === want; })[0] || lines[0] || null;
   }
 
+  /* v3.11.10 (his ask, 15 Oct: "check the closest item first"): not a prep
+     item, but an order item by that name: say so, and offer it for today on
+     the prep list, or to order it ("Order it" / "the ordering list") */
+  function orderTwinAsk(cmd, i, it, oe){
+    var shown = it.words.map(function(w){ return SHOWN_FIX[clean(w)] || w; }).join(' ');
+    return asking('oneoff', label(oe) + " isn't on the prep list; it's on the " + supSay(oe.sname) + ' order list. Add ' + cap(shown) + ' to the prep list for today, or order it?',
+      [{ label: 'Prep list, today', value: 'yes' }, { label: 'Order it', value: 'order' }, { label: 'No', value: 'no' }], { cmd: cmd, item: i, orderPick: oe.id });
+  }
+
   /* The single place that works out what each item means. Returns an
      answer (a question, or why not) when something needs one, else null
      with every item's .e filled in, or .missing set. */
@@ -3254,12 +3294,19 @@ function createRoom(host){
       }
       var K = kindsFor(cmd, it), kinds = K.strict || K.prefer || K.all;
       var found = look(it, cat, kinds, v);
+      /* v3.11.10: how it's prepped, no list said, and no prep item by that name:
+         an order item by that name is said, and asked about (never guessed) */
+      if(K.prepWords && !anyFound(found) && !found.stop){
+        var tw = findItems(it, cat, ['order']);
+        if(tw.how === 'exact') return orderTwinAsk(cmd, i, it, tw.list[0]);
+      }
       if(K.prefer && !anyFound(found) && !found.stop){ kinds = K.all; found = look(it, cat, kinds, v); }
       if(found.stop){
         if(cmd.items.length === 1) return found.stop;
         it.skip = found.stop.say[0]; it.missing = true; continue;
       }
-      var shown = it.words.join(' ');
+      // v3.11.10: a one-off is named as he meant it ("Sliced speck", not Google's "spec")
+      var shown = it.words.map(function(w){ var c0 = clean(w); return SHOWN_FIX[c0] || w; }).join(' ');
       // a supplier said: that supplier's products only, and say so if it lives elsewhere
       if(found.order && found.order.list.length && K.sids && K.sids.length === 1){
         var mine = found.order.list.filter(function(e){ return e.sid === K.sids[0]; });
@@ -3274,10 +3321,24 @@ function createRoom(host){
       }
       var have = kinds.filter(function(k){ return found[k] && found[k].list.length; });
       // in Pluto, a sentence with no Almo word and no exact name is not ours
-      if(mode === 'pluto' && !hasCue && !have.some(function(k){ return found[k].how === 'exact'; })) return notmine('no cue');
+      /* v3.11.10 (his test, 15 Oct: "could you also add chopped parsley" mid-
+         conversation got "Sorry, I didn't catch that"): unless he's talking
+         with Almo already and asked for something done; then a name that's
+         only close is asked about first ("Did you mean …?"), never acted on */
+      // an order item named exactly, when only the prep list was looked at ("add chopped parsley"), is his kitchen too
+      var orderTwin = !have.length && kinds.length === 1 && kinds[0] === 'prep' && findItems(it, cat, ['order']).how === 'exact';
+      if(mode === 'pluto' && !hasCue && !orderTwin && !have.some(function(k){ return found[k].how === 'exact'; })){
+        // a verb he actually said: a lone name ("tomatoes") mid-conversation stays chatter, as before
+        if(!(cmd.followUp && have.length && cmd.verbWords && ['add', 'set', 'remove', 'tick', 'untick'].indexOf(v) > -1)) return notmine('no cue');
+        cmd.askFirst = true;
+      }
       if(!have.length){
         if(kinds.length === 1 && kinds[0] === 'prep' && (v === 'add' || v === 'set') && it.words.length){
           if(it.oneoff){ it.e = { kind: 'oneoff', name: cap(shown), id: 'oneoff' }; continue; }
+          /* v3.11.10 (his ask, 15 Oct: "check the closest item first"): when it's
+             an order item by that name, say so, and offer to order it instead */
+          var oo = findItems(it, cat, ['order']), oe = oo.list.length && (oo.how === 'exact' || dedupe(oo.list).length === 1) && oo.how !== 'fuzzy' ? oo.list[0] : null;
+          if(oe) return orderTwinAsk(cmd, i, it, oe);
           return asking('oneoff', cap(shown) + " isn't a prep item. Add it as a one-off?", [{ label: 'Add it', value: 'yes' }, { label: 'No', value: 'no' }], { cmd: cmd, item: i });
         }
         if(kinds.indexOf('line') > -1 && !kinds.some(function(k){ return k === 'order'; })){
@@ -3329,7 +3390,7 @@ function createRoom(host){
         var withQ = list.filter(function(e){ return e.qty > 0; });
         if(withQ.length) list = withQ;
       }
-      if(f.how === 'fuzzy' || (cmd.verbCue && f.how !== 'exact')){   // v3.11.8: see run()
+      if(f.how === 'fuzzy' || ((cmd.verbCue || cmd.askFirst) && f.how !== 'exact')){   // v3.11.8: see run(); v3.11.10: askFirst, above
         var choices = list.slice(0, 3);
         return asking('item', 'Did you mean ' + joinOr(choices.map(label)) + '?',
           choices.map(function(e){ return { label: label(e), value: e.id }; }).concat([{ label: 'None of these', value: 'none' }]),
@@ -3396,6 +3457,7 @@ function createRoom(host){
   async function change(cmd, cat, d){
     var said = [], nothing = [], notes = [], labels = [], show = [], ops = [], openView = null, lastVerb = null, done = [];
     var qtyNow = {}, orderChanges = [], prepAdds = [], ticks = [], removes = [], others = [];
+    var addedNow = [], prepAddedNow = [];   // v3.11.10: what this adds, for a correction or "put it back" (lastDone)
     cmd.items.forEach(function(it){
       var e = it.e, v = verbOf(cmd, it);
       if(it.skip){ nothing.push(it.skip); return; }
@@ -3451,6 +3513,7 @@ function createRoom(host){
         labels.push(c.after === 0 ? 'Took ' + nm + ' off ' + sup : 'Took ' + amountOf(r2(c.before - c.after), e.unit, nm) + ' off ' + sup);
       } else {
         var d1 = r2(c.after - c.before);
+        addedNow.push({ words: c.it.words.join(' '), qty: { n: d1, unit: e.unit }, kind: 'order', name: e.name, sid: e.sid, sname: e.sname });
         said.push(c.before > 0
           ? 'Added ' + amountOf(d1, e.unit, nm) + '. Now ' + amount(c.after, e.unit) + ' on the ' + sup + ' order.'
           : 'Added ' + amountOf(d1, e.unit, nm) + ' to the ' + sup + ' order.');
@@ -3475,6 +3538,8 @@ function createRoom(host){
       if(onList[clean(text)]){ already.push(itemSay(text)); return; }
       onList[clean(text)] = true;
       toAdd.push({ text: text, section: p.e.kind === 'oneoff' ? 'Anything else' : (p.e.section || 'Other'), recipe: p.e.recipe || '' });
+      prepAddedNow.push({ words: p.it.words.join(' '), qty: p.it.qty && !p.it.qty.vague && p.it.qty.n != null ? { n: p.it.qty.n, unit: p.it.qty.unit || '' } : null,
+        kind: p.e.kind === 'oneoff' ? 'oneoff' : 'prep', name: text });
     });
     if(toAdd.length){
       var r = await host.addPrep(toAdd);
@@ -3485,6 +3550,7 @@ function createRoom(host){
         return ans('error', { say: [fail], log: 'prep add failed' });
       }
       ops.push({ k: 'prepAdd', ids: r.ids || [], texts: toAdd.map(function(x){ return x.text; }) });
+      addedNow = addedNow.concat(prepAddedNow);
       said.push('Added ' + joinAnd(toAdd.map(function(x){ return itemSay(x.text); })) + ' to the prep list.');
       labels.push('Added ' + joinAnd(toAdd.map(function(x){ return itemSay(x.text); })) + ' to prep');
       toAdd.forEach(function(x, k){ show.push({ text: x.text, tone: 'ok' }); if(r.ids && r.ids[k]) done.push({ id: 'l:' + r.ids[k], kind: 'line', name: x.text }); });
@@ -3530,6 +3596,10 @@ function createRoom(host){
     var deltas = {};
     ops.forEach(function(o){ if(o.k === 'qty') deltas['p:' + o.pid] = { before: o.before, after: o.after }; });
     ctx = { at: now(), verb: lastVerb || 'add', items: done, deltas: deltas };
+    // v3.11.10: only adding (nothing ticked, taken off or set): a correction can move or swap it
+    var onlyAdds = addedNow.length && !ticks.length && !removes.length && orderChanges.every(function(c){ return c.v === 'add'; });
+    lastDone = onlyAdds ? { id: id, at: now(), items: addedNow } : null;
+    lastUndone = null;
     // v3.11.0: what was done, for a list read out ("Done. 5 added to the prep list.")
     cmd.out = { prep: toAdd.length, order: ops.filter(function(o){ return o.k === 'qty'; }).length, extra: nothing.concat(notes) };
     var title = openView && openView.view === 'prep' ? 'Prep list' : orderChanges[0] ? supSay(orderChanges[0].e.sname) + ' order' : 'Done';
@@ -3590,6 +3660,9 @@ function createRoom(host){
     if(skipped.length) said.push(joinAnd(skipped) + ' changed since, so I left ' + (skipped.length === 1 ? 'it' : 'them') + '.');
     if(!said.length) return cant("I couldn't undo that.", 'undo failed');
     ctx = null;
+    // v3.11.10: the add just taken back can be put back ("actually put that back"); a fix (fixLast) clears it again
+    lastUndone = lastDone && lastDone.id === u.id && !skipped.length ? { items: lastDone.items, at: now() } : null;
+    lastDone = null;
     // v3.10.0: in the middle of the roster, its question again
     var rs = roUndone ? rbSession() : null, rdd = roUndone ? rbData() : null;
     if(rs && rbLive(rs, rdd)) return rbReask(rs, said.slice(0, 2), 'undo ' + u.label);
@@ -3608,8 +3681,91 @@ function createRoom(host){
       list.slice(0, 4).map(function(s){ return { label: supSay(s.name), value: s.id }; }), { cmd: cmd, job: kind });
   }
 
+  /* ---------- corrections (v3.11.10) ----------
+     His test through Pluto (15 Oct): "add a kilo of lemon to the list" went
+     on the prep list, and "no, I meant the ordering list" wasn't understood.
+     Right after something was added (2 minutes), "no, I meant the order" /
+     "the prep list" / "from Aziz" / "parsley" takes it back and adds it again
+     with that one thing changed, and says both. "No, I meant 5" (the amount)
+     was already a correction ("make it 5"), so a bare number is left to it.
+     "Put it back" after an undo adds it again, by the names it found. */
+  // only a short sentence that starts as a correction (replaying 10 Oct: "…what I meant…" mid-chatter undid an add)
+  var FIX_WORDS = /^(?:[a-z']+\s+){0,2}(?:no|nope|nah|sorry|oops|actually|wait|wrong|not that|not the|i meant|i mean|meant|i said)\b/;   // within the first three words
+  var FIX_MAX_WORDS = 10;
+  var REDO = /^(?:(?:actually|no|oh|wait|ok|okay|please|sorry)\s+)*(?:(?:can|could) you\s+)?(?:put (?:it|that|them|those) (?:back|on again)(?: on| again)*(?: on (?:the )?(?:list|order|prep list))?|redo(?: that| it)?|do (?:it|that) again|add (?:it|that|them|those) (?:back|again)(?: again)?|bring (?:it|that|them|those) back)(?: please| thanks| again)*$/;
+  function qtyOf(q){ return q && q.n != null ? { n: q.n, unit: q.unit || null, vague: false } : null; }
+  async function addAgain(list, target, req, mode, cat){
+    // one sentence per target, the names as found (so nothing is asked twice); amounts as they were
+    var words = list.map(function(x){ return x.words; });
+    var cm = parse('add ' + words.join(' and ') + ' to the ' + target, cat);
+    if(cm.items.length !== list.length) return null;
+    cm.items.forEach(function(it, k){ it.qty = qtyOf(list[k].qty); if(list[k].kind === 'oneoff' && /prep list$/.test(target)) it.oneoff = true; });
+    cm.followUp = true; cm.fromFix = true;
+    return await run(cm, req, mode);
+  }
+  function targetOf(x){ return x.kind === 'order' ? supSay(x.sname) + ' order' : 'prep list'; }
+  async function fixLast(text, req, mode){
+    if(!lastDone || now() - lastDone.at > CTX_MS) return null;
+    var c = clean(text);
+    if(!FIX_WORDS.test(c) || c.split(' ').length > FIX_MAX_WORDS) return null;
+    var f = await fresh(), cm = parse(text, f.cat), items = lastDone.items;
+    var sids = cm.sids || [];
+    var toOrder = sids.length > 0 || /\b(order|orders|ordering|supplier)\b/.test(c);
+    var toPrep = !toOrder && /\bprep\b/.test(c);
+    var named = cm.items.filter(function(it){ return it.words.length; });
+    var same = function(n){ var w = clean(n.words.join(' ')); return items.some(function(x){ return w === clean(x.words) || w === clean(x.name); }); };
+    var list, target;
+    // a different thing named ("actually add lemons to the order" after the salad dressing) is a new request, not a correction
+    if((toOrder || toPrep) && named.length && !named.every(same)) return null;
+    if(toOrder || toPrep){
+      target = toPrep ? 'prep list' : sids.length === 1 ? supSay((supplier(f.cat, sids[0]) || {}).name || '') + ' order' : 'order';
+      // already there (same list, same supplier, or any order when none was named): not a correction
+      if(items.every(function(x){ return toPrep ? x.kind !== 'order' : x.kind === 'order' && (!sids.length || x.sid === sids[0]); })) return null;
+      list = items.map(function(x){ return { words: x.words, qty: x.qty, kind: toPrep ? 'oneoff' : 'order' }; });
+    } else if(named.length && items.length === 1 && (!cm.verb || cm.verb === 'set') && /\b(?:meant|mean|not|no|nope|nah|wrong|i said)\b/.test(c)){
+      // the item was wrong: "no, I meant parsley", "not lemon, lime" (the last name said); "actually add lemons" adds, as before
+      var w = named[named.length - 1].words.join(' ');
+      if(clean(w) === clean(items[0].words) || clean(w) === clean(items[0].name)) return null;
+      // nothing is taken back unless the new name is really one of his (not just "sounds like")
+      var wk = findItems(named[named.length - 1], f.cat, items[0].kind === 'order' ? ['order'] : ['prep', 'order']);
+      if(!wk.list.length || wk.how === 'fuzzy') return null;
+      list = [{ words: w, qty: items[0].qty, kind: items[0].kind === 'order' ? 'order' : 'prep' }];
+      target = items[0].kind === 'order' ? 'order' : 'prep list';
+    } else return null;
+    var fixed = lastDone;
+    var u = await undoNow(fixed.id);
+    lastUndone = null;
+    if(u.status !== 'done') return u;
+    var a = await addAgain(list, target, req, mode, f.cat);
+    if(!a) return ans('done', { say: u.say.concat(['Say what to add, and where.']), log: 'fix: undone, then not understood' });
+    a.say = u.say.concat(a.say || []);
+    a.log = 'fix ' + (toOrder ? 'to order' : toPrep ? 'to prep' : 'item') + ' | ' + (a.log || '');
+    return a;
+  }
+  async function redoLast(text, req, mode){
+    if(!lastUndone || now() - lastUndone.at > CTX_MS || !REDO.test(clean(text))) return null;
+    var back = lastUndone, f = await fresh(), say = [], last = null;
+    lastUndone = null;
+    var byTarget = {};
+    back.items.forEach(function(x){ var t = targetOf(x); (byTarget[t] = byTarget[t] || []).push({ words: x.name, qty: x.qty, kind: x.kind }); });
+    for(var t in byTarget){
+      var a = await addAgain(byTarget[t], t, req, mode, f.cat);
+      if(!a) continue;
+      if(a.status !== 'done') return a;
+      say = say.concat(a.say || []); last = a;
+    }
+    if(!last) return ans('answer', { say: ["I couldn't put it back. Say what to add."], log: 'redo failed' });
+    last.say = say; last.log = 'redo | ' + (last.log || '');
+    return last;
+  }
+
   async function run(cmd, req, mode){
     var f = await fresh(), cat = f.cat, d = f.data;
+    cmd.followUp = cmd.followUp || !!(req && req.followUp);   // v3.11.10: see resolve()'s "no cue"
+    // v3.11.10: after "Go ahead." (add the following …), the names said next go on that list
+    if(goAhead && now() - goAhead.at < CTX_MS && mode === 'pluto' && cmd.items.length && (!cmd.verb || cmd.verb === 'add') && !cmd.list && !cmd.sids.length){
+      cmd.verb = 'add'; cmd.list = goAhead.list; cmd.sids = goAhead.sids.slice(); goAhead.at = now();
+    }
     var hasCue = !!(cmd.list || cmd.sids.length || cmd.fromAsk || cmd.items.some(function(it){ return it.exact && it.exact.length; }));
     /* v3.11.8 (Pluto's router exam): "order more basil" is the kitchen's, said
        as a verb; but with "order" the only kitchen word, a name that's only
@@ -3745,6 +3901,13 @@ function createRoom(host){
     if(!cmd.items.length){
       if(!v && cmd.sids.length === 1) return readOrder(supplier(cat, cmd.sids[0]));
       if(!v && (cmd.list === 'prep' || cmd.list === 'list')) return readPrep(cat, d);
+      /* v3.11.10 (his test through Pluto, 15 Oct: "can you add the following items
+         to the order" got "I can't do that yet"): "Go ahead.", and the names he
+         says next (2 minutes) go on that list, each added as he says it */
+      if(mode === 'pluto' && v === 'add' && isFollowing(cmd.text) && (cmd.list || cmd.sids.length || ORDER_VERBS[cmd.verbWords])){
+        goAhead = { list: cmd.list === 'prep' || cmd.list === 'list' ? 'prep' : 'order', sids: cmd.sids.slice(), at: now() };
+        return ans('answer', { say: ['Go ahead.'], keep: true, log: 'go ahead ' + goAhead.list });
+      }
       if(mode === 'pluto') return notmine('no items');
       if(cmd.refs || cmd.looseQty) return cant('Say what it is, like “make the mozzarella 3”.', 'no context');
       return cant(v === 'remove' ? 'Take off what?' : v === 'tick' || v === 'untick' ? 'Which prep item?' : v ? 'Add what?' : "I didn't catch that.", 'no items');
@@ -4112,6 +4275,42 @@ function createRoom(host){
         return run(cmd, req, mode);
       }
     }
+    /* v3.11.10 (his test, 15 Oct): "Lemon isn't a prep item. One-off?" answered
+       "can you add it to the ordering list" added it to the prep list: an
+       answer that names the order puts it there instead ("Order it" too) */
+    // ("not the order, the prep list" names both: that's the prep list, so it isn't switched here)
+    if(p.kind === 'oneoff' && (choice === 'order' || (choice == null && /\b(order|orders|ordering|supplier)\b/.test(clean(text)) && !/\bprep\b/.test(clean(text))))){
+      pending = null;
+      var oit = cmd.items[p.item];
+      oit.kind = 'order'; delete oit.oneoff; delete oit.e;
+      if(p.orderPick) oit.pick = p.orderPick;
+      cmd.fromAsk = true;
+      return run(cmd, req, mode);
+    }
+    /* v3.11.10 (his test, 15 Oct: "yes, add it as a permanent item" was
+       "Left it"): an answer that starts with a yes is a yes */
+    if(choice == null && /^(?:yes|yeah|yep|yup|sure|ok|okay|please)\b/.test(clean(text)) && yesNo(text) !== 'no' && (p.options || []).some(function(o){ return o.value === 'yes'; })){
+      choice = 'yes';
+      // "for good" can't be done yet: never confidently wrong, so it says so
+      if(p.kind === 'oneoff' && /\b(permanent|permanently|for good|always|every day|new item|new prep item)\b/.test(clean(text))){
+        var pit = cmd.items[p.item]; pit.oneoff = true; cmd.fromAsk = true; pending = null;
+        var pr = await run(cmd, req, mode);
+        if(pr && pr.status === 'done') pr.say = (pr.say || []).concat(["That's for today only. I can't save new prep items for good yet."]);
+        return pr;
+      }
+    }
+    /* v3.11.10 (replaying his 15 Oct log): "could you add short parsley to the
+       prep list", said while "… for today, or order it?" waited, matched the
+       "Prep list" option and added the earlier item. A new add, with a name of
+       its own, is a new request: the question is dropped and it's done anew */
+    if(p.kind === 'oneoff' && choice == null){
+      // "no, add chopped parsley": no to this one, and that one instead ("can you check mushroom off …" too)
+      var nt = clean(text).replace(/^(?:no|nope|nah|not that|yes|yeah)\b[ ,]*/, '');
+      var nc = parse(nt, (await fresh()).cat);
+      if(nc.verb && nc.verbWords && nc.items.some(function(x){ return x.words.length; })){ pending = null; return run(nc, req, mode); }
+      // and an answer that points at the prep list ("not the order, the prep list") is "Prep list, today"
+      if(/\bprep\b/.test(clean(text)) && !/\b(?:not|dont|do not)\s+(?:on\s+|to\s+)?(?:the\s+)?prep\b/.test(clean(text))) choice = 'yes';
+    }
     /* v3.9.13: "Did you mean Pure Cream?" answered by saying "second cream"
        again isn't a pick: nothing new was said, so it never learns from it */
     if(choice == null && p.kind === 'item' && p.teach){
@@ -4204,6 +4403,10 @@ function createRoom(host){
       /* v3.10.1 (replaying his log): a tap on an old card's "No", or a bare yes
          or no with no question open, said "I couldn't find no on the orders" */
       if(/^(yes|yeah|yep|yup|no|nope|nah)( please| thanks| thank you)?$/.test(clean(req.text || ''))) return ans('answer', { say: ['Okay. Nothing changed.'], log: 'yes or no to nothing' });
+      var fx = await fixLast(req.text || '', req, mode);   // v3.11.10: "no, I meant the order"
+      if(fx) return fx;
+      var rd = await redoLast(req.text || '', req, mode);  // v3.11.10: "put that back" after an undo
+      if(rd) return rd;
       var rm = await readMore(req.text || '', lastR);   // v3.11.1: "is there more?", "read them all"
       if(rm) return rm;
       var roN = roNames(roData());
@@ -4415,7 +4618,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.9',
+  version: 'v3.11.10',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
