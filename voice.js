@@ -169,6 +169,93 @@ var host = {
 };
 var room = AlmoVoice.createRoom(host);
 
+/* ---------- v3.11.4: Pluto's Almo room (Pluto Stage 4) ----------
+   Pluto-Room-Contract v1; work order Pluto-Room-Almo.md, step 1. Inside the
+   Pluto app with ?pluto=room (ROOM, in index.html) the app loads this page
+   hidden, and Pluto passes it requests through window.PlutoRoom.call; each
+   one gets exactly one answer through PlutoRoomHost.reply. The brain is the
+   mic's own, in its Pluto mode (a sentence that isn't the kitchen's is "not
+   mine"). Nothing is drawn, spoken, listened to or fetched until a request
+   comes, and the lists are read fresh from storage at every call (the Almo
+   tab may have changed them). A starter copy (his data not brought in yet)
+   or a backup copy answers "can't" and changes nothing. Each try goes in
+   the heard log, via "pluto". Below the room's start, nothing else in this
+   file runs in room mode (no mic, card, speech or Voice screen). */
+var roomMenuSent = '';
+function roomFresh(){
+  if(typeof refreshSuppliersFromStorage === 'function') refreshSuppliersFromStorage();
+  if(typeof loadPrepItems === 'function') loadPrepItems();
+  if(typeof loadRecipesLocal === 'function') loadRecipesLocal();
+  var st = readJSON(STAFF_KEY);
+  if(Array.isArray(st)) state.staff = st;
+  if(typeof refreshRosterFromStorage === 'function') refreshRosterFromStorage();
+  if(typeof refreshTimesheetFromStorage === 'function') refreshTimesheetFromStorage();
+}
+/* the words changed (a product added in the tab, a word taught): Pluto's router hears of it */
+function roomTell(){
+  var m;
+  try{ m = JSON.stringify(room.menu()); }catch(e){ return; }
+  if(m === roomMenuSent) return;
+  roomMenuSent = m;
+  try{ window.PlutoRoomHost.menuChanged(m); }catch(e){}
+}
+function roomAnswer(status, say, log){ return { v: 1, status: status, say: say, keep: false, log: log }; }
+function roomHeld(){
+  var r = typeof copyRole === 'function' ? copyRole() : '';
+  if(!r) return null;
+  return roomAnswer('cant', [r === 'backup' ? 'This copy of The Pass is the backup. Real orders go from Chrome.'
+    : "Your kitchen lists aren't in Pluto yet. Bring them in on the Almo tab first."], 'copy is ' + r);
+}
+var ROOM_CALLS = {
+  hello: function(){ return room.hello(); },
+  menu: function(){ return room.menu(); },
+  handle: async function(r){
+    r = r || {};
+    var a = roomHeld() || await room.handle(Object.assign({}, r, { mode: 'pluto' }));
+    if(r.text) logIt({ at: Date.now(), heard: String(r.text), alts: (r.alts || []).map(String), via: 'pluto' }, a || {});
+    return a;
+  },
+  confirm: function(token, yes){ return roomHeld() || room.confirm(token, yes === true); },
+  undo: function(id){ return roomHeld() || room.undo(id); },
+  reset: function(){ room.reset(); return roomAnswer('answer', [], 'reset'); },
+  open: function(){ return roomAnswer('answer', [], 'open: the Almo tab shows it'); }   // hidden: nothing to show here
+};
+function roomCall(id, method, argsJson){
+  var sent = false, guard = 0, args = [];
+  function reply(a){
+    if(sent) return;
+    sent = true; clearTimeout(guard);
+    try{ window.PlutoRoomHost.reply(id, JSON.stringify(a)); }catch(e){}
+    roomTell();
+  }
+  try{ args = JSON.parse(argsJson || '[]'); }catch(e){ args = []; }
+  if(!Array.isArray(args)) args = [];
+  // the contract's 10 seconds: a call that somehow never finished still gets its one answer (a one-shot)
+  guard = setTimeout(function(){ reply(roomAnswer('error', ["The kitchen list isn't answering right now."], 'no answer in 9.5 s')); }, 9500);
+  var fn = Object.prototype.hasOwnProperty.call(ROOM_CALLS, method) ? ROOM_CALLS[method] : null;
+  if(!fn){ reply(roomAnswer('error', ["I couldn't do that."], 'not a room call: ' + method)); return; }
+  try{
+    if(method !== 'hello') roomFresh();
+    Promise.resolve(fn.apply(null, args)).then(function(a){ reply(a || roomAnswer('error', ["I couldn't do that."], method + ': no answer')); },
+      function(){ reply(roomAnswer('error', ["I couldn't check the list."], method + ' failed')); });
+  }catch(e){ reply(roomAnswer('error', ["I couldn't check the list."], method + ' failed')); }
+}
+function roomStart(){
+  host.open = function(){};          // hidden: no screen to open (the card's "open" goes to the Almo tab)
+  host.wordsChanged = roomTell;
+  roomFresh();
+  window.PlutoRoom = { call: roomCall, hello: ROOM_CALLS.hello, menu: ROOM_CALLS.menu, handle: ROOM_CALLS.handle,
+                       confirm: ROOM_CALLS.confirm, undo: ROOM_CALLS.undo, reset: function(){ room.reset(); }, open: function(){} };
+  // the Almo tab changed the lists, a word was taught, or his data was brought in
+  window.addEventListener('storage', function(e){
+    if(!e.key || /^order-chit-(suppliers|prep-items|recipes|voice-words|copy-role)$/.test(e.key)){ roomFresh(); roomTell(); }
+  });
+  var m = room.menu();
+  roomMenuSent = JSON.stringify(m);
+  try{ window.PlutoRoomHost.ready(JSON.stringify({ hello: room.hello(), menu: m })); }catch(e){}
+}
+if(typeof ROOM !== 'undefined' && ROOM){ roomStart(); return; }
+
 /* ---------- speech: the swap point ----------
    Every bit of speech, in and out, goes through these few functions (the
    RK Trips pattern), so the Pluto app can later put its own ears and mouth

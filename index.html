@@ -596,9 +596,16 @@ const CAT_MIGRATION_KEY = 'order-chit-cat-migrated';
    rules for copying and bringing in are in move-data.js. */
 const ROLE_KEY = 'order-chit-copy-role';
 const IN_PLUTO = /[?&]pluto=/.test(location.search);
+/* v3.11.4 (Pluto Stage 4): room mode (Pluto-Room-Contract v1 §2). Only
+   inside the Pluto app (it gives the page PlutoRoomHost) and with
+   ?pluto=room: the app loads the page hidden and Pluto asks it things
+   (voice.js, "Pluto's Almo room"). A room draws nothing, fetches nothing
+   until asked, and never sends the lists (the Almo tab does). In Chrome
+   there's no PlutoRoomHost, so this is always false there. */
+const ROOM = (function(){ try{ return !!(window.PlutoRoomHost && /[?&]pluto=room(&|$)/.test(location.search)); }catch(e){ return false; } })();
 function copyRole(){ try{ const r = localStorage.getItem(ROLE_KEY); return r === 'starter' || r === 'backup' ? r : ''; }catch(e){ return ''; } }
 function setCopyRole(r){ try{ if(r) localStorage.setItem(ROLE_KEY, r); else localStorage.removeItem(ROLE_KEY); }catch(e){} }
-function syncHeld(){ return copyRole() !== '' || state.storageBroken === true; }
+function syncHeld(){ return copyRole() !== '' || state.storageBroken === true || ROOM; }
 
 /* Categories only exist so the staff app can group its list. They show up on
    the product form, nowhere else. Edit the seed here or add one from the form. */
@@ -651,7 +658,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.3';
+const APP_VERSION = 'v3.11.4';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -2452,6 +2459,7 @@ function bgRender(){ if(isEditing()) return; render(); }
 
 function render(){
   const app = document.getElementById('app');
+  if(ROOM){ app.innerHTML = ''; return; }   // v3.11.4: a room draws nothing
   // v3.11.3: a starter copy shows only the welcome screen until his data is brought in
   if(copyRole() === 'starter' && state.view.name !== 'welcome') state.view = {name:'welcome'};
   else if(copyRole() !== 'starter' && state.view.name === 'welcome') state.view = {name:'home'};
@@ -5544,12 +5552,12 @@ window.addEventListener('popstate', (e)=>{
 });
 
 loadData();
-refreshFromServer();
+if(!ROOM) refreshFromServer();   // v3.11.4: a room fetches nothing until Pluto asks it something
 // v3.11.3: his data was just brought in (Move my data): Home says so once
 try{ if(sessionStorage.getItem('the-pass-brought-in')){ sessionStorage.removeItem('the-pass-brought-in'); state.broughtIn = true; render(); } }catch(e){}
 
 document.addEventListener('visibilitychange', ()=>{
-  if(document.visibilityState !== 'visible') return;
+  if(ROOM || document.visibilityState !== 'visible') return;   // v3.11.4: a room does nothing on its own
   // v3.9.2: another copy of The Pass may have changed the list meanwhile
   if(refreshSuppliersFromStorage()) bgRender();
   // v3.9.4: and the roster and timesheet, before the Monday roll below
@@ -5561,17 +5569,17 @@ document.addEventListener('visibilitychange', ()=>{
   refreshFromServer();
 });
 
-if('serviceWorker' in navigator){
+if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the offline copy, not the room
   window.addEventListener('load', ()=>{
     navigator.serviceWorker.register('service-worker.js').catch(()=>{});
   });
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.3"></script>
+<script src="move-data.js?v=3.11.4"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.3"></script>
-<script src="voice-brain.js?v=3.11.3"></script>
-<script src="voice.js?v=3.11.3"></script>
+<script src="roster-engine.js?v=3.11.4"></script>
+<script src="voice-brain.js?v=3.11.4"></script>
+<script src="voice.js?v=3.11.4"></script>
 </body>
 </html>
