@@ -553,6 +553,18 @@ a.btn-block{display:block;}
 .imp-tag.upd{background:#F6EBDC;color:#8A5A16;}
 .imp-alt{font-size:11.5px;color:var(--muted);text-align:center;margin-top:14px;}
 .imp-alt button{background:none;border:none;font-family:inherit;font-size:11.5px;color:var(--muted);text-decoration:underline;cursor:pointer;padding:2px;}
+/* v3.11.3: Move my data, the welcome screen and the backup banner */
+.backup-banner{display:block;width:100%;margin:0 0 12px;padding:11px 14px;border:none;border-radius:12px;background:var(--stamp);color:#fff;font-family:inherit;font-size:13px;font-weight:700;text-align:left;cursor:pointer;}
+.move-card .move-title{font-size:17px;font-weight:800;margin-bottom:4px;}
+.move-card .move-sub{font-size:12.5px;font-weight:700;margin-top:6px;}
+.move-steps{font-size:12.5px;line-height:1.5;color:var(--ink-soft);margin:6px 0 10px;padding-left:20px;}
+.move-found{font-size:13px;line-height:1.55;margin:6px 0 8px;padding-left:18px;}
+.move-from{font-size:12px;color:var(--muted);margin-bottom:6px;}
+.move-why{font-size:12.5px;color:var(--stamp);margin:8px 0 2px;line-height:1.4;}
+.form-card textarea.move-paste{font-size:11px;height:96px;}
+.move-alt{font-size:11.5px;text-align:center;margin-top:14px;}
+.move-alt button{background:none;border:none;font-family:inherit;font-size:11.5px;color:var(--muted);text-decoration:underline;cursor:pointer;padding:2px;}
+.move-done{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--mustard);border-radius:12px;padding:12px 14px;margin-bottom:12px;font-size:13px;line-height:1.45;}
 </style>
 
 </head>
@@ -574,6 +586,19 @@ const RECIPES_DIRTY_KEY = 'order-chit-recipes-dirty';
 const PREPITEMS_KEY = 'order-chit-prep-items';
 const HINTS_CLEARED_KEY = 'order-chit-hints-cleared';
 const CAT_MIGRATION_KEY = 'order-chit-cat-migrated';
+
+/* v3.11.3 (Pluto Stage 4): Move my data. This copy's role: '' (the real copy,
+   as every copy was before), 'starter' (it started empty: a new browser, or
+   The Pass inside the Pluto app before his data is brought in) or 'backup'
+   (he moved his data out and said so). A starter or a backup never sends its
+   product list or prep list to the shared server, so it can't put its own
+   over the staff app's: a starter holds only the built-in starter list. The
+   rules for copying and bringing in are in move-data.js. */
+const ROLE_KEY = 'order-chit-copy-role';
+const IN_PLUTO = /[?&]pluto=/.test(location.search);
+function copyRole(){ try{ const r = localStorage.getItem(ROLE_KEY); return r === 'starter' || r === 'backup' ? r : ''; }catch(e){ return ''; } }
+function setCopyRole(r){ try{ if(r) localStorage.setItem(ROLE_KEY, r); else localStorage.removeItem(ROLE_KEY); }catch(e){} }
+function syncHeld(){ return copyRole() !== '' || state.storageBroken === true; }
 
 /* Categories only exist so the staff app can group its list. They show up on
    the product form, nowhere else. Edit the seed here or add one from the form. */
@@ -626,7 +651,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.2';
+const APP_VERSION = 'v3.11.3';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -888,7 +913,7 @@ function schedulePrepCatalogue(){
 }
 
 async function pushPrepCatalogue(){
-  if(!getChefKey()) return false;
+  if(!getChefKey() || syncHeld()) return false;   // v3.11.3: nor its prep list
   const items = buildPrepCatalogue();
   const secs = [];
   items.forEach(i => { const s = i.section || 'Other'; if(secs.indexOf(s) < 0) secs.push(s); });
@@ -2125,6 +2150,7 @@ function loadData(){
   try{
     const raw = localStorage.getItem(STORAGE_KEY);
     const ver = localStorage.getItem(VERSION_KEY);
+    if(!raw) setCopyRole('starter');     // v3.11.3: it started empty, so it holds only the starter list (Move my data)
     if(!raw || ver !== SEED_VERSION){
       state.suppliers = seed;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(seed));
@@ -2135,6 +2161,7 @@ function loadData(){
     suppliersSeen = localStorage.getItem(STORAGE_KEY);
   }catch(e){
     state.suppliers = seed;
+    state.storageBroken = true;          // v3.11.3: nothing can be kept here, so nothing is sent from here either
   }
   loadStaff();
   loadRoster();
@@ -2221,6 +2248,7 @@ function schedulePublish(){
 }
 
 async function publishCatalogue(force){
+  if(syncHeld()) return true;           // v3.11.3: a starter or backup copy never sends its product list
   const list = buildCatalogue();
   const fp = catalogueFingerprint(list);
   let last = null;
@@ -2372,6 +2400,7 @@ function animate(fn){
 }
 
 function goto(view){
+  if(view.name !== state.view.name){ state.move = null; state.broughtIn = false; }   // v3.11.3
   if(!(view.name === 'recipeEdit' && view.rid === 'new')) state.recipeDraft = null;
   if(view.name !== state.view.name && (view.name === 'recipeImport' || state.view.name === 'recipeImport')){ state.importPreview = null; state.importRaw = ''; }
   if(!(view.name === 'fnEdit' && view.fid === 'new')) state.fnDraft = null;
@@ -2417,19 +2446,27 @@ function buildSendLink(supplier, message, subject){
 
 /* Screens where the user is typing. A background poll must never redraw these
    or half-entered forms vanish — which is what wiped function names and pax. */
-const EDIT_VIEWS = ['fnEdit','fnTiers','recipeEdit','addSupplier','addProduct','editProduct','recipeImport','access','prepItems','voiceTeach'];
+const EDIT_VIEWS = ['fnEdit','fnTiers','recipeEdit','addSupplier','addProduct','editProduct','recipeImport','access','prepItems','voiceTeach','welcome','move'];
 function isEditing(){ return EDIT_VIEWS.indexOf(state.view.name) > -1; }
 function bgRender(){ if(isEditing()) return; render(); }
 
 function render(){
   const app = document.getElementById('app');
+  // v3.11.3: a starter copy shows only the welcome screen until his data is brought in
+  if(copyRole() === 'starter' && state.view.name !== 'welcome') state.view = {name:'welcome'};
+  else if(copyRole() !== 'starter' && state.view.name === 'welcome') state.view = {name:'home'};
   const v = state.view;
   const homeBtn = v.name === 'home' ? '' : `<button class="home-btn" data-goto="home" aria-label="Home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V20h14V9.5"/></svg></button>`;
   const n = state.orders.length;
   const bellBadge = n ? `<span class="bell-badge show">${n>9?'9+':n}</span>` : '';
   const bellBtn = `<button class="bell-btn" data-bell="1" aria-label="${n?n+' orders waiting':'No orders waiting'}">${bellBadge}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></button>`;
   let html = `<div class="brand"><h1>The Pass</h1><div class="brand-right">${bellBtn}${homeBtn}<span class="tag">${APP_VERSION}</span></div></div>`;
-  if(v.name === "home") html += renderHome();
+  // v3.11.3: the welcome screen has no bell or home button; the backup copy says so on every screen
+  if(v.name === "welcome") html = html.replace(bellBtn + homeBtn, '');
+  if(copyRole() === 'backup') html = `<button class="backup-banner" data-goto="move">Backup copy. Use ${IN_PLUTO ? 'Chrome' : 'Pluto'} for real orders.</button>` + html;
+  if(v.name === "welcome") html += renderWelcome();
+  else if(v.name === "move") html += renderMove();
+  else if(v.name === "home") html += renderHome();
   else if(v.name === "list") html += renderList();
   else if(v.name === "supplier") html += renderSupplier(v.id);
   else if(v.name === "ticket") html += renderTicket(v.id);
@@ -2460,6 +2497,7 @@ function render(){
   else if(v.name === "voice" || v.name === "voiceTeach") html += typeof renderVoice === 'function' ? renderVoice(v.name) : `<div class="empty">Voice didn’t load. Reload The Pass.</div>`;
   app.innerHTML = html;
   attachHandlers();
+  attachMoveHandlers();   // v3.11.3
   // v3.9.0: the voice mic hides where you type (voice.js; absent if it didn't load)
   if(typeof voiceScreen === 'function') voiceScreen();
 }
@@ -2538,7 +2576,159 @@ function renderHome(){
         </button>
       </div>` : '';
 
-  return `<div class="home-tabs">${waiting}${body}${voiceCard}</div>`;
+  // v3.11.3: Move my data (to Pluto's Almo tab, or back)
+  const moveCard = `
+      <div class="group">
+        <button class="tab-card" data-goto="move">
+          <div class="tab-main">
+            <div class="tab-title">Move my data</div>
+            <div class="tab-sub">${copyRole() === 'backup' ? 'This is the backup copy' : 'To Pluto, or back'}</div>
+          </div>
+          <div class="chev">&rsaquo;</div>
+        </button>
+      </div>`;
+  const done = state.broughtIn ? `<div class="move-done">Your data is in. Your chef key didn't move (it's a password): type it again in Recipes.</div>` : '';
+
+  return `<div class="home-tabs">${done}${waiting}${body}${voiceCard}${moveCard}</div>`;
+}
+
+/* ===== Move my data (v3.11.3; Pluto Stage 4) =====
+   Copy: every saved item of The Pass but the chef key, as one piece of text
+   (move-data.js). Bring in: paste it, see what's in it, then it replaces this
+   copy's data, keeping what was here aside. A starter copy shows only the
+   welcome screen (bring in, or start from the starter list); a backup copy
+   says so on every screen and asks before Send Order. */
+function moveStore(){
+  return {
+    keys(){ const a = []; for(let i = 0; i < localStorage.length; i++) a.push(localStorage.key(i)); return a; },
+    get(k){ return localStorage.getItem(k); },
+    set(k, v){ localStorage.setItem(k, v); },
+    remove(k){ localStorage.removeItem(k); }
+  };
+}
+function moveSize(n){ return n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(n / 1024)) + ' KB'; }
+function moveOther(){ return IN_PLUTO ? 'Chrome' : "Pluto's Almo tab"; }
+function moveCopyText(text, done){
+  function fallback(){
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.left = '-9999px';
+    document.body.appendChild(ta); ta.select();
+    let ok = false; try{ ok = document.execCommand('copy'); }catch(e){}
+    document.body.removeChild(ta); done(ok);
+  }
+  if(navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(() => done(true), fallback);
+  else fallback();
+}
+function renderPasteBox(){
+  const mv = state.move || {};
+  return `
+      <textarea id="move-paste" class="move-paste" placeholder="Touch and hold here, then Paste" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
+      ${mv.why ? `<div class="move-why">${escapeHtml(mv.why)}</div>` : ''}
+      <div class="form-actions"><button class="btn" data-move-check="1">Bring it in</button></div>`;
+}
+function renderFound(f){
+  const notes = [];
+  if(f.meta.role === 'backup') notes.push('This came from a backup copy, so it may be out of date.');
+  if(f.meta.version && f.meta.version !== APP_VERSION) notes.push('Copied by The Pass ' + f.meta.version + ' (this is ' + APP_VERSION + ').');
+  return `
+      <div class="move-sub">Found in what you pasted</div>
+      <ul class="move-found">${f.lines.map(l => `<li>${escapeHtml(l)}</li>`).join('')}</ul>
+      ${f.meta.from ? `<div class="move-from">Copied from ${escapeHtml(f.meta.from)}${f.meta.when ? ' ' + escapeHtml(f.meta.when) : ''}</div>` : ''}
+      ${notes.map(n => `<div class="move-why">${escapeHtml(n)}</div>`).join('')}
+      ${copyRole() === 'starter' ? '' : `<p class="key-blurb">This replaces everything in this copy. What's here now is kept aside.</p>`}
+      <div class="form-actions"><button class="btn" data-move-bring="1">Bring these in</button><button class="btn btn-ghost" data-move-cancel="1">Cancel</button></div>`;
+}
+function renderWelcome(){
+  const mv = state.move || {};
+  const steps = IN_PLUTO
+    ? `<p class="key-blurb">Your data is still in Chrome.</p>
+      <ol class="move-steps"><li>In Chrome: The Pass &rsaquo; Move my data &rsaquo; Copy my data</li><li>Here: paste below, then tap Bring it in</li></ol>`
+    : `<p class="key-blurb">Your data is in your other copy of The Pass (Pluto's Almo tab, or Chrome).</p>
+      <ol class="move-steps"><li>In that copy: Move my data &rsaquo; Copy my data</li><li>Here: paste below, then tap Bring it in</li></ol>`;
+  return `
+    <div class="form-card move-card">
+      <div class="move-title">${IN_PLUTO ? 'Welcome to The Pass in Pluto' : 'No data here yet'}</div>
+      ${mv.found ? renderFound(mv.found) : steps + renderPasteBox()}
+    </div>
+    ${mv.found ? '' : `<div class="move-alt"><button data-move-fresh="1">Start from the starter list instead</button></div>`}`;
+}
+function renderMove(){
+  const crumb = `<div class="crumb"><button data-goto="home">&larr; Home</button> / Move my data</div>`;
+  if(typeof MoveData === 'undefined') return crumb + `<div class="empty">Move my data didn’t load. Reload The Pass.</div>`;
+  const mv = state.move || {};
+  const role = copyRole();
+  const backup = role === 'backup' ? `
+    <div class="form-card move-card">
+      <div class="move-title">This is the backup copy</div>
+      <p class="key-blurb">It doesn't send lists to the staff app, and Send Order asks first. Real orders go from ${moveOther()}.</p>
+      <div class="form-actions"><button class="btn btn-ghost" data-move-real="1">Use this copy again</button></div>
+    </div>` : '';
+  const copy = mv.copied ? `
+      <p class="key-blurb">Copied (${escapeHtml(mv.size || '')}). In ${moveOther()}, paste it and tap Bring it in (on its welcome screen, or in Move my data).</p>
+      ${role === 'backup' ? '' : `<p class="key-blurb">Brought it in, and it looks right there?</p>
+      <div class="form-actions"><button class="btn" data-move-backup="1">Yes, make this the backup</button></div>`}` : `
+      <p class="key-blurb">What moves: suppliers, products, prep items, recipes, orders and their history, roster, staff, timesheet, invoices and learned words.</p>
+      <p class="key-blurb">Not your chef key: type it again in ${moveOther()} (it's a password).</p>
+      <div class="form-actions"><button class="btn" data-move-copy="1">Copy my data</button></div>`;
+  const bring = mv.found ? renderFound(mv.found) : `
+      <p class="key-blurb">Only to bring data back from another copy. It replaces what's in this copy; what's here now is kept aside.</p>` + renderPasteBox();
+  return crumb + backup + `
+    <div class="form-card move-card">
+      <div class="move-title">Copy my data</div>
+      <div class="move-from">To ${moveOther()}</div>${copy}
+    </div>
+    <div class="form-card move-card">
+      <div class="move-title">Bring data in</div>${bring}
+    </div>`;
+}
+function attachMoveHandlers(){
+  const on = (sel, fn) => document.querySelectorAll(sel).forEach(el => el.addEventListener('click', fn));
+  on('[data-move-copy]', () => {
+    let text;
+    try{ text = MoveData.pack(MoveData.collect(moveStore()), { version: APP_VERSION, from: IN_PLUTO ? 'Pluto' : 'Chrome', role: copyRole(), at: Date.now() }); }
+    catch(e){ showToast('Couldn’t read this copy’s data'); return; }
+    moveCopyText(text, ok => {
+      if(!ok){ showToast('Couldn’t copy. Try again'); return; }
+      state.move = { copied: true, size: moveSize(text.length) };
+      render();
+    });
+  });
+  on('[data-move-check]', () => {
+    const box = document.getElementById('move-paste');
+    const r = MoveData.unpack(box ? box.value : '');
+    state.move = r.ok ? { found: r } : { why: r.why };
+    render();
+  });
+  on('[data-move-cancel]', () => { state.move = null; render(); });
+  on('[data-move-bring]', () => {
+    const f = state.move && state.move.found;
+    if(!f) return;
+    const r = MoveData.bringIn(moveStore(), f.data, Date.now());
+    if(!r.ok){ state.move = { why: r.why }; render(); return; }
+    setCopyRole('');
+    try{ sessionStorage.setItem('the-pass-brought-in', '1'); }catch(e){}
+    location.reload();
+  });
+  on('[data-move-backup]', () => {
+    if(!confirm('Make this copy the backup?\n\nIt stops sending lists to the staff app, and Send Order asks first. Real orders then go from ' + (IN_PLUTO ? 'Chrome' : 'Pluto') + '.')) return;
+    setCopyRole('backup');
+    goto({name:'home'});
+    showToast('This is the backup copy now');
+  });
+  on('[data-move-real]', () => {
+    if(!confirm('Use this copy for real orders again?\n\nThen stop using the other copy for orders, or something gets ordered twice.')) return;
+    setCopyRole('');
+    state.move = null;
+    render();
+    refreshFromServer();
+    showToast('This is the real copy again');
+  });
+  on('[data-move-fresh]', () => {
+    if(!confirm('Start from the starter list?\n\nOnly if your data is lost for good. This copy will send its starter product list to the staff app, in place of the one there.')) return;
+    setCopyRole('');
+    goto({name:'home'});
+    refreshFromServer();
+  });
 }
 
 function fnHint(){
@@ -4473,6 +4663,8 @@ function attachHandlers(){
   if(stampBtn){
     stampBtn.addEventListener('click', (e)=>{
       e.preventDefault();
+      // v3.11.3: the backup copy asks first, so nothing is ordered twice
+      if(copyRole() === 'backup' && !confirm('This is the backup copy. Real orders go from ' + (IN_PLUTO ? 'Chrome' : 'Pluto') + '.\n\nSend from here anyway?')) return;
       const s = findSupplier(stampBtn.dataset.supplier);
       saveLastOrder(s);
       saveLastSent(s.id);
@@ -5353,6 +5545,8 @@ window.addEventListener('popstate', (e)=>{
 
 loadData();
 refreshFromServer();
+// v3.11.3: his data was just brought in (Move my data): Home says so once
+try{ if(sessionStorage.getItem('the-pass-brought-in')){ sessionStorage.removeItem('the-pass-brought-in'); state.broughtIn = true; render(); } }catch(e){}
 
 document.addEventListener('visibilitychange', ()=>{
   if(document.visibilityState !== 'visible') return;
@@ -5373,9 +5567,11 @@ if('serviceWorker' in navigator){
   });
 }
 </script>
+<!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
+<script src="move-data.js?v=3.11.3"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.2"></script>
-<script src="voice-brain.js?v=3.11.2"></script>
-<script src="voice.js?v=3.11.2"></script>
+<script src="roster-engine.js?v=3.11.3"></script>
+<script src="voice-brain.js?v=3.11.3"></script>
+<script src="voice.js?v=3.11.3"></script>
 </body>
 </html>
