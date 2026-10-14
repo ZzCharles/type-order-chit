@@ -28,6 +28,11 @@
 if(typeof window === 'undefined' || typeof AlmoVoice === 'undefined' || typeof state === 'undefined') return;
 
 var SR = window.SpeechRecognition || window.webkitSpeechRecognition || null;
+/* v3.11.5 (Pluto Stage 4): The Pass's tab inside the Pluto app (?pluto=tab:
+   the app's PlutoRoomHost, not a room). Its mic opens Pluto (contract §2),
+   which listens and asks The Pass's room; Chrome's own listening isn't there
+   inside the app. Never true in Chrome (no PlutoRoomHost). */
+var PTAB = typeof ROOM !== 'undefined' && !ROOM && !!(window.PlutoRoomHost && typeof window.PlutoRoomHost.openPluto === 'function');
 var hasTTS = 'speechSynthesis' in window && typeof SpeechSynthesisUtterance !== 'undefined';
 var K_SEEN = 'order-chit-voice-seen', K_LOG = 'order-chit-voice-log', K_SET = 'order-chit-voice-set';
 var ANSWER_MS = 8000, HIDE_MS = 10000, LOG_MAX = 50;
@@ -204,7 +209,7 @@ function roomHeld(){
   var r = typeof copyRole === 'function' ? copyRole() : '';
   if(!r) return null;
   return roomAnswer('cant', [r === 'backup' ? 'This copy of The Pass is the backup. Real orders go from Chrome.'
-    : "Your kitchen lists aren't in Pluto yet. Bring them in on the Almo tab first."], 'copy is ' + r);
+    : "Your kitchen lists aren't in Pluto yet. Bring them in on The Pass tab first."], 'copy is ' + r);   // v3.11.5: his tab name
 }
 var ROOM_CALLS = {
   hello: function(){ return room.hello(); },
@@ -364,6 +369,7 @@ var ERRS = { 'not-allowed': 'The mic is blocked for this site. Allow it in Chrom
   'not-supported': 'This browser can’t listen. Use Chrome.' };
 
 function micTap(){
+  if(PTAB){ try{ window.PlutoRoomHost.openPluto(); }catch(e){} return; }   // v3.11.5: Pluto listens
   if(!open){ openCard(); if(!readJSON(K_SEEN)){ view = 'notice'; paint(); return; } vListen(waitAsk || waitConfirm ? 'answer' : 'ask'); return; }
   if(view === 'notice'){ gotIt(); return; }
   view = 'talk';
@@ -620,7 +626,7 @@ function build(){
   cardEl = document.createElement('div'); cardEl.className = 'vcard'; cardEl.hidden = true;
   cardEl.setAttribute('role', 'status'); cardEl.setAttribute('aria-live', 'polite');
   micEl = document.createElement('button'); micEl.className = 'vmic'; micEl.type = 'button'; micEl.innerHTML = MIC; micEl.hidden = true;
-  micEl.setAttribute('aria-label', 'Talk to The Pass');
+  micEl.setAttribute('aria-label', PTAB ? 'Talk to Pluto' : 'Talk to The Pass');
   micEl.addEventListener('click', micTap);
   cardEl.addEventListener('click', onCardClick);
   document.body.appendChild(cardEl); document.body.appendChild(micEl);
@@ -921,7 +927,7 @@ function renderVoice(name){
 function voiceScreen(){
   if(!micEl) return;
   var name = state.view.name;
-  var show = !!SR && settings().on && NO_MIC.indexOf(name) < 0;
+  var show = (!!SR || PTAB) && settings().on && NO_MIC.indexOf(name) < 0;   // v3.11.5: in the app's tab, the mic is Pluto's
   micEl.hidden = !show;
   document.body.classList.toggle('vmic-on', show);
   if(!show && open) closeCard(true);
