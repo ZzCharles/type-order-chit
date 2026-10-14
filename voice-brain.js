@@ -614,6 +614,18 @@ function rosterWrite(text, names){
    command said politely ("can you add 2 kilos of mozz") still just runs. */
 var HELP_SAY = 'I can add, change and take things off your orders and the prep list, tick prep off, read them back, get an order ready to send, fill in and read your timesheet, and read and build the roster.';
 var HELP_TRY = "Try 'add 2 kilos of mozzarella', 'add today's timesheet' or 'let's do next week's roster'.";
+/* v3.11.6 (his log, 14 Oct: "show me the recipe for polenta" asked "Did you
+   mean …?" across every list, then opened the prep list, and learned "recipe
+   polenta" as a name): a sentence with "recipe" in it is about his recipe
+   book. These words around the name are dropped; what's left is the name. */
+var RECIPE_FILL = {};
+('show me the a an recipe recipes for of open up pull bring read get give see let lets look at find can could you please i want to need ' +
+ 'what whats is my our how do make it out go we have got on screen that this just hey pluto ok whole full its not showing shows needs need opened there here all').split(' ').forEach(function(w){ RECIPE_FILL[w] = 1; });
+function recipeWords(text){
+  var c = clean(text);
+  if(!/\brecipes?\b/.test(c)) return null;
+  return c.split(' ').filter(function(w){ return w && !RECIPE_FILL[w]; });
+}
 function canTopic(text){
   var c = clean(text).replace(/^(hey pluto|ok pluto|pluto) /, '');
   if(!/^(can you|could you|are you able to|do you know how to|will you be able to|is it possible to)\b/.test(c)) return null;
@@ -632,7 +644,7 @@ var CAN_SAY = {
   'roster-read': "Yes. Ask me 'who's on tonight?', 'how many worked on Wednesday?' or 'what was last week's roster?'.",
   'timesheet': "Yes. Say 'add today's timesheet', change a day, or ask 'how many hours this week?'. Sending it to accounts is still you, on the Timesheet screen.",
   'send': "I can get an order ready to send, but you tap Send yourself. I can't send messages for you.",
-  'recipe': "Not yet. Recipes are on the Recipes screen.",
+  'recipe': "Yes, I can open one. Say 'show me the pizza sauce recipe'.",   // v3.11.6
   'trains': "Not here. RK Trips does the trains.",
   'notyet': "Not yet. Reminders and notes are coming with Pluto.",
   'prep': "Yes. Say 'add pizza sauce to the prep list', or 'pizza sauce is done'.",
@@ -1453,6 +1465,53 @@ function createRoom(host){
     var token = 'c-' + tokN + '-' + now().toString(36);
     confirms[token] = Object.assign({ kind: kind, expires: now() + CONFIRM_MS }, data || {});
     return ans('confirm', { confirm: { token: token, readBack: readBack, question: question, expiresMs: CONFIRM_MS }, log: log });
+  }
+
+  /* ---------- v3.11.6: a recipe asked for (his log, 14 Oct) ----------
+     Only the recipes in his book are looked at (prep items that have a
+     recipe). One that fits opens it; a few ask "Which recipe?" with only
+     recipes as options, and a pick opens it and teaches nothing; none says
+     so (through Pluto, "not mine": not his recipe, so maybe a question for
+     the Ask room). Through Pluto the room can't show a screen, so it says
+     where the recipe is and gives the card the way to open it. A sentence
+     that changes a list ("add the pizza sauce recipe to the prep list") is
+     left to the lists. */
+  function recipeCat(cat){
+    var rec = cat.entries.filter(function(e){ return e.kind === 'prep' && e.recipe; });
+    var idx = {};
+    Object.keys(cat.index).forEach(function(k){ var l = cat.index[k].filter(function(e){ return rec.indexOf(e) > -1; }); if(l.length) idx[k] = l; });
+    return { entries: rec, index: idx };
+  }
+  function openRecipe(e, mode){
+    var view = { view: 'recipe', rid: e.recipe };
+    if(mode !== 'pluto' && host.open) host.open(view);
+    return ans('answer', { say: [mode === 'pluto' ? 'The ' + e.name + ' recipe is on The Pass tab.' : 'Here’s the ' + e.name + ' recipe.'],
+      show: { title: e.name, lines: [], open: view }, log: 'recipe ' + e.name });
+  }
+  function recipeAsk(text, cat, mode, cmd){
+    var words = recipeWords(text);
+    if(!words) return null;
+    if(cmd && cmd.verb && ['open', 'read'].indexOf(cmd.verb) < 0) return null;
+    if(!words.length){
+      if(canTopic(text) === 'recipe') return null;      // "can you do recipes?" is about The Pass itself
+      var all = { view: 'recipes' };
+      if(mode !== 'pluto' && host.open) host.open(all);
+      return ans('answer', { say: [mode === 'pluto' ? 'Your recipes are on The Pass tab.' : 'Here are your recipes.'], show: { title: 'Recipes', lines: [], open: all }, log: 'recipes' });
+    }
+    var tk = toks(words.join(' ')).filter(function(t){ return !STOP[t.r]; });
+    var rc = recipeCat(cat);
+    var hit = tk.length ? findItems({ stems: tk.map(function(t){ return t.s; }) }, rc, ['prep']) : { how: 'none', list: [] };
+    var list = dedupe(hit.list || []);
+    if(!list.length){
+      if(mode === 'pluto') return notmine('recipe none');
+      // a few words are a name to say back; more is a sentence about something else (his log: "it's not showing me the recipe…")
+      return cant(words.length <= 3 ? "I couldn't find a recipe for " + words.join(' ') + ' in your book.' : "Which recipe? Say its name, like 'show me the pizza sauce recipe'.", 'recipe none');
+    }
+    var top = hit.top ? list.slice(0, hit.top) : list;
+    if(top.length === 1) return openRecipe(top[0], mode);
+    var opts = top.slice(0, 3).map(function(e){ return { label: e.name, value: e.cid }; }).concat([{ label: 'None of these', value: 'none' }]);
+    var names = top.slice(0, 3).map(function(e){ return e.name; });
+    return asking('recipe', 'Which recipe: ' + names.slice(0, -1).join(', ') + ' or ' + names[names.length - 1] + '?', opts, {}, 'item');
   }
 
   /* ---------- undo, kept in storage (contract 7) ---------- */
@@ -3976,6 +4035,13 @@ function createRoom(host){
     if(/^dict/.test(p.kind)) return await dictAnswer(p, req, mode);   // v3.11.0
     if(/^ts/.test(p.kind)) return await tsAnswer(p, req, mode);   // v3.9.6
     if(p.kind === 'roDay') return rosterReply(p, req, mode);      // v3.9.11
+    if(p.kind === 'recipe'){                                      // v3.11.6: "Which recipe?" opens the pick; nothing is learned
+      pending = null;
+      var rch = choice != null ? choice : matchOption(text, p.options);
+      if(rch == null || rch === 'none') return ans('answer', { say: ['Left it. Say the recipe’s full name.'], log: 'recipe ' + (rch || 'dropped') });
+      var rce = recipeCat((await fresh()).cat).entries.filter(function(e){ return e.cid === rch; })[0];
+      return rce ? openRecipe(rce, mode) : cant("That recipe isn't in your book now.", 'recipe gone');
+    }
     if(p.kind === 'ofwhat'){                                      // v3.9.13: "5 kilos of what?"
       pending = null;
       var ow = parse(text, (await fresh()).cat);
@@ -4147,6 +4213,9 @@ function createRoom(host){
       }
       // v3.11.0: "add the following (to the prep list)": he reads the list out, then it's read back
       if(mode === 'tab' && (!c1.verb || c1.verb === 'add') && !c1.question && isFollowing(said)) return await dictStart(c1, f.cat);
+      // v3.11.6 (his log, 14 Oct): "show me the recipe for polenta" opens that recipe
+      var rcp = recipeAsk(said, f.cat, mode, c1);
+      if(rcp) return rcp;
       // v3.9.13: "can you …?" with nothing to act on is about The Pass itself
       var topic = canTopic(said);
       if(topic){
@@ -4311,7 +4380,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.5',
+  version: 'v3.11.6',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,

@@ -166,6 +166,8 @@ var host = {
     else if(v.view === 'prep') goto({ name: 'prep' });
     else if(v.view === 'list') goto({ name: 'list' });
     else if(v.view === 'timesheet') goto({ name: 'timesheet' });
+    else if(v.view === 'recipe' && v.rid) goto({ name: 'recipe', rid: v.rid });   // v3.11.6
+    else if(v.view === 'recipes') goto({ name: 'recipes' });
     else if(v.view === 'rosterBuild'){ rosterWeek = v.week === 'next' ? 'next' : 'this'; rosterShowAll = false; goto({ name: 'rosterBuild' }); }   // v3.10.0
   },
   get: readJSON,
