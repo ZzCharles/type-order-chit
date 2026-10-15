@@ -658,7 +658,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.10';
+const APP_VERSION = 'v3.11.11';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -934,12 +934,31 @@ async function pushPrepCatalogue(){
 }
 
 
+/* v3.11.11 (his log, 15 Oct 8:02 am: Pluto said "Nothing on the prep list"
+   with 10 on it, before the list had come in): when it last came in, and a
+   copy kept on this phone for Pluto's room to start from. Not "order-chit-",
+   so Move my data leaves it (it's only a copy of the shared list). */
+const PREP_KEPT_KEY = 'the-pass-prep-kept';
+let prepCameAt = 0;
+function prepFetchedAt(){ return prepCameAt; }
+function keptPrep(){
+  try{
+    const k = JSON.parse(localStorage.getItem(PREP_KEPT_KEY) || 'null');
+    return k && Array.isArray(k.lines) && k.at > 0 ? k : null;
+  }catch(e){ return null; }
+}
 async function fetchPublished(){
   try{
     const res = await fetch(API + '/api/prep/published', {cache:'no-store', headers: chefHeaders()});
     const d = await res.json();
-    if(d && Array.isArray(d.lines)) state.prepLines = dropCleared(mergeFresh(applyRecentTicks(d.lines), state.prepLines));
+    if(d && Array.isArray(d.lines)){
+      state.prepLines = dropCleared(mergeFresh(applyRecentTicks(d.lines), state.prepLines));
+      prepCameAt = Date.now();
+      try{ localStorage.setItem(PREP_KEPT_KEY, JSON.stringify({ at: prepCameAt, lines: state.prepLines })); }catch(e){}
+      return true;
+    }
   }catch(e){}
+  return false;
 }
 
 async function addPrepLines(lines, by){
@@ -5576,10 +5595,10 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.10"></script>
+<script src="move-data.js?v=3.11.11"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.10"></script>
-<script src="voice-brain.js?v=3.11.10"></script>
-<script src="voice.js?v=3.11.10"></script>
+<script src="roster-engine.js?v=3.11.11"></script>
+<script src="voice-brain.js?v=3.11.11"></script>
+<script src="voice.js?v=3.11.11"></script>
 </body>
 </html>

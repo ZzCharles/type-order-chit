@@ -63,10 +63,16 @@ var host = {
   version: APP_VERSION,
   me: 'Rabindra',
   now: function(){ return Date.now(); },
+  /* v3.11.11: prepKnown is false until the shared prep list has come in (or,
+     in Pluto's room, its kept copy); prepAsOf is when it last did */
   data: function(){
-    return { suppliers: state.suppliers, prepCatalogue: buildPrepCatalogue(), prepLines: state.prepLines || [], prepSections: state.recipeSections || [] };
+    var at = (typeof prepFetchedAt === 'function' && prepFetchedAt()) || roomKeptAt;
+    return { suppliers: state.suppliers, prepCatalogue: buildPrepCatalogue(), prepLines: state.prepLines || [], prepSections: state.recipeSections || [],
+             prepKnown: !!at, prepAsOf: at || 0 };
   },
-  refresh: async function(){ freshSuppliers(); await fetchPublished(); },
+  // v3.11.11: storage at every look, the download (true when it came in) as the brain decides
+  reload: function(){ freshSuppliers(); },
+  refresh: async function(){ return await fetchPublished(); },
   setQty: function(list){
     list.forEach(function(c){ var hit = lookupProduct(c.pid); if(hit) hit.product.qty = c.qty; });
     saveData(); bgRender();
@@ -189,7 +195,15 @@ var room = AlmoVoice.createRoom(host);
    the heard log, via "pluto". Below the room's start, nothing else in this
    file runs in room mode (no mic, card, speech or Voice screen). */
 var roomMenuSent = '';
+/* v3.11.11: the room starts with no prep list (it comes from the Worker), so
+   until its first download comes in it answers from the copy kept at the
+   last one, and says how old it is when that's a while ago */
+var roomKeptAt = 0;
 function roomFresh(){
+  if(!roomKeptAt && !(state.prepLines || []).length && typeof keptPrep === 'function' && !(typeof prepFetchedAt === 'function' && prepFetchedAt())){
+    var k = keptPrep();
+    if(k){ state.prepLines = k.lines; roomKeptAt = k.at; }
+  }
   if(typeof refreshSuppliersFromStorage === 'function') refreshSuppliersFromStorage();
   if(typeof loadPrepItems === 'function') loadPrepItems();
   if(typeof loadRecipesLocal === 'function') loadRecipesLocal();

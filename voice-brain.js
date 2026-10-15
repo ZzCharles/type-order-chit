@@ -1558,12 +1558,48 @@ function createRoom(host){
   }
 
   /* ---------- fresh data ---------- */
-  async function fresh(){
-    if(host.refresh){
-      try{ await Promise.race([host.refresh(), new Promise(function(r){ setTimeout(r, 2500); })]); }catch(e){}
+  /* v3.11.11 (his log, 15 Oct: the first answer after a wake took about 5 s,
+     and at 8:02 am "Nothing on the prep list" with 10 on it). The phone's own
+     lists are re-read from storage at every look (host.reload). The shared
+     prep list is downloaded at most once at a time and not again for 20 s,
+     with one wait of up to 2.5 s (it waited up to 2.5 s at every look, often
+     twice an answer). A prep list that has never come in is unknown, never
+     empty: prepBlind. */
+  var FRESH_FOR = 20000, FRESH_WAIT = 2500, RETRY_AFTER = 5000, STUCK_AFTER = 15000, PREP_OLD = 5 * 60 * 1000;
+  var net = { p: null, ok: -Infinity, tried: -Infinity, waited: false }, prepBlind = false;
+  async function netFresh(){
+    if(now() - net.ok < FRESH_FOR) return;
+    if(net.p && now() - net.tried > STUCK_AFTER) net.p = null;   // a download that never ended is given up
+    if(!net.p && now() - net.tried >= RETRY_AFTER){   // one that just failed isn't tried again at once
+      net.tried = now();
+      net.waited = false;
+      var p = Promise.resolve().then(function(){ return host.refresh(); })
+        .then(function(ok){ if(ok !== false) net.ok = now(); }, function(){})
+        .then(function(){ if(net.p === p) net.p = null; });
+      net.p = p;
     }
+    if(!net.p || net.waited) return;     // nothing coming, or waited once for this one already: answer with what's here
+    net.waited = true;
+    await Promise.race([net.p, new Promise(function(r){ setTimeout(r, FRESH_WAIT); })]);
+  }
+  async function fresh(){
+    if(host.reload){ try{ host.reload(); }catch(e){} }
+    if(host.refresh) await netFresh();
     var d = host.data();
+    prepBlind = d.prepKnown === false;
     return { data: d, cat: catalogue(d, taught()) };
+  }
+  var PREP_BLIND = "I can't reach the prep list right now. Try again in a moment.";
+  function notOnPrep(name){ return prepBlind ? PREP_BLIND : itemSay(name) + " isn't on the prep list."; }
+  /* "This is from 8:02 am." when the prep list couldn't be checked for a while
+     ("yesterday at 8:02 am", "Tuesday at 8:02 am", "9 October" when older) */
+  function prepOld(d){
+    if(!d || !d.prepAsOf || now() - d.prepAsOf <= PREP_OLD) return '';
+    var t = new Date(d.prepAsOf), n = new Date(now());
+    var days = Math.round((new Date(n.getFullYear(), n.getMonth(), n.getDate()) - new Date(t.getFullYear(), t.getMonth(), t.getDate())) / 864e5);
+    var at = timeSay(pad2(t.getHours()) + ':' + pad2(t.getMinutes()));
+    var when = days <= 0 ? at : days === 1 ? 'yesterday at ' + at : days < 7 ? DAY_FULL[DAY_KEYS[t.getDay()]] + ' at ' + at : t.getDate() + ' ' + MONTHS[t.getMonth()];
+    return "I couldn't check the prep list just now. This is from " + when + '.';
   }
   function supplier(cat, id){ return cat.suppliers.filter(function(s){ return s.id === id; })[0] || null; }
   function onOrder(s){ return (s.products || []).filter(function(p){ return +p.qty > 0; }); }
@@ -3155,6 +3191,8 @@ function createRoom(host){
     return head + names.slice(0, first).join(', ') + ', and ' + (names.length - first) + ' more.';
   }
   function readPrep(cat, d, how){
+    if(prepBlind) return cant(PREP_BLIND, 'read prep unknown');     // v3.11.11: never "Nothing" when it never came in
+    var old = prepOld(d);
     var lines = (d.prepLines || []).filter(function(l){ return !l.done; });
     var done = (d.prepLines || []).length - lines.length;
     var sec = d.prepSections || [];
@@ -3168,12 +3206,12 @@ function createRoom(host){
     var show = { title: how === 'rest' && lines.length > PREP_SPOKEN ? 'Prep list \u00b7 the rest' : 'Prep list', lines: shown.map(function(l){ return { text: l.text, tone: 'ok' }; }), open: { view: 'prep' } };
     lastRead = { kind: 'prep', at: now() };
     if(!lines.length){
-      return ans('answer', { say: [done ? 'Everything on the prep list is done.' : 'Nothing on the prep list.'], show: show, log: 'read prep 0' });
+      return ans('answer', { say: [old, done ? 'Everything on the prep list is done.' : 'Nothing on the prep list.'].filter(Boolean), show: show, log: 'read prep 0' + (old ? ' old' : '') });
     }
     var names = lines.map(function(l){ return l.text; });
     var say = spoken('Prep list, ' + lines.length + ' to do: ', names, PREP_SPOKEN, how);
     var more = !how && names.length > PREP_SPOKEN ? [spoken('', names, PREP_SPOKEN, 'rest')] : [];
-    return ans('answer', { say: [say], more: more, show: show, log: 'read prep ' + (how ? how + ' ' : '') + lines.length });
+    return ans('answer', { say: [old, say].filter(Boolean), more: more, show: show, log: 'read prep ' + (how ? how + ' ' : '') + lines.length + (old ? ' old' : '') });
   }
   function readOrder(s, how){
     var items = onOrder(s), name = supSay(s.name);
@@ -3286,7 +3324,7 @@ function createRoom(host){
         it.e = entryById(cat, it.pick);
         if(it.e && it.e.kind === 'prep' && (v === 'tick' || v === 'untick' || v === 'remove')){
           var ln = lineFor(cat, it.e, v);
-          if(!ln) return cant(itemSay(it.e.name) + " isn't on the prep list.", 'not on list');
+          if(!ln) return cant(notOnPrep(it.e.name), prepBlind ? 'prep unknown' : 'not on list');
           it.e = ln;
         }
         if(it.e && it.e.kind === 'line' && v === 'tick' && it.e.done) return cant(itemSay(it.e.name) + ' is already ticked off.', 'tick already');
@@ -3343,7 +3381,7 @@ function createRoom(host){
         }
         if(kinds.indexOf('line') > -1 && !kinds.some(function(k){ return k === 'order'; })){
           var other = findItems(it, cat, ['prep', 'order']);
-          if(other.list.length && (other.how === 'exact' || dedupe(other.list).length === 1)) return cant(itemSay(other.list[0].name) + " isn't on the prep list.", 'not on list');
+          if(other.list.length && (other.how === 'exact' || dedupe(other.list).length === 1)) return cant(notOnPrep(other.list[0].name), prepBlind ? 'prep unknown' : 'not on list');
         }
         it.missing = true; continue;
       }
@@ -3472,7 +3510,7 @@ function createRoom(host){
         orderChanges.push({ e: e, before: before, after: after, it: it, v: v });
       }
       else if(e.kind === 'prep' || e.kind === 'oneoff'){
-        if(v === 'remove' || v === 'tick' || v === 'untick'){ nothing.push(itemSay(e.name) + " isn't on the prep list."); return; }
+        if(v === 'remove' || v === 'tick' || v === 'untick'){ var np = notOnPrep(e.name); if(nothing.indexOf(np) < 0) nothing.push(np); return; }
         prepAdds.push({ e: e, it: it });
       }
       else if(e.kind === 'line'){
@@ -3830,6 +3868,7 @@ function createRoom(host){
         var e = it0.e;
         if(e.kind === 'order') return ans('answer', { say: [e.qty > 0 ? label(e) + ': ' + amount(e.qty, e.unit) + ' on the ' + supSay(e.sname) + ' order.' : 'No ' + label(e) + ' on the ' + supSay(e.sname) + ' order yet.'], log: 'read item' });
         if(e.kind === 'line') return ans('answer', { say: [itemSay(e.name) + (e.done ? ' is done.' : ' is on the prep list, not done yet.')], log: 'read line' });
+        if(prepBlind) return cant(PREP_BLIND, 'read prep item unknown');
         return ans('answer', { say: [itemSay(e.name) + " isn't on the prep list."], log: 'read prep item' });
       }
       if(cmd.list === 'prep' || cmd.list === 'list') return readPrep(cat, d);
@@ -3841,7 +3880,7 @@ function createRoom(host){
       if(mode === 'pluto' && !hasCue) return notmine('clear no cue');
       if(cmd.tickWords){
         var doneLines = (d.prepLines || []).filter(function(l){ return l.done; });
-        if(!doneLines.length) return cant('Nothing on the prep list is ticked off.', 'clear done 0');
+        if(!doneLines.length) return cant(prepBlind ? PREP_BLIND : 'Nothing on the prep list is ticked off.', prepBlind ? 'clear done unknown' : 'clear done 0');
         return confirming('clearDone', ['Clear ' + doneLines.length + ' finished ' + (doneLines.length === 1 ? 'line' : 'lines') + ' off the prep list, for everyone.'],
           doneLines.length === 1 ? 'Clear it?' : 'Clear them?', { ids: doneLines.map(function(l){ return l.id; }) }, 'clear done ' + doneLines.length);
       }
@@ -4618,7 +4657,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.10',
+  version: 'v3.11.11',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
