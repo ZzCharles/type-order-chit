@@ -73,8 +73,18 @@ var PREP_TRIM = { chop: 1, chopped: 1, cut: 1, slice: 1, sliced: 1, dice: 1, dic
    or after an add (Speck, not "speak to"), and "roasted" asked about people
    or a day (rostered; "roasted red peppers" stays). */
 var DAY_WORDS = 'monday|tuesday|wednesday|thursday|friday|saturday|sunday|today|tonight|tomorrow';
+var READ_START = /^\s*(?:(?:and|so|ok|okay|also)[\s,]+)*(?:(?:can|could|would|will) you (?:please |also )?|please )?(?:what|whats|what's|what is|read|tell me|check|go through|is there|are there|anything)\b/i;   // v3.11.16
 function heardFix(text){
   return String(text == null ? '' : text)
+    /* v3.11.16 (his test, 17 Oct, 1 am): a misheard "Hey Pluto" left at the
+       start ("hey Bluetooth can you please add pizza door to the ordering"
+       asked to add "Bluetooth Add Pizza Door" as a new product) */
+    .replace(/^\s*(?:hey|hi|ok|okay)[\s,]+(?:pluto|plutos|pluto's|bluetooth|blue tooth|plato|pluta|blue too)\b[\s,.!]*/i, '')
+    /* … and, on a question or a read ("what's remaining on my prep list now",
+       "read me the prep list one more time"), a tail that changes nothing
+       (never on a timesheet answer: "about now" is when he finished) */
+    .replace(/^([\s\S]*\S)[\s,]+(?:right now|now|again|one more time|once more|for me)(?:[\s,]+please)?[\s.!?]*$/i, function(all, head){ return READ_START.test(head) ? head : all; })
+    .replace(/\bpizza (?:doors?|doe|dote)\b/gi, 'pizza dough')
     // "and how about can you mark …" is a request, not a "how" question
     .replace(/^\s*(?:(?:and|so|ok|okay)[\s,]+)*(?:how|what) about[\s,]+(?=(?:can|could|would|will) you\b|please\b|(?:add|put|mark|tick|remove|take|order|get|make|change)\b)/i, '')
     .replace(/\b(beef|pork|lamb|veal|chicken|turkey) means\b/gi, '$1 mince')
@@ -386,6 +396,11 @@ var TRAIL = [['please'], ['thanks'], ['mate'], ['bro'], ['for', 'me'], ['for', '
   // v3.9.3: a sentence cut off as he carried on ("… royal blue potatoes add some")
   ['add', 'some'], ['and', 'add'], ['add']];
 
+/* v3.11.16 (his test, 17 Oct): words that never belong in a new item's name
+   (a command, or a misheard "Hey Pluto"): no "Add it as a new product?" for them */
+var NOT_A_NAME = { add: 1, remove: 1, put: 1, order: 1, ordering: 1, tick: 1, take: 1, can: 1, could: 1, would: 1, you: 1, please: 1,
+  hey: 1, bluetooth: 1, pluto: 1, plutos: 1 };
+function notAName(shown){ return clean(shown).split(' ').some(function(x){ return NOT_A_NAME[x]; }); }
 var STOP = {
   the: 1, a: 1, an: 1, of: 1, to: 1, on: 1, onto: 1, in: 1, into: 1, for: 1, from: 1, off: 1, my: 1, our: 1, me: 1, us: 1,
   please: 1, with: 1, at: 1, just: 1, also: 1, too: 1, as: 1, well: 1, now: 1, today: 1, tonight: 1, tomorrow: 1, tomorrows: 1,
@@ -3269,6 +3284,8 @@ function createRoom(host){
      check, read or go through the list, or what's left on it, it reads it
      ("show me" still opens the screen) */
   var RD_ASK = /^(?:(?:and|so|ok|okay|um|uh|yeah|right|alright) )*(?:(?:can|could|would|will) you (?:please )?)?(?:(?:check|read|read out|tell me|go through|run through)(?: me)? (?:my|the|our) (?:prep )?list|(?:whats|what is|whats still|what is still) (?:remaining|left|to do|outstanding)(?: (?:on|in) (?:the|my|our) (?:prep )?list)?)(?: please)?$/;
+  // v3.11.16: a sentence that asks for a list first ("what's on my prep list …", "read me the Aziz order …")
+  var READ_LIST_FIRST = /^(?:(?:and|so|ok|okay|um|uh|yeah|right|alright|also) )*(?:(?:can|could|would|will) you (?:please |also )?|please )?(?:(?:tell me|read|read me|read out|check|go through) (?:(?:whats|what is) (?:on|in) )?|(?:whats|what is|whats still) (?:on|in) )(?:the|my|our) /;
   async function readMore(text, last){
     var c = clean(text), rest = RD_REST.test(c), all = !rest && RD_ALL.test(c), ask = !rest && !all && RD_ASK.test(c);
     if(ask){
@@ -3415,7 +3432,7 @@ function createRoom(host){
     var one = function(l){ return l && l.length === 1 && l[0] === 'order'; };
     var meant = one(K.strict) || one(K.prefer) || (K.sids && K.sids.length === 1) || (it.qty && !it.qty.vague && it.qty.unit);
     var w = clean(shown).split(' ').filter(Boolean);
-    if(!meant || !w.length || w.length > 5 || w.some(function(x){ return /^[0-9]/.test(x); }) || w.every(function(x){ return STOP[x]; })) return null;
+    if(!meant || !w.length || w.length > 5 || w.some(function(x){ return /^[0-9]/.test(x); }) || w.every(function(x){ return STOP[x]; }) || notAName(shown)) return null;
     var name = titled(shown);
     return asking('newprod', name + " isn't on any order list. Add it as a new product?", [{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }],
       { np: { name: name, sid: K.sids && K.sids.length === 1 ? K.sids[0] : null,
@@ -3555,7 +3572,7 @@ function createRoom(host){
         cmd.askFirst = true;
       }
       if(!have.length){
-        if(kinds.length === 1 && kinds[0] === 'prep' && (v === 'add' || v === 'set') && it.words.length){
+        if(kinds.length === 1 && kinds[0] === 'prep' && (v === 'add' || v === 'set') && it.words.length && !notAName(shown)){   // v3.11.16: notAName
           if(it.oneoff){ it.e = { kind: 'oneoff', name: cap(shown), id: 'oneoff' }; continue; }
           /* v3.11.10 (his ask, 15 Oct: "check the closest item first"): when it's
              an order item by that name, say so, and offer to order it instead */
@@ -4064,7 +4081,15 @@ function createRoom(host){
         it0.verb = 'read';
         var stop = resolve({ verb: 'read', list: cmd.list, sids: cmd.sids, items: [it0], verbWords: '' }, cat, mode, hasCue);
         if(stop) return stop;
-        if(it0.missing) return mode === 'pluto' ? notmine('read missing') : cant("I couldn't find " + it0.words.join(' ') + '.', 'read missing');
+        if(it0.missing){
+          /* v3.11.16 (his test, 17 Oct: "what's on my trip list we gotta fix this
+             one"): the list asked for first, then talk that names nothing: read the list */
+          if(READ_LIST_FIRST.test(clean(cmd.text || ''))){
+            if(cmd.list === 'prep') return readPrep(cat, d);
+            if(cmd.sids.length === 1) return readOrder(supplier(cat, cmd.sids[0]));
+          }
+          return mode === 'pluto' ? notmine('read missing') : cant("I couldn't find " + it0.words.join(' ') + '.', 'read missing');
+        }
         var e = it0.e;
         if(e.kind === 'order') return ans('answer', { say: [e.qty > 0 ? label(e) + ': ' + amount(e.qty, e.unit) + ' on the ' + supSay(e.sname) + ' order.' : 'No ' + label(e) + ' on the ' + supSay(e.sname) + ' order yet.'], log: 'read item' });
         if(e.kind === 'line') return ans('answer', { say: [itemSay(e.name) + (e.done ? ' is done.' : ' is on the prep list, not done yet.')], log: 'read line' });
@@ -4176,6 +4201,23 @@ function createRoom(host){
       var yn = [{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }];
       if(eb.kind === 'order') return asking('bare', 'Add ' + (+eb.qty > 0 ? 'another ' : ub ? 'a ' : '') + (ub ? ub + ' of ' : '') + label(eb) + '?', yn, { cmd: cmd, item: 0 });
       if(eb.kind === 'prep') return asking('bare', 'Put ' + label(eb) + ' on the prep list?', yn, { cmd: cmd, item: 0 });
+    }
+    /* v3.11.16 (his test, 17 Oct, 1 am): asked first, a yes does as asked.
+       Right after ticking, "take off" may be Google's "tick off" (he said
+       "tick off the barbecue sauce", heard "take off": it left the list); and
+       "move X" with nowhere to move it to (Google's "remove", above) */
+    if(!cmd.fromAsk && cmd.verb === 'remove'){
+      var gone = cmd.items.filter(function(it){ return it.e && !it.missing; }), lns = gone.filter(function(it){ return it.e.kind === 'line'; });
+      var nm = joinAnd(gone.map(function(it){ return itemSay(it.e.name); }));
+      if(live && ctx.verb === 'tick' && /^take\b/.test(cmd.verbWords || '') && gone.length && lns.length === gone.length && lns.every(function(it){ return !it.e.done; })){
+        return asking('tickortake', 'Tick off ' + nm + ', or take ' + (gone.length === 1 ? 'it' : 'them') + ' off the prep list?',
+          [{ label: 'Tick off', value: 'tick' }, { label: 'Take off', value: 'remove' }, { label: 'No', value: 'no' }], { cmd: cmd, item: 0 });
+      }
+      if(cmd.askRemove && gone.length){
+        var sn = gone.map(function(it){ return it.e.kind === 'order' ? it.e.sname : ''; }).filter(function(x, k, all){ return all.indexOf(x) === k; });
+        var where = lns.length === gone.length ? 'the prep list' : sn.length === 1 && sn[0] ? 'the ' + supSay(sn[0]) + ' order' : 'the lists';
+        return asking('moveoff', 'Take ' + nm + ' off ' + where + '?', [{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }], { cmd: cmd, item: 0 });
+      }
     }
     var a = amounts(cmd);
     if(a) return a;
@@ -4601,6 +4643,7 @@ function createRoom(host){
     else if(p.kind === 'supplier'){ cmd.sids = [choice]; }
     else if(p.kind === 'offhow'){ if(choice === 'added') it.qtyFix = p.added; }   // v3.9.3; "all": as said
     else if(p.kind === 'bare'){ cmd.verb = 'add'; it.verb = 'add'; }               // v3.9.3: yes, add it
+    else if(p.kind === 'tickortake' && choice === 'tick'){ cmd.verb = 'tick'; cmd.items.forEach(function(x){ x.verb = 'tick'; }); }   // v3.11.16; "remove": as said; moveoff: yes, as said
     return run(cmd, req, mode);
   }
 
@@ -4697,8 +4740,13 @@ function createRoom(host){
         said = clean(said).replace(NEW_PREP_SAID, ' ').replace(/\s+/g, ' ').trim();
         if(!/\bprep\b/.test(said)) said += ' to the prep list';
       }
+      /* v3.11.16 (his test, 17 Oct: "can you move bechamel and pork ragues" was
+         Google's "remove"): "move" with nowhere to move it to takes it off, after asking */
+      var cm0 = clean(said), moveAsk = /^(?:(?:and|so|ok|okay|also) )*(?:(?:can|could|would|will) you (?:please |also )?|please )?move\b/.test(cm0) && !/\bmove\b.*\b(?:to|onto|into|over|up|down|across|from|back)\b/.test(cm0);
+      if(moveAsk) said = String(said).replace(/\bmove\b/i, 'remove');
       var c1 = parse(said, f.cat);
       if(permSaid) c1.newPrep = true;
+      if(moveAsk) c1.askRemove = true;
       /* v3.9.13 (his log): "add five kilos of" was cut off by the mic, and it
          added 5 kilos to the last item. An amount "of" nothing asks what. */
       if(/\bof( the| some)?$/.test(clean(said)) && !c1.items.length && c1.looseQty){
@@ -4902,7 +4950,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.15',
+  version: 'v3.11.16',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
