@@ -152,27 +152,32 @@ var UNIT_WORDS = {
   jar: 'jar', jars: 'jar',
   tub: 'tub', tubs: 'tub',
   bottle: 'bottle', bottles: 'bottle',
+  // v3.11.12 (his lists, 16 Oct: Parmesan in "Blocks", and a tray and a log): "two blocks of parmesan" asked "Did you mean Parmesan?"
+  block: 'block', blocks: 'block', tray: 'tray', trays: 'tray', log: 'log', logs: 'log',
   each: 'each', piece: 'each', pieces: 'each'
 };
 var UNIT_SAY = { kg: ['kilo', 'kilos'], g: ['gram', 'grams'], L: ['litre', 'litres'], ml: ['ml', 'ml'],
   box: ['box', 'boxes'], bag: ['bag', 'bags'], tin: ['tin', 'tins'], pkt: ['packet', 'packets'],
   bunch: ['bunch', 'bunches'], punnet: ['punnet', 'punnets'], ctn: ['carton', 'cartons'], jar: ['jar', 'jars'],
-  tub: ['tub', 'tubs'], bottle: ['bottle', 'bottles'], each: ['', ''] };
+  tub: ['tub', 'tubs'], bottle: ['bottle', 'bottles'], block: ['block', 'blocks'], tray: ['tray', 'trays'], log: ['log', 'logs'], each: ['', ''] };
 
-/* A product's own unit, as one of the keys above where it is one */
+/* A product's own unit, as one of the keys above where it is one.
+   v3.11.12: what's in brackets is set aside ("can (4kg)" is a can). */
+function unitWord(u){ return clean(String(u == null ? '' : u).replace(/\([^)]*\)/g, ' ')); }
 function canonUnit(u){
-  var c = clean(u);
+  var c = unitWord(u);
   if(!c) return '';
   if(/^market bunch/.test(c)) return 'bunch';
   return UNIT_WORDS[c] || c;
 }
 function unitSay(u){
-  var c = clean(u);
+  var c = unitWord(u);
   if(/^market bunch/.test(c)) return ['market bunch', 'market bunches'];
   var k = UNIT_WORDS[c];
   if(k) return UNIT_SAY[k];
   if(!c) return ['', ''];
-  return [c, /s$/.test(c) ? c : c + 's'];
+  // v3.11.12: one of a unit it doesn't know is said without the s ("1 blocks")
+  return [/[^s]s$/.test(c) ? c.slice(0, -1) : c, /s$/.test(c) ? c : c + 's'];
 }
 /* "4 kilos", "1 box", "2" for things counted one by one */
 function amount(n, unit){
@@ -3151,6 +3156,21 @@ function createRoom(host){
     caps: 1, pep: 1, dough: 1, chicken: 1, thigh: 1, cucumber: 1, squid: 1, speck: 0, spec: 1, speak: 1, tom: 1, tomb: 1, toum: 0,
     fior: 1, fiore: 1, confit: 0, tira: 1, moz: 1, mots: 1, caramel: 1, olives: 1, potatoes: 1, potato: 1, spuds: 1, parm: 1,
     milk_: 1, paprika: 1, oregano: 1, pumice: 1, burnet: 1, durra: 1, k: 1 };
+  /* v3.11.12 (his log, 15 Oct: "add three boxes of pizza dough" got Pluto's
+     "I can't do that yet": the menu had only "buvetti pizza dough balls"):
+     the runs of two or more words inside a long name ("pizza dough", "dough
+     balls"), none starting or ending on a small word */
+  var PIECE_EDGE = { of: 1, the: 1, and: 1, with: 1, in: 1, a: 1, an: 1, for: 1, on: 1, to: 1, n: 1 };
+  function namePieces(name){
+    var w = clean(name).split(' ').filter(Boolean), out = [];
+    if(w.length < 3) return out;
+    for(var len = 2; len < w.length; len++) for(var i = 0; i + len <= w.length; i++){
+      var part = w.slice(i, i + len);
+      if(PIECE_EDGE[part[0]] || PIECE_EDGE[part[part.length - 1]] || part.some(function(x){ return /^[0-9]/.test(x); })) continue;
+      out.push(part.join(' '));
+    }
+    return out;
+  }
   function menu(){
     var d = host.data(), cat = catalogue(d, taught());
     var strong = [], cues = ['prep', 'order', 'orders', 'supplier', 'how much', 'whats on the', 'prep list', 'the list', 'made', 'done', 'ticked off'];
@@ -3160,7 +3180,7 @@ function createRoom(host){
       if(w.indexOf(' ') < 0 && (EVERYDAY[w] || w.length < 4)){ if(cues.indexOf(w) < 0) cues.push(w); return; }
       if(strong.indexOf(w) < 0) strong.push(w);
     }
-    (d.suppliers || []).forEach(function(s){ put2(s.name); put2(supSay(s.name)); (s.products || []).forEach(function(p){ put2(itemSay(p.name)); (PRODUCT_ALIASES[p.id] || []).forEach(put2); }); });
+    (d.suppliers || []).forEach(function(s){ put2(s.name); put2(supSay(s.name)); (s.products || []).forEach(function(p){ put2(itemSay(p.name)); namePieces(itemSay(p.name)).forEach(put2); (PRODUCT_ALIASES[p.id] || []).forEach(put2); }); });
     (d.prepCatalogue || []).forEach(function(c){ put2(c.name); });
     Object.keys(taught()).forEach(function(k){ put2(k); });
     put2('prep list');
@@ -3228,10 +3248,25 @@ function createRoom(host){
      list just read (or the one named in it). Anything else is left alone. */
   /* v3.11.9 (his test, 14 Oct: "what else is in the prep list" said "I can't
      do that yet"): "in" as well as "on", and the list or order by name */
-  var RD_REST = /^(?:(?:and|so|ok|okay|um|uh|yeah|yes|right|alright) )*(?:is there (?:any )?more|are there (?:any )?more|any more|anymore|more|more please|what else|whats else|what else is (?:there|(?:on|in) (?:it|there|the (?:prep )?list|the (?:[a-z]+ ){1,3}order))|anything else|and the rest|the rest|whats the rest|what are the (?:rest|others)|the others|tell me more|read (?:me )?the rest|read the others|(?:is that|was that|thats) (?:all|it|everything))(?: please| (?:on|in) (?:it|there|the (?:prep )?list|the (?:[a-z]+ ){1,3}order))?$/;
+  /* v3.11.12 (his log, 15 Oct: "can you tell me the rest", "can you read me
+     the rest of the list" and "can you continue what's on my prep list" were
+     taken as chatter or "not mine"): asked politely, "tell me the rest",
+     "continue", "carry on", "keep going", and "of the list" / "my list" */
+  var RD_REST = /^(?:(?:and|so|ok|okay|um|uh|yeah|yes|right|alright) )*(?:(?:can|could|would|will) you (?:please )?|please )?(?:is there (?:any )?more|are there (?:any )?more|any more|anymore|more|more please|what else|whats else|what else is (?:there|(?:on|in) (?:it|there|the (?:prep )?list|the (?:[a-z]+ ){1,3}order))|anything else|and the rest|the rest|whats the rest|what are the (?:rest|others)|the others|tell me more|(?:read|tell|give|say)(?: me)? the (?:rest|others)|read the others|(?:continue|carry on|keep going|go on)(?: with)?(?: (?:it|the rest|the list|the prep list|(?:whats|what is) (?:on|in) (?:the|my) (?:prep )?list))?|(?:is that|was that|thats) (?:all|it|everything))(?: please| (?:on|in|of) (?:it|there|them|(?:the|my) (?:prep )?list|the (?:[a-z]+ ){1,3}order))?(?: please)?$/;
   var RD_ALL = /\b(?:(?:whole|full|entire|complete) (?:list|prep list|order|thing|lot)|(?:read|tell|say|give|show)(?: me)?(?: them| it| the lot)? all|all of (?:them|it)|everything|every item|all the (?:items|prep|prep items|things|names)|the lot)\b/;
+  /* v3.11.12 (his log, 15 Oct: "can you check my prep list please" got the
+     how-to line; "what's remaining on the list" was "not mine"): asked to
+     check, read or go through the list, or what's left on it, it reads it
+     ("show me" still opens the screen) */
+  var RD_ASK = /^(?:(?:and|so|ok|okay|um|uh|yeah|right|alright) )*(?:(?:can|could|would|will) you (?:please )?)?(?:(?:check|read|read out|tell me|go through|run through)(?: me)? (?:my|the|our) (?:prep )?list|(?:whats|what is|whats still|what is still) (?:remaining|left|to do|outstanding)(?: (?:on|in) (?:the|my|our) (?:prep )?list)?)(?: please)?$/;
   async function readMore(text, last){
-    var c = clean(text), rest = RD_REST.test(c), all = !rest && RD_ALL.test(c);
+    var c = clean(text), rest = RD_REST.test(c), all = !rest && RD_ALL.test(c), ask = !rest && !all && RD_ASK.test(c);
+    if(ask){
+      var fa = await fresh();
+      // "what's left" with no list said: the list just read, else the prep list
+      if(!/\blist\b/.test(c) && last && last.kind === 'order' && now() - last.at <= READ_FOLLOW_MS){ var so = supplier(fa.cat, last.sid); if(so) return readOrder(so); }
+      return readPrep(fa.cat, fa.data);
+    }
     if(!rest && !all) return null;
     var f = await fresh(), cm = parse(text, f.cat);
     if(all && cm.verb && cm.verb !== 'read' && cm.verb !== 'open') return null;   // "clear everything", "add the lot"
@@ -3308,8 +3343,147 @@ function createRoom(host){
      the prep list, or to order it ("Order it" / "the ordering list") */
   function orderTwinAsk(cmd, i, it, oe){
     var shown = it.words.map(function(w){ return SHOWN_FIX[clean(w)] || w; }).join(' ');
+    if(cmd.newPrep && canNewPrep()) return askSection(titled(shown));   // v3.11.13: "add parsley as a permanent prep item"
+    // v3.11.13: and "New prep item", where the page can make one (the contract's four buttons)
+    var opts = [{ label: 'Prep list, today', value: 'yes' }].concat(canNewPrep() ? [{ label: 'New prep item', value: 'newprep' }] : [])
+      .concat([{ label: 'Order it', value: 'order' }, { label: 'No', value: 'no' }]);
     return asking('oneoff', label(oe) + " isn't on the prep list; it's on the " + supSay(oe.sname) + ' order list. Add ' + cap(shown) + ' to the prep list for today, or order it?',
-      [{ label: 'Prep list, today', value: 'yes' }, { label: 'Order it', value: 'order' }, { label: 'No', value: 'no' }], { cmd: cmd, item: i, orderPick: oe.id });
+      opts, { cmd: cmd, item: i, orderPick: oe.id, name: titled(shown) });
+  }
+
+  /* ---------- v3.11.13: new permanent items by voice ----------
+     His ask (15 Oct); his wording, OK'd 16 Oct ("If I don't like the feel when
+     using, we can change it"). A prep item: "… isn't a prep item yet. Add it
+     for today only, or as a new prep item?" → "Which section?" → read back →
+     yes. A product (on no list, an order clearly meant): "… isn't on any
+     order list. Add it as a new product?" → which supplier → what it comes in
+     (each skipped when said) → read back → yes. It writes the shared
+     catalogue (his staff see it), so it's always read back and needs a plain
+     yes; undo takes it back. Only where the page can make them (host). */
+  var NEW_PREP_RE = /\b(permanent|permanently|for good|new item|new prep item|as a prep item)\b/;
+  var NEW_PREP_SAID = /\b(?:as an? (?:new |permanent )+(?:prep )?item|as an? (?:new )?prep item|permanently|for good)\b/;
+  function canNewPrep(){ return typeof host.newPrepItem === 'function'; }
+  function canNewProd(){ return typeof host.newProduct === 'function'; }
+  function titled(words){
+    return String(words || '').split(' ').filter(Boolean).map(function(w){ return /^[a-z]/.test(w) ? w.charAt(0).toUpperCase() + w.slice(1) : w; }).join(' ');
+  }
+  /* his prep sections, the fullest first (a section with no items yet still counts) */
+  function prepSecsOf(d){
+    var count = {};
+    (d.prepCatalogue || []).forEach(function(c){ var s = c.section || ''; if(s) count[s] = (count[s] || 0) + 1; });
+    (d.prepSections || []).forEach(function(s){ if(s && !count[s]) count[s] = 0; });
+    return Object.keys(count).filter(function(s){ return s !== 'Other'; }).sort(function(a, b){ return count[b] - count[a] || a.localeCompare(b); });
+  }
+  /* "sauces", "bases and pastes", or one word of it ("dessert" for Desserts & Sweet Components).
+     Replaying his 15 Oct log: "it should be able to add a new prep item…" picked "Batch prep" by
+     "prep". The kitchen's own words never pick one, and a long sentence only by a whole name. */
+  var SEC_SKIP = { prep: 1, list: 1, lists: 1, item: 1, items: 1, section: 1, sections: 1, new: 1, add: 1, today: 1, permanent: 1, good: 1, thing: 1, things: 1, able: 1, should: 1, would: 1, could: 1 };
+  function pickSection(text, secs){
+    var c = clean(text);
+    if(!c) return null;
+    var whole = secs.filter(function(s){ return c.indexOf(clean(s)) > -1; });
+    if(whole.length === 1) return whole[0];
+    if(c.split(' ').length > 6) return null;
+    var said = c.split(' ').filter(function(w){ return w.length > 3 && !STOP[w] && !SEC_SKIP[w]; }).map(stem);
+    var hits = secs.filter(function(s){ return clean(s).split(' ').map(stem).some(function(w){ return said.indexOf(w) > -1; }); });
+    return hits.length === 1 ? hits[0] : null;
+  }
+  function askSection(name, again){
+    var secs = prepSecsOf(host.data()), ex = secs.slice(0, 3);
+    if(!secs.length) return confirmNewPrep(name, 'Other');
+    return asking('newsec', (again ? 'Which section? Say one of yours, like ' : 'Which section? Like ') + joinOr(ex) + '.',
+      ex.map(function(s){ return { label: s, value: s }; }), { name: name, secs: secs, again: !!again }, 'choice');
+  }
+  function confirmNewPrep(name, section){
+    return confirming('newprep', ['New prep item: ' + name + ', in ' + section + '. Your staff will see it too.'], 'Add it?', { name: name, section: section }, 'newprep ' + section);
+  }
+  /* an order item on no list: offered as a new product only when an order is
+     clearly meant ("to the order", a supplier, "order …", or an amount with
+     its unit), and the name is a few real words (never a misheard jumble) */
+  function newProdAsk(cmd, it, kinds, v, K, shown){
+    if(!canNewProd() || (v !== 'add' && v !== 'set') || kinds.indexOf('order') < 0) return null;
+    var one = function(l){ return l && l.length === 1 && l[0] === 'order'; };
+    var meant = one(K.strict) || one(K.prefer) || (K.sids && K.sids.length === 1) || (it.qty && !it.qty.vague && it.qty.unit);
+    var w = clean(shown).split(' ').filter(Boolean);
+    if(!meant || !w.length || w.length > 5 || w.some(function(x){ return /^[0-9]/.test(x); }) || w.every(function(x){ return STOP[x]; })) return null;
+    var name = titled(shown);
+    return asking('newprod', name + " isn't on any order list. Add it as a new product?", [{ label: 'Yes', value: 'yes' }, { label: 'No', value: 'no' }],
+      { np: { name: name, sid: K.sids && K.sids.length === 1 ? K.sids[0] : null,
+        qty: it.qty && !it.qty.vague && it.qty.n != null ? it.qty.n : 0, unit: it.qty && !it.qty.vague && it.qty.unit ? it.qty.unit : null } });
+  }
+  function nextProdStep(np, cat){
+    var s = np.sid ? supplier(cat, np.sid) : null;
+    if(!s) return askSupplier(np, cat, false);
+    if(!np.unit) return askUnit(np, false);
+    var us = unitSay(np.unit)[1] || np.unit;
+    return confirming('newprod', ['New product: ' + np.name + ', from ' + supSay(s.name) + ', in ' + us + '. Your staff will see it too.'],
+      np.qty > 0 ? 'Add it, with ' + amount(np.qty, np.unit) + ' on the ' + supSay(s.name) + ' order?' : 'Add it?',
+      { name: np.name, sid: s.id, sname: s.name, unit: np.unit, qty: np.qty > 0 ? np.qty : 0 }, 'newprod ' + supSay(s.name));
+  }
+  function askSupplier(np, cat, again){
+    var top = cat.suppliers.slice().sort(function(a, b){ return (b.products || []).length - (a.products || []).length; }).slice(0, 3);
+    return asking('newsupp', again ? 'Which supplier? Say its name, like ' + joinOr(top.map(function(s){ return supSay(s.name); })) + '.' : 'Which supplier?',
+      top.map(function(s){ return { label: supSay(s.name), value: s.id }; }), { np: np, again: !!again }, 'choice');
+  }
+  function askUnit(np, again){
+    return asking('newunit', again ? 'What does it come in? Say one like kilos, bottles or boxes.' : 'What does it come in? Like kilos, bottles or boxes.', [], { np: np, again: !!again }, 'unit');
+  }
+  function unitIn(text){
+    var c = clean(text), w = c.split(' ');
+    if(/\bmarket bunch/.test(c)) return 'bunch';
+    for(var i = 0; i < w.length; i++){ if(UNIT_WORDS[w[i]]) return UNIT_WORDS[w[i]]; }
+    return null;
+  }
+  function supplierIn(text, cat){
+    var c = parse(text, cat);
+    if((c.sids || []).length === 1) return c.sids[0];
+    var t = clean(text);
+    var hit = cat.suppliers.filter(function(s){ return t.indexOf(clean(supSay(s.name))) > -1; });
+    return hit.length === 1 ? hit[0].id : null;
+  }
+  var DROP_RE = /^(?:no|nope|nah|cancel|never mind|nevermind|forget it|leave it)\b/;
+  async function newItemAnswer(p, req, mode){
+    var choice = req.reply && req.reply.choice != null ? String(req.reply.choice) : null, text = String(req.text || '');
+    var cat = (await fresh()).cat;
+    pending = null;
+    var dropped = function(k){ return ans('answer', { say: ['Left it. Nothing changed.'], log: k + ' dropped' }); };
+    /* replaying his 15 Oct log: "what's on my trip list", said while "Add it as a
+       new product?" waited, was "Left it". Something else asked for is done
+       instead, as with The Pass's other questions */
+    var other = function(){
+      if(choice != null || DROP_RE.test(clean(text))) return null;
+      var mb = parse(text, cat);
+      return mb.verb || mb.items.some(function(x){ return x.exact && x.exact.length; }) ? mb : null;
+    };
+    var mb;
+    if(p.kind === 'newsec'){
+      var sec = choice != null && p.secs.indexOf(choice) > -1 ? choice : pickSection(choice != null ? choice : text, p.secs);
+      if(sec) return confirmNewPrep(p.name, sec);
+      if((mb = other())) return run(mb, req, mode);
+      if(DROP_RE.test(clean(text)) || p.again) return dropped('newsec');
+      return askSection(p.name, true);
+    }
+    if(p.kind === 'newprod'){
+      var yn = choice != null ? choice : /^(?:yes|yeah|yep|yup|sure|ok|okay|please|go on|do it)\b/.test(clean(text)) && yesNo(text) !== 'no' ? 'yes' : null;
+      if(yn === 'yes') return nextProdStep(p.np, cat);
+      if((mb = other())) return run(mb, req, mode);
+      return dropped('newprod');
+    }
+    if(p.kind === 'newsupp'){
+      var sid = choice != null && supplier(cat, choice) ? choice : supplierIn(choice != null ? choice : text, cat);
+      if(sid){ p.np.sid = sid; return nextProdStep(p.np, cat); }
+      if((mb = other())) return run(mb, req, mode);
+      if(DROP_RE.test(clean(text)) || p.again) return dropped('newsupp');
+      return askSupplier(p.np, cat, true);
+    }
+    if(p.kind === 'newunit'){
+      var u = unitIn(choice != null ? choice : text);
+      if(u){ p.np.unit = u; return nextProdStep(p.np, cat); }
+      if((mb = other())) return run(mb, req, mode);
+      if(DROP_RE.test(clean(text)) || p.again) return dropped('newunit');
+      return askUnit(p.np, true);
+    }
+    return dropped('new item');
   }
 
   /* The single place that works out what each item means. Returns an
@@ -3377,12 +3551,20 @@ function createRoom(host){
              an order item by that name, say so, and offer to order it instead */
           var oo = findItems(it, cat, ['order']), oe = oo.list.length && (oo.how === 'exact' || dedupe(oo.list).length === 1) && oo.how !== 'fuzzy' ? oo.list[0] : null;
           if(oe) return orderTwinAsk(cmd, i, it, oe);
+          // v3.11.13: "for good" said in the first place goes straight to its section; else the choice, where the page can make one
+          if(cmd.newPrep && canNewPrep()) return askSection(titled(shown));
+          if(canNewPrep()){
+            return asking('oneoff', cap(shown) + " isn't a prep item yet. Add it for today only, or as a new prep item?",
+              [{ label: 'Today only', value: 'yes' }, { label: 'New prep item', value: 'newprep' }, { label: 'No', value: 'no' }], { cmd: cmd, item: i, name: titled(shown) });
+          }
           return asking('oneoff', cap(shown) + " isn't a prep item. Add it as a one-off?", [{ label: 'Add it', value: 'yes' }, { label: 'No', value: 'no' }], { cmd: cmd, item: i });
         }
         if(kinds.indexOf('line') > -1 && !kinds.some(function(k){ return k === 'order'; })){
           var other = findItems(it, cat, ['prep', 'order']);
           if(other.list.length && (other.how === 'exact' || dedupe(other.list).length === 1)) return cant(notOnPrep(other.list[0].name), prepBlind ? 'prep unknown' : 'not on list');
         }
+        // v3.11.13: an order item on no list, an order clearly meant: offered as a new product
+        if(cmd.items.length === 1){ var npa = newProdAsk(cmd, it, kinds, v, K, shown); if(npa) return npa; }
         it.missing = true; continue;
       }
       var kind = have[0];
@@ -3685,6 +3867,14 @@ function createRoom(host){
         if(!ru || !ru.ok){ skipped.push(joinAnd(dn) + "'s roster"); continue; }
         roUndone = true;
         said.push(cap(joinAnd(rbUndoSay(rd, ru.changes))) + '. ' + ru.days.map(function(x){ return DAY_FULL[x] + ' is ' + rbDaySay(rd, ru.week[x]) + '.'; }).join(' '));
+      }
+      else if(o.k === 'newprep'){   // v3.11.13
+        if(host.removePrepItem && host.removePrepItem(o.id)) said.push('Took ' + o.name + ' back off the prep items.'); else skipped.push(o.name);
+      }
+      else if(o.k === 'newprod'){   // v3.11.13: the product goes, so its amount needn't be put back
+        qtyOps = qtyOps.filter(function(q){ return q.pid !== o.pid; });
+        said = said.filter(function(x){ return x.indexOf(itemSay(o.name) + ' is back to') !== 0; });
+        if(host.removeProduct && host.removeProduct(o.sid, o.pid)) said.push('Took ' + o.name + ' back off the ' + supSay(o.sname) + ' products.'); else skipped.push(o.name);
       }
       else if(o.k === 'restore'){
         var s2 = (data.suppliers || []).filter(function(x){ return x.id === o.sid; })[0];
@@ -4251,6 +4441,7 @@ function createRoom(host){
     var choice = req.reply && req.reply.choice != null ? String(req.reply.choice) : null;
     var text = String(req.text || '');
     var cmd = p.cmd;
+    if(/^new(?:sec|prod|supp|unit)$/.test(p.kind)) return await newItemAnswer(p, req, mode);   // v3.11.13
     if(/^dict/.test(p.kind)) return await dictAnswer(p, req, mode);   // v3.11.0
     if(/^ts/.test(p.kind)) return await tsAnswer(p, req, mode);   // v3.9.6
     if(p.kind === 'roDay') return rosterReply(p, req, mode);      // v3.9.11
@@ -4318,6 +4509,13 @@ function createRoom(host){
        "can you add it to the ordering list" added it to the prep list: an
        answer that names the order puts it there instead ("Order it" too) */
     // ("not the order, the prep list" names both: that's the prep list, so it isn't switched here)
+    /* v3.11.13 (his 15 Oct words: "yes add as a permanent item", "can you add
+       parmesan as a permanent prep item"): "New prep item", or "permanent",
+       "for good", makes it a prep item for good: its section is asked next */
+    if(p.kind === 'oneoff' && canNewPrep() && (choice === 'newprep' || (choice == null && NEW_PREP_RE.test(clean(text)) && yesNo(text) !== 'no'))){
+      pending = null;
+      return askSection(p.name || titled(cmd.items[p.item].words.join(' ')));
+    }
     if(p.kind === 'oneoff' && (choice === 'order' || (choice == null && /\b(order|orders|ordering|supplier)\b/.test(clean(text)) && !/\bprep\b/.test(clean(text))))){
       pending = null;
       var oit = cmd.items[p.item];
@@ -4482,7 +4680,15 @@ function createRoom(host){
       var f = await fresh();
       // v3.9.13: "drop it down to 9 kilos", "bring the mozz up to 10" are "make it …"
       var said = String(req.text || '').replace(/\b(?:drop|bring|cut|knock|turn|bump|move|take)\b(.{0,40}?)\b(?:down|up) to\b/i, 'make$1');
+      /* v3.11.13 (his 15 Oct log: "can you add parmesan as a permanent prep
+         item"): said in the first place, it's the prep list, made for good */
+      var permSaid = canNewPrep() && NEW_PREP_SAID.test(clean(said));
+      if(permSaid){
+        said = clean(said).replace(NEW_PREP_SAID, ' ').replace(/\s+/g, ' ').trim();
+        if(!/\bprep\b/.test(said)) said += ' to the prep list';
+      }
       var c1 = parse(said, f.cat);
+      if(permSaid) c1.newPrep = true;
       /* v3.9.13 (his log): "add five kilos of" was cut off by the mic, and it
          added 5 kilos to the last item. An amount "of" nothing asks what. */
       if(/\bof( the| some)?$/.test(clean(said)) && !c1.items.length && c1.looseQty){
@@ -4563,6 +4769,35 @@ function createRoom(host){
         return ans('done', { say: ['Saved. ' + DAY_FULL[t.day] + ', ' + hoursSay(th) + '.'], action: { id: tid, label: tlab, undo: true },
           show: { title: 'Timesheet', lines: [{ text: DAY_FULL[t.day] + ' · ' + timeSay(t.start) + ' – ' + timeSay(t.end) + ' · ' + fmt(th) + ' h', tone: 'ok' }] },
           keep: false, log: 'ts saved ' + t.day });
+      }
+      if(c.kind === 'newprep'){   // v3.11.13: a new prep item, and on today's list
+        var rp = host.newPrepItem(c.name, c.section);
+        if(!rp || !rp.ok) return ans('error', { say: ["I couldn't save it. Add it on the Prep items screen."], log: 'newprep failed' });
+        var nops = [{ k: 'newprep', id: rp.id, name: c.name }];
+        var al = await host.addPrep([{ text: c.name, section: c.section, recipe: '' }]);
+        var nsay = 'Added ' + c.name + " to the prep items, and to today's prep list.";
+        if(al && al.ok) nops.push({ k: 'prepAdd', ids: al.ids || [], texts: [c.name] });
+        else nsay = 'Added ' + c.name + " to the prep items. No connection, so it isn't on today's list yet.";
+        var nlab = 'New prep item ' + c.name;
+        var nid = remember(nlab, nops);
+        return ans('done', { say: [nsay], action: { id: nid, label: nlab, undo: true },
+          show: { title: 'Prep list', lines: [{ text: c.name + ' · ' + c.section, tone: 'ok' }], open: { view: 'prep' } }, log: 'newprep ok ' + c.section });
+      }
+      if(c.kind === 'newprod'){   // v3.11.13: a new product, with the amount he said on the order
+        var rq = host.newProduct(c.sid, c.name, c.unit);
+        if(!rq || !rq.ok) return ans('error', { say: ["I couldn't save it. Add it on the supplier's screen."], log: 'newprod failed' });
+        var pops = [{ k: 'newprod', sid: c.sid, pid: rq.pid, name: c.name, sname: c.sname }];
+        var psay = 'Added ' + c.name + ' as a new ' + supSay(c.sname) + ' product';
+        if(c.qty > 0){
+          host.setQty([{ pid: rq.pid, qty: c.qty }]);
+          pops.push({ k: 'qty', sid: c.sid, pid: rq.pid, name: c.name, unit: c.unit, before: 0, after: c.qty });
+          psay += ', and ' + amount(c.qty, c.unit) + ' to the ' + supSay(c.sname) + ' order';
+        }
+        var plab = 'New product ' + c.name;
+        var pid2 = remember(plab, pops);
+        return ans('done', { say: [psay + '.'], action: { id: pid2, label: plab, undo: true },
+          show: { title: supSay(c.sname) + ' order', lines: [{ text: c.name + (c.qty > 0 ? ' · ' + fmt(c.qty) + ' ' + c.unit : ''), tone: 'ok' }], open: { view: 'supplier', id: c.sid } },
+          log: 'newprod ok ' + supSay(c.sname) });
       }
       if(c.kind === 'roster') return rbConfirmed(c);   // v3.10.0
       if(c.kind === 'dict') return await dictAdd(c);    // v3.11.0
@@ -4657,7 +4892,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.11',
+  version: 'v3.11.13',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,

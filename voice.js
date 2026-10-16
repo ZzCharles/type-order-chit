@@ -96,6 +96,48 @@ var host = {
     return !!l && l.done === done;
   },
   clearDonePrep: async function(ids){ return clearDonePrepLines(ids); },
+  /* v3.11.13 (his ask, 15 Oct; his wording OK 16 Oct): new permanent items by
+     voice, the way the Prep items and Add product screens make them (the
+     shared catalogue then goes to the staff app as after a tap). Never from a
+     starter or backup copy. Each says whether it was saved. */
+  newPrepItem: function(name, section){
+    if(typeof copyRole === 'function' && copyRole()) return { ok: false };
+    loadPrepItems();
+    var id = 's:' + uid();
+    state.prepItems.push({ id: id, name: String(name), section: String(section || '') });
+    savePrepItems(); bgRender(); voiceMenuNews();
+    var saved = false;
+    try{ saved = (JSON.parse(localStorage.getItem(PREPITEMS_KEY) || '[]') || []).some(function(i){ return i.id === id; }); }catch(e){}
+    return { ok: saved, id: id };
+  },
+  removePrepItem: function(id){
+    loadPrepItems();
+    var before = state.prepItems.length;
+    state.prepItems = state.prepItems.filter(function(i){ return i.id !== id; });
+    if(state.prepItems.length === before) return false;
+    savePrepItems(); bgRender(); voiceMenuNews();
+    return true;
+  },
+  newProduct: function(sid, name, unit){
+    if(typeof copyRole === 'function' && copyRole()) return { ok: false };
+    freshSuppliers();
+    var s = findSupplier(sid);
+    if(!s) return { ok: false };
+    var p = { id: uid(), name: String(name), unit: String(unit || 'kg'), qty: 0, inc: 1, cat: '' };
+    s.products.push(p);
+    saveData(); bgRender(); voiceMenuNews();
+    var saved = false;
+    try{ saved = (JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]') || []).some(function(x){ return (x.products || []).some(function(q){ return q.id === p.id; }); }); }catch(e){}
+    return { ok: saved, pid: p.id };
+  },
+  removeProduct: function(sid, pid){
+    freshSuppliers();
+    var s = findSupplier(sid);
+    if(!s || !(s.products || []).some(function(p){ return p.id === pid; })) return false;
+    s.products = s.products.filter(function(p){ return p.id !== pid; });
+    saveData(); bgRender(); voiceMenuNews();
+    return true;
+  },
   /* v3.9.6: his timesheet, and this week's rostered start times, read fresh
      from storage first (another copy of The Pass may have changed them) */
   timesheet: function(){
@@ -195,6 +237,8 @@ var room = AlmoVoice.createRoom(host);
    the heard log, via "pluto". Below the room's start, nothing else in this
    file runs in room mode (no mic, card, speech or Voice screen). */
 var roomMenuSent = '';
+/* v3.11.13: a new item made by voice in the room: Pluto's router hears of it at once */
+function voiceMenuNews(){ if(typeof ROOM !== 'undefined' && ROOM) roomTell(); }
 /* v3.11.11: the room starts with no prep list (it comes from the Worker), so
    until its first download comes in it answers from the copy kept at the
    last one, and says how old it is when that's a while ago */
