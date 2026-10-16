@@ -3171,6 +3171,16 @@ function createRoom(host){
     }
     return out;
   }
+  /* v3.11.14 (his 15 Oct log, "can you add three boxes of pizza dough"): since
+     3.11.12 Pluto's router sends it here by the piece, but in Pluto a name
+     that isn't whole was "not mine", so Pluto still said "I can't do that
+     yet". A whole piece of one product's long name, the same pieces the menu
+     gives Pluto, now counts as its name. */
+  function wholePiece(it, f){
+    if(!f || f.how !== 'superset' || f.top !== 1 || !f.list.length || !it.stems || it.stems.length < 2) return false;
+    var said = it.stems.join(' ');
+    return namePieces(itemSay(f.list[0].name)).some(function(p){ return p.split(' ').map(stem).join(' ') === said; });
+  }
   function menu(){
     var d = host.data(), cat = catalogue(d, taught());
     var strong = [], cues = ['prep', 'order', 'orders', 'supplier', 'how much', 'whats on the', 'prep list', 'the list', 'made', 'done', 'ticked off'];
@@ -3539,7 +3549,7 @@ function createRoom(host){
          only close is asked about first ("Did you mean …?"), never acted on */
       // an order item named exactly, when only the prep list was looked at ("add chopped parsley"), is his kitchen too
       var orderTwin = !have.length && kinds.length === 1 && kinds[0] === 'prep' && findItems(it, cat, ['order']).how === 'exact';
-      if(mode === 'pluto' && !hasCue && !orderTwin && !have.some(function(k){ return found[k].how === 'exact'; })){
+      if(mode === 'pluto' && !hasCue && !orderTwin && !wholePiece(it, found.order) && !have.some(function(k){ return found[k].how === 'exact'; })){
         // a verb he actually said: a lone name ("tomatoes") mid-conversation stays chatter, as before
         if(!(cmd.followUp && have.length && cmd.verbWords && ['add', 'set', 'remove', 'tick', 'untick'].indexOf(v) > -1)) return notmine('no cue');
         cmd.askFirst = true;
@@ -4892,7 +4902,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.13',
+  version: 'v3.11.15',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,

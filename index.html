@@ -658,7 +658,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.13';
+const APP_VERSION = 'v3.11.15';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -5578,8 +5578,52 @@ if(!ROOM) refreshFromServer();   // v3.11.4: a room fetches nothing until Pluto 
 // v3.11.3: his data was just brought in (Move my data): Home says so once
 try{ if(sessionStorage.getItem('the-pass-brought-in')){ sessionStorage.removeItem('the-pass-brought-in'); state.broughtIn = true; render(); } }catch(e){}
 
+/* v3.11.15 (16 Oct, over USB: the app's The Pass tab still ran v3.11.10 a day
+   after v3.11.13 went live). The tab's page stays loaded as long as the app
+   does, while the hidden Almo room loads fresh at every "Hey Pluto", so the
+   two copies ran different versions on one storage. Now, each time the tab
+   comes back on screen (at most every 5 minutes), it asks for the published
+   page and, when its version differs, reloads: only on Home, with nothing
+   being typed and no touch since it came back; otherwise at the next return.
+   A reload that didn't bring that version isn't tried again for 30 minutes.
+   Only in the app's tab: never in a room, never in Chrome. */
+const TAB_IN_APP = !ROOM && /[?&]pluto=tab(&|$)/.test(location.search) && (function(){ try{ return !!(window.PlutoRoomHost && typeof window.PlutoRoomHost.openPluto === 'function'); }catch(e){ return false; } })();
+const UPDATE_EVERY = 5 * 60 * 1000, UPDATE_RETRY = 30 * 60 * 1000;
+let updateAskedAt = 0, updateTo = '', visibleAt = 0, touchedAt = 0;
+function passReload(){ location.reload(); }
+if(TAB_IN_APP) ['pointerdown', 'keydown'].forEach(t => document.addEventListener(t, ()=>{ touchedAt = Date.now(); }, { capture: true, passive: true }));
+function updateIdle(){
+  if(document.visibilityState !== 'visible' || state.view.name !== 'home' || isEditing() || touchedAt > visibleAt) return false;
+  const a = document.activeElement;
+  return !(a && (/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) || a.isContentEditable));
+}
+async function checkForUpdate(){
+  if(!TAB_IN_APP) return 'not the tab';
+  if(!updateTo){
+    if(Date.now() - updateAskedAt < UPDATE_EVERY) return 'asked lately';
+    updateAskedAt = Date.now();
+    let v = '';
+    try{
+      /* the address the tab opens, past the offline copy (asked as a page),
+         checked with the server ("no-cache": a few bytes when nothing
+         changed), so the reload then finds the copy just checked */
+      const res = await fetch(location.href, { cache: 'no-cache', headers: { Accept: 'text/html' } });
+      if(!res.ok) return 'no page';
+      v = ((await res.text()).match(/APP_VERSION\s*=\s*'(v\d+\.\d+\.\d+)'/) || [])[1] || '';
+    }catch(e){ return 'offline'; }
+    if(!v || v === APP_VERSION) return 'same';
+    try{ const t = JSON.parse(sessionStorage.getItem('the-pass-update-tried') || 'null'); if(t && t.to === v && Date.now() - t.at < UPDATE_RETRY) return 'tried'; }catch(e){}
+    updateTo = v;
+  }
+  if(!updateIdle()) return 'waiting';
+  try{ sessionStorage.setItem('the-pass-update-tried', JSON.stringify({ to: updateTo, at: Date.now() })); }catch(e){}
+  passReload();
+  return 'reloading';
+}
+
 document.addEventListener('visibilitychange', ()=>{
   if(ROOM || document.visibilityState !== 'visible') return;   // v3.11.4: a room does nothing on its own
+  visibleAt = Date.now();   // v3.11.15
   // v3.9.2: another copy of The Pass may have changed the list meanwhile
   if(refreshSuppliersFromStorage()) bgRender();
   // v3.9.4: and the roster and timesheet, before the Monday roll below
@@ -5589,6 +5633,7 @@ document.addEventListener('visibilitychange', ()=>{
      Tuesday, so the Monday roll can't only happen on a cold start. */
   if(rollRosterWeek()) bgRender();
   refreshFromServer();
+  checkForUpdate();   // v3.11.15: the app's tab only
 });
 
 if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the offline copy, not the room
@@ -5598,10 +5643,10 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.13"></script>
+<script src="move-data.js?v=3.11.15"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.13"></script>
-<script src="voice-brain.js?v=3.11.13"></script>
-<script src="voice.js?v=3.11.13"></script>
+<script src="roster-engine.js?v=3.11.15"></script>
+<script src="voice-brain.js?v=3.11.15"></script>
+<script src="voice.js?v=3.11.15"></script>
 </body>
 </html>
