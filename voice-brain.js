@@ -50,7 +50,12 @@ function clean(s){
 
 /* Plurals folded so "tomatoes", "boxes" and "punnets" meet their names.
    Used the same way on both sides, so a rough fold is enough. */
-var IRREG = { tomatoes: 'tomato', potatoes: 'potato', leaves: 'leaf', halves: 'half', loaves: 'loaf' };
+var IRREG = { tomatoes: 'tomato', potatoes: 'potato', leaves: 'leaf', halves: 'half', loaves: 'loaf',
+  /* v3.11.17 (his check, 17 Oct: "add marinated chicken to the prep list" asked
+     "Marinated Peppers or Marinated Olives?" for Chicken Thigh Marination; "veg
+     stock" asked "Prawn Stock or Vegetable Stock?"): one root each */
+  marinated: 'marinate', marinade: 'marinate', marinades: 'marinate', marination: 'marinate', marinations: 'marinate', marinating: 'marinate',
+  veg: 'vegetable', veggie: 'vegetable', veggies: 'vegetable', vegies: 'vegetable' };
 /* v3.10.2: kitchen words Google writes as everyday ones (his log, 12 Oct:
    "config garlic cream" for Confit Garlic Cream) */
 var HEARD_AS = { config: 'confit', configs: 'confit',
@@ -102,6 +107,7 @@ function heardFix(text){
     .replace(/\broasted(?=\s+(?:on|for|in|this|next)\s+(?:this\s+|next\s+|the\s+)?(?:week|weeks|weekend|weekends)\b)/gi, 'rostered');
 }
 function stem(w){
+  if(IRREG[w]) return IRREG[w];   // v3.11.17: before the short-word rule, for "veg"
   if(w.length <= 3 || /\d/.test(w)) return w;
   if(HEARD_AS[w]) return HEARD_AS[w];
   if(IRREG[w]) return IRREG[w];
@@ -3286,8 +3292,11 @@ function createRoom(host){
   var RD_ASK = /^(?:(?:and|so|ok|okay|um|uh|yeah|right|alright) )*(?:(?:can|could|would|will) you (?:please )?)?(?:(?:check|read|read out|tell me|go through|run through)(?: me)? (?:my|the|our) (?:prep )?list|(?:whats|what is|whats still|what is still) (?:remaining|left|to do|outstanding)(?: (?:on|in) (?:the|my|our) (?:prep )?list)?)(?: please)?$/;
   // v3.11.16: a sentence that asks for a list first ("what's on my prep list …", "read me the Aziz order …")
   var READ_LIST_FIRST = /^(?:(?:and|so|ok|okay|um|uh|yeah|right|alright|also) )*(?:(?:can|could|would|will) you (?:please |also )?|please )?(?:(?:tell me|read|read me|read out|check|go through) (?:(?:whats|what is) (?:on|in) )?|(?:whats|what is|whats still) (?:on|in) )(?:the|my|our) /;
+  var REMAIN_FRAG = /^(?:(?:and|so|ok|okay) )*(?:(?:whats|what is) )?(?:still )?(?:remaining|left|left to do|still to do)(?: (?:now|then|on (?:it|there|the list)))?(?: please)?$/;   // v3.11.17
   async function readMore(text, last){
     var c = clean(text), rest = RD_REST.test(c), all = !rest && RD_ALL.test(c), ask = !rest && !all && RD_ASK.test(c);
+    // v3.11.17 (his check, 17 Oct: "remaining now", Google's "what's" lost): right after a read, the list again
+    if(!rest && !all && !ask && last && now() - last.at <= READ_FOLLOW_MS && REMAIN_FRAG.test(c)) ask = true;
     if(ask){
       var fa = await fresh();
       // "what's left" with no list said: the list just read, else the prep list
@@ -4209,7 +4218,10 @@ function createRoom(host){
     if(!cmd.fromAsk && cmd.verb === 'remove'){
       var gone = cmd.items.filter(function(it){ return it.e && !it.missing; }), lns = gone.filter(function(it){ return it.e.kind === 'line'; });
       var nm = joinAnd(gone.map(function(it){ return itemSay(it.e.name); }));
-      if(live && ctx.verb === 'tick' && /^take\b/.test(cmd.verbWords || '') && gone.length && lns.length === gone.length && lns.every(function(it){ return !it.e.done; })){
+      /* v3.11.17 (his check, 17 Oct: "can you take off parsley" took it off, with
+         "tick off parsley" among Google's other guesses): Google unsure asks too */
+      var tickAlt = (req && req.alts || []).some(function(x){ return /\btick(?:ed)?\b/.test(clean(typeof x === 'string' ? x : (x && x.s) || '')); });
+      if((live && ctx.verb === 'tick' || tickAlt) && /^take\b/.test(cmd.verbWords || '') && gone.length && lns.length === gone.length && lns.every(function(it){ return !it.e.done; })){
         return asking('tickortake', 'Tick off ' + nm + ', or take ' + (gone.length === 1 ? 'it' : 'them') + ' off the prep list?',
           [{ label: 'Tick off', value: 'tick' }, { label: 'Take off', value: 'remove' }, { label: 'No', value: 'no' }], { cmd: cmd, item: 0 });
       }
@@ -4950,7 +4962,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.16',
+  version: 'v3.11.17',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
