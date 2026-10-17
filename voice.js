@@ -271,11 +271,38 @@ function roomHeld(){
   return roomAnswer('cant', [r === 'backup' ? 'This copy of The Pass is the backup. Real orders go from Chrome.'
     : "Your kitchen lists aren't in Pluto yet. Bring them in on The Pass tab first."], 'copy is ' + r);   // v3.11.5: his tab name
 }
+/* v3.11.18 (Pluto reads his own Almo shifts, 18 Oct; Pluto-Room-Contract §5
+   "want"): a request { want: "my-shifts" } is answered with data, never
+   words: only HIS shifts (found by his name on the staff list, never a guess;
+   nobody else's name, shift or station), this week's and next week's, each
+   with its date, and whether he has published that week (this week counts as
+   published: it's the one being worked). Not in the heard log (no sentence). */
+function roomMyShifts(){
+  var me = (state.staff || []).filter(function(s){ return String(s && s.name || '').trim().toLowerCase() === 'rabindra'; })[0];
+  if(!me) return { v: 1, status: 'answer', say: [], keep: false, log: 'my shifts: Rabindra is not on the staff list', data: { me: false, weeks: [] } };
+  var mon = null;
+  try{ mon = localStorage.getItem(ROSTER_WEEK_KEY); }catch(e){}
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(mon || '')) mon = weekStartKey();
+  var pub = {};
+  try{ pub = JSON.parse(localStorage.getItem(ROSTER_PUBLISHED_KEY) || '{}') || {}; }catch(e){ pub = {}; }
+  function week(monday, roster, worked){
+    var shifts = [];
+    ROSTER_DAY_KEYS.forEach(function(d, i){
+      var e = roster && roster[d] && roster[d][me.id];
+      if(e && /^\d{1,2}:\d{2}$/.test(e.start || '')) shifts.push({ date: shiftDateKey(monday, i + 2), start: e.start, end: /^\d{1,2}:\d{2}$/.test(e.end || '') ? e.end : '' });
+    });
+    return { monday: monday, published: worked || !!pub[monday], shifts: shifts };
+  }
+  var weeks = [week(mon, state.roster, true), week(shiftDateKey(mon, 7), state.rosterNext, false)];
+  return { v: 1, status: 'answer', say: [], keep: false, data: { me: true, weeks: weeks },
+    log: 'my shifts: ' + weeks[0].shifts.length + ' this week, ' + weeks[1].shifts.length + ' next' + (weeks[1].published ? '' : ' (not published)') };
+}
 var ROOM_CALLS = {
   hello: function(){ return room.hello(); },
   menu: function(){ return room.menu(); },
   handle: async function(r){
     r = r || {};
+    if(r.want === 'my-shifts') return roomHeld() || roomMyShifts();    // v3.11.18
     var a = roomHeld() || await room.handle(Object.assign({}, r, { mode: 'pluto' }));
     if(r.text) logIt({ at: Date.now(), heard: String(r.text), alts: (r.alts || []).map(String), via: 'pluto' }, a || {});
     return a;

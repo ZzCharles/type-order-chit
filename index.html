@@ -658,7 +658,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.17';
+const APP_VERSION = 'v3.11.18';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -1545,6 +1545,22 @@ function keepLastWeek(weekKey){
     const names = {};
     (state.staff || []).forEach(s => { names[s.id] = s.name; });
     localStorage.setItem(ROSTER_PREV_KEY, JSON.stringify({ week: weekKey, roster: cloneRoster(state.roster), names: names }));
+  }catch(e){}
+}
+
+/* v3.11.18 (Pluto reads his own Almo shifts, 18 Oct): the weeks he has
+   published. Next week starts as a copy of this week, so Pluto counts it only
+   once he has tapped Publish for it (his pick). { "YYYY-MM-DD" (that week's
+   Monday): ms }, the last 6. Not moved by Move my data (it's only a note). */
+const ROSTER_PUBLISHED_KEY = 'the-pass-roster-published';
+function rosterMonday(which){ return which === 'next' ? shiftDateKey(weekStartKey(), 7) : weekStartKey(); }
+function markRosterPublished(which){
+  try{
+    const all = JSON.parse(localStorage.getItem(ROSTER_PUBLISHED_KEY) || '{}') || {};
+    all[rosterMonday(which)] = Date.now();
+    const keep = {};
+    Object.keys(all).sort().slice(-6).forEach(k => { keep[k] = all[k]; });
+    localStorage.setItem(ROSTER_PUBLISHED_KEY, JSON.stringify(keep));
   }catch(e){}
 }
 
@@ -4506,6 +4522,7 @@ function attachHandlers(){
   if(rpub) rpub.addEventListener('click', ()=>{
     const text = buildRosterText(rosterWeek);
     if(!text){ showToast('Roster is empty'); return; }
+    markRosterPublished(rosterWeek);   // v3.11.18: Pluto counts a week he has published
     if(navigator.share){ navigator.share({text}).catch(()=>{}); }
     else {
       navigator.clipboard.writeText(text).then(()=>showToast('Copied - share sheet not available')).catch(()=>{
@@ -5643,10 +5660,10 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.17"></script>
+<script src="move-data.js?v=3.11.18"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.17"></script>
-<script src="voice-brain.js?v=3.11.17"></script>
-<script src="voice.js?v=3.11.17"></script>
+<script src="roster-engine.js?v=3.11.18"></script>
+<script src="voice-brain.js?v=3.11.18"></script>
+<script src="voice.js?v=3.11.18"></script>
 </body>
 </html>
