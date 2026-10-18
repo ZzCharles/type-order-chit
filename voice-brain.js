@@ -725,7 +725,9 @@ var RB_WORDS = {};
  + 'station stations pizza shift ok cool great good fine perfect thank cheers going doing does day same again wed thu fri sat sun cross strike bump kick lose '
  + 'ditch delete cancel scrap wipe clear skip later leave pause stop continue resume carry finish save publish send share read show open week give book '
  + 'schedule throw have their there these other another else anything nothing something next previous before goes went off out let us '
- + 'prep preps list lists order orders ordering supplier suppliers timesheet timesheets recipe recipes item items stuff thing things menu').split(' ')
+ + 'prep preps list lists order orders ordering supplier suppliers timesheet timesheets recipe recipes item items stuff thing things menu '
+ // v3.11.19 (his log, 18 Oct: "remove the next roster entirely and will build it again" was "I don't have Entirely")
+ + 'entirely completely totally fully altogether build rebuild redo restart afresh').split(' ')
   .concat(Object.keys(RB_DAY), Object.keys(RB_STATION), Object.keys(STOP), Object.keys(UNIT_WORDS)).forEach(function(w){ if(w) RB_WORDS[w] = 1; });
 
 /* Times keep their colon as a dot ("9:00" -> "9.00"), which parseClock reads */
@@ -2166,6 +2168,26 @@ function createRoom(host){
   var RB_KEEP = /\b(keep (it|that|them|as is)|leave it( as is)?|thats (fine|good|right|correct)|as is|looks good|all good|its fine|its good|that works)\b/;
   var RB_SKIP = /\b(skip|come back to (it|that)|do it later|leave it for now|not sure yet|dont know yet|park it)\b/;
   var RB_CLOSED = /\b(closed|shut|nobody|no one|noone|none)\b/;
+  /* v3.11.19 (his log, 18 Oct): a day left with nobody on it ("no one working", "leave
+     that empty", "leave the shift blank" (heard "blend"), "no rosters that day", "clear Wednesday") */
+  var RB_DAYW = '(?:wednesday|thursday|friday|saturday|sunday)s?';
+  var RB_EMPTY_LEAD = '^(?:(?:no|nah|just|ok|okay|so|then|um|uh)\\s+)*(?:(?:can you |could you |please |lets )*(?:';
+  var RB_EMPTY_SAID = [
+    '(?:leave|keep|make)\\s+(?:it|that|this|the day|the shift|the shifts|' + RB_DAYW + ')\\s+(?:empty|blank|blend|bland|clear|free)',
+    'no\\s+(?:rosters?|shifts?|staff)(?:\\s+(?:that day|on that day|for that day|then|on it|today))?',
+    '(?:clear|empty|wipe)\\s+(?:out\\s+)?(?:it|that|this|the day|the shift|' + RB_DAYW + ')(?:\\s+roster)?'
+  ];
+  var RB_NOBODY = '(?:no ?one|nobody|noone)(?:\\s+(?:on|working|at all|rostered|is working|is on|that day|on that day|then))*';
+  var RB_EMPTY = new RegExp(RB_EMPTY_LEAD + RB_EMPTY_SAID.concat([RB_NOBODY]).join('|') + '))$');
+  // the same, without a bare "nobody" ("Anything else?" → "nobody" is no one else, not an empty day)
+  var RB_EMPTY_STRONG = new RegExp(RB_EMPTY_LEAD + RB_EMPTY_SAID.join('|') + '))$');
+  var RB_CHANGE = /^(?:(?:i want to |id like to |lets |let me |can we |we need to |i need to |i wanna )?(?:make )?(?:a |some |a few )?(?:change|changes|change it|change that|change something)|different|its different)$/;
+  var RB_GOOD_DAY = new RegExp('^' + RB_DAYW + '\\s+(?:is\\s+)?(?:good|fine|done|set|sorted|all good|perfect)\\b');
+  /* v3.11.19 (his log, 18 Oct: "can you remove the next roster entirely and will build it
+     again" was "I don't have Entirely on the staff list"): the whole week, read back first */
+  var RB_CLEAR_WEEK = /^(?:(?:can you|could you|would you|please|lets|just|so|ok|okay|i want to|i need to) )*(?:clear|remove|delete|wipe|scrap|empty|reset|erase)\s+(?:out\s+)?(?:(?:the|this|next|my|our|whole|entire|this weeks|next weeks)\s+)*(?:roster|week)(?:\s+roster)?(?:\s+(?:entirely|completely|altogether|fully|for (?:this|next) week))?(?:\s+(?:and|so)\b.*)?$/;
+  /* v3.11.19 (his log, 18 Oct: "let's build Friday's roster" in the middle of the roster) */
+  var RB_GO_DAY = new RegExp('^(?:(?:ok|okay|so|now|and|right) )*(?:lets |can we |can you |could you )?(?:build|do|make|start|go to|go back to|jump to|move on to|move to|skip to|work on)\\s+(?:(?:the|next weeks|this weeks)\\s+)?(' + RB_DAYW + ')(?:\\s+(?:roster|shifts?|next))?$');
   var RB_UNDO = /^(undo|undo that|undo it|scratch that|scrap that|take that back)$/;
   function rbData(){
     var d = roData();
@@ -2231,12 +2253,14 @@ function createRoom(host){
     return ans('ask', Object.assign({ say: say, ask: { id: pending.id, expect: (extra && extra.expect) || 'choice', options: (options || []).slice(0, 4) },
       log: (pre ? pre + ' | ' : '') + (log || 'rb ask ' + kind) }, ax));
   }
-  /* the session's question again, after an answer to something else */
+  /* the session's question again, after an answer to something else
+     (v3.11.19: its short form, when it has one) */
+  var RB_MODE_SHORT = 'Day by day, or copy last week?';
   function rbReask(s, lines, log, extra){
     if(s && s.asked && s.asked.kind){
       var a = s.asked, data = {};
       Object.keys(a).forEach(function(k){ if(k !== 'kind' && k !== 'q' && k !== 'options') data[k] = a[k]; });
-      return rbAsk(a.kind, lines, a.q, a.options, data, s, log, extra);
+      return rbAsk(a.kind, lines, a.short || a.q, a.options, data, s, log, extra);
     }
     return rbSay('answer', lines, log, extra ? extra.ans : null);
   }
@@ -2247,7 +2271,7 @@ function createRoom(host){
       if(w.code === 'afterClose') out.push(cap(n) + (you ? ' start' : ' starts') + ' at ' + rbTime(w.start) + ', after close.');
       else if(w.code === 'empty') out.push("Nobody's on " + DAY_FULL[w.day] + ' now.');
       else if(w.code === 'cover') out.push(cap(n) + (you ? " don't" : " doesn't") + ' usually work ' + DAY_FULL[w.day] + "s, so it's a cover.");
-      else if(w.code === 'gone') out.push(joinAnd(w.ids.map(function(id){ return (ref && ref.names[id]) || 'someone'; })) + (w.ids.length === 1 ? " isn't" : " aren't")
+      else if(w.code === 'gone') out.push(cap(joinAnd(w.ids.map(function(id){ return (ref && ref.names[id]) || 'someone'; }))) + (w.ids.length === 1 ? " isn't" : " aren't")   // v3.11.19: "Someone" at the start
         + ' on the staff list any more, so I left ' + (w.ids.length === 1 ? 'them' : 'them') + ' out.');
     });
     return out.join(' ');
@@ -2539,6 +2563,7 @@ function createRoom(host){
   function rbEdit(text, env, lead){
     var d = rbData();
     if(!d || !RE) return null;
+    text = rbSomeoneSaid(text, env, d);   // v3.11.19
     var s = env.session ? rbSession() : null;
     if(!rbEditable(d, env.mon)) return rbSay('cant', ["I can only change this week's and next week's roster."], 'rb week out');
     var plan = rbPlan(text, Object.assign({}, env, { d: d }));
@@ -2735,6 +2760,53 @@ function createRoom(host){
     s.days[day] = 'closed'; s.focus = day;
     return rbOnward(s, d, (lead || []).concat([DAY_FULL[day] + "'s closed, so nobody's on."]));
   }
+  /* v3.11.19 (his log, 18 Oct): "leave that empty": nobody on that day (not closed),
+     read back first when people are on it; then on, or back to the day being asked */
+  function rbEmpty(s, d, day){
+    d = rbData() || d;
+    var week = rbWeekOf(d, s.week), back = s.focus && s.focus !== day ? s.focus : null;
+    if(RE.dayList(week, day).length){
+      return confirming('roster', ['That clears ' + DAY_FULL[day] + ': ' + rbDaySay(d, week[day]) + '.'], 'Clear it?',
+        { plan: { mon: s.week, ops: [{ op: 'clear', day: day }], days: [day], did: [DAY_FULL[day] + ' cleared'], pre: [], emptied: day, back: back }, env: { mon: s.week, session: true } }, 'rb confirm clear ' + day);
+    }
+    return rbEmptied(s, d, day, back, DAY_FULL[day] + "'s empty: nobody's on.", null);
+  }
+  function rbEmptied(s, d, day, back, line, extra){
+    s.days[day] = 'done';
+    if(back && (s.days[back] === 'pending' || s.days[back] === 'skipped')) return rbReask(s, [line], 'rb emptied ' + day, extra ? { ans: extra } : null);
+    s.focus = day;
+    return rbOnward(s, d, [line], extra);
+  }
+  /* v3.11.19 (his log, 18 Oct: "can you remove the next roster entirely and will build it
+     again"): the whole week, read back, a yes; then built again from the start */
+  function rbClearWeek(c, d, sess){
+    var mon = /\bthis weeks?\b/.test(c) ? d.week : /\bnext weeks?\b/.test(c) ? rbNextMon(d) : sess ? sess.week : RE.buildWeekFor(tsToday());
+    if(!rbEditable(d, mon)) mon = rbNextMon(d);
+    var week = rbWeekOf(d, mon), days = RE.DAYS.filter(function(x){ return RE.dayList(week, x).length; }), wk = rbWeekWord(d, mon);
+    if(!days.length) return rbSay('answer', [wk + "'s roster is already empty."], 'rb clear week empty');
+    return confirming('roster', ['That clears ' + wk.toLowerCase() + "'s roster: everyone off " + daysSay(days) + '.'], 'Clear it?',
+      { plan: { mon: mon, ops: days.map(function(x){ return { op: 'clear', day: x }; }), days: days, did: [wk + "'s roster cleared"], pre: [], clearWeek: true }, env: { mon: mon, session: true } }, 'rb confirm clear week');
+  }
+  /* v3.11.19 (his log, 18 Oct: "replace someone with Morgan", "add Morgan instead of
+     someone"): "someone" is the one person on last week's day who has left the staff
+     (the read-out calls them that); their place is taken at their start time */
+  function rbSomeoneSaid(text, env, d){
+    var c = rbClean(text);
+    if(!/\bsomeone\b/.test(c) || !env || !d) return text;
+    var day = rbDayIn(c) || (env.fix && env.fix.day) || env.day;
+    var ref = day ? rbRefOf(d, env.mon) : null, R = ref && ref.roster[day];
+    if(!R) return text;
+    var known = {};
+    (d.staff || []).forEach(function(x){ known[x.id] = 1; });
+    var gone = Object.keys(R).filter(function(id){ return R[id] && R[id].start && !known[id]; });
+    if(gone.length !== 1) return text;
+    var t = R[gone[0]].start, hh = +t.slice(0, 2), mm = t.slice(3, 5);
+    var at = (hh % 12 || 12) + (mm && mm !== '00' ? ':' + mm : '') + (hh < 12 ? ' am' : ' pm');
+    var out = c.replace(/\b(?:replace|swap|sub|switch|substitute|change) someone (?:with|for|to) ([a-z]+)\b/, 'add $1 at ' + at)
+      .replace(/\b(?:add|put|get|have|bring) ([a-z]+) (?:on )?(?:instead of|in for|in place of|for) someone\b/, 'add $1 at ' + at)
+      .replace(/^([a-z]+) (?:in for|instead of|in place of) someone\b/, 'add $1 at ' + at);
+    return out === c ? text : out;
+  }
   function rbVerify(d0, mon){
     var d = rbData();   // read now: a copy from before the last change would write it away
     if(!d || !rbEditable(d, mon)) return false;
@@ -2774,6 +2846,7 @@ function createRoom(host){
     var range = rbDateSay(addDays(mon, 2)) + ' to ' + rbDateSay(addDays(mon, 6));
     var s = rbSession();
     if(s && s.week === mon && !s.finished && RE.DAYS.some(function(x){ return s.days[x] !== 'pending'; })){
+      if(rbDayIn(c)){ s.paused = false; return rbGoTo(s, d, rbDayIn(c), []); }   // v3.11.19: "… for Thursday"
       var at = RE.firstUnfinished(s), done = RE.DAYS.filter(function(x){ return s.days[x] === 'done'; });
       if(!at) return rbWeekDone(s, d, ["You've done every day of " + range + '.']);
       return rbAsk('rbResume', [], "You've started " + range + (done.length ? ', with ' + daysSay(done) + ' done' : '') + '. Carry on from ' + DAY_FULL[at] + ', or start again?',
@@ -2781,8 +2854,12 @@ function createRoom(host){
     }
     s = RE.newSession(mon, 'day', now());
     if(!rbRefOf(d, mon)) return rbPresent(s, d, 'wed', ['Sure, sir. ' + range + ". I don't have last week's roster, so let's go day by day."]);
-    return rbAsk('rbMode', [], 'Sure, sir. ' + range + '. Day by day, or copy last week and just tell me the changes?',
-      [{ label: 'Day by day', value: 'day' }, { label: 'Copy last week', value: 'copy' }], {}, s, 'rb start ' + mon);
+    // v3.11.19 (his log, 18 Oct: "let's make next week's roster for Thursday"): a day said goes straight to it
+    var dayAsk = rbDayIn(c);
+    if(dayAsk) return rbPresent(s, d, dayAsk, ['Sure, sir. ' + range + '.']);
+    // v3.11.19 (his log: "stop saying that on every command"): the dates once; asked again, the short question (RB_MODE_SHORT)
+    return rbAsk('rbMode', ['Sure, sir. ' + range + '.'], 'Day by day, or copy last week and just tell me the changes?',
+      [{ label: 'Day by day', value: 'day' }, { label: 'Copy last week', value: 'copy' }], { short: RB_MODE_SHORT }, s, 'rb start ' + mon);
   }
   function rbContinue(text, d){
     var s = rbSession();
@@ -2854,6 +2931,11 @@ function createRoom(host){
     var s = rbSession(), sess = s && !s.finished && rbEditable(d, s.week) ? s : null;
     var live = !!(sess && (p || rbLive(sess, d)));
     var asked = p || (live && !otherBefore && sess.asked) || null;
+    // v3.11.19 (his log, 18 Oct): the whole week, read back first; never a day or a person
+    if(c && choice == null && RB_CLEAR_WEEK.test(c) && /\brosters?\b/.test(c) && !rbDayIn(c) && !rbAboutRosterName(c, d) && !/\b(lists?|prep|orders?|timesheets?)\b/.test(c)) return rbClearWeek(c, d, sess);
+    // v3.11.19 (his log, 18 Oct: "let's build Friday's roster" in the middle of it): that day next
+    var goDay = live && c && choice == null ? RB_GO_DAY.exec(c) : null;
+    if(goDay && rbDayOf(goDay[1].replace(/s$/, '')) && RE.DAYS.indexOf(rbDayOf(goDay[1].replace(/s$/, ''))) > -1) return rbGoTo(sess, d, rbDayOf(goDay[1].replace(/s$/, '')), []);
     /* talk, not a command (his note to Claude, 11 Oct, was 40 words): in the
        middle of the roster it's ignored, as orders ignore chatter, and the
        roster's question stays open */
@@ -2882,12 +2964,20 @@ function createRoom(host){
            read as "put me on Wednesday"; a polite start is still a question */
         var cq = c.replace(/^((so|and|ok|okay|now|um|uh) )*((can|could|would|will) you |please )*/, '');
         if(/^(who|whos|what|whats|how|when|is|was|did|does|do|are|were|which|tell me|read|give me)\b/.test(cq) && (rosterIntent(cq, roNames(d)) || /\bread\b/.test(cq))) return rbRead(text, sess, d);
+        // v3.11.19 (his log, 18 Oct: "check Saturday's roster", twice, was not understood)
+        if(/^(check|look at|go over|show me)\b/.test(cq) && rbDayIn(cq) && /\b(rosters?|shifts?|whos on|who is on|working)\b/.test(cq)) return rbRead(cq.replace(/^(check|look at|go over|show me)\b/, 'who is on'), sess, d);
         // v3.10.1 (owner): "more details" / "which section?" says the day being built, with stations
         if(RO_DETAIL.test(cq) && !rbDayIn(cq) && sess.focus){
           var fd = rbWeekOf(d, sess.week)[sess.focus] || {};
           var fdEmpty = !Object.keys(fd).some(function(id){ return fd[id] && fd[id].start; });   // still empty: what was read out was last week's
           return rbRead((fdEmpty ? 'last ' : '') + DAY_FULL[sess.focus] + ' roster in detail', sess, d);
         }
+      }
+      /* v3.11.19 (his log, 18 Oct: "how many hours am I doing that week" right after the
+         week was done was counted on this week): a roster question then is about the week built */
+      if(choice == null && asked && asked.kind === 'rbEnd' && c && !/\b(read|show|screen|open|publish)\b/.test(c)){
+        var cq2 = c.replace(/^((so|and|ok|okay|now|um|uh) )*((can|could|would|will) you |please )*/, '');
+        if(/^(who|whos|what|whats|how|when|is|was|did|does|do|are|were|which|tell me|give me|check)\b/.test(cq2) && (rosterIntent(cq2, roNames(d)) || /\bhours?\b/.test(cq2))) return rbRead(text, sess, d);
       }
     }
     if(asked){ var a = await rbAnswer(asked, req, sess, d); if(a) return a; }
@@ -2952,7 +3042,7 @@ function createRoom(host){
         var s2 = RE.newSession(s.week, 'day', now());
         if(!rbRefOf(d, s.week)) return rbPresent(s2, d, 'wed', ["Starting again from Wednesday. The roster keeps what's on it."]);
         return rbAsk('rbMode', ["Starting again. The roster keeps what's on it."], 'Day by day, or copy last week and just tell me the changes?',
-          [{ label: 'Day by day', value: 'day' }, { label: 'Copy last week', value: 'copy' }], {}, s2, 'rb start again');
+          [{ label: 'Day by day', value: 'day' }, { label: 'Copy last week', value: 'copy' }], { short: RB_MODE_SHORT }, s2, 'rb start again');
       }
       return null;
     }
@@ -2961,6 +3051,11 @@ function createRoom(host){
       if(em === 'read'){ rbFinish(s); var rd = rbWeekRead(s, d, [], 'rb read week'); rd.say.push('To send it to the staff, tap Publish on Build Roster.'); return rd; }
       if(em === 'show'){ rbFinish(s); rbOpen(s, d); return rbSay('answer', ["It's on screen. Tap Publish when you're ready to send it to the staff."], 'rb show'); }
       if(em === 'no'){ rbFinish(s); return rbSay('answer', ["No worries. It's saved. Tap Publish on Build Roster when you want to send it."], 'rb end'); }
+      // v3.11.19 (his log, 18 Oct: "can we change next week's roster" was asked "read it out, or show it?" three times)
+      if(choice == null && /\b(change|changes|fix|edit|redo|tweak|alter|swap)\b/.test(c) && !rbAboutRosterName(c, d)){
+        s.focus = null;
+        return rbAsk('rbChanges', [], 'Sure. What should change?', [{ label: "Nothing, that's it", value: 'no' }], {}, s, 'rb end change', { expect: 'any' });
+      }
       return null;
     }
     if(p.kind === 'rbPick'){
@@ -3061,6 +3156,8 @@ function createRoom(host){
       s.focus = sd;
       return rbOnward(s, d, lead);
     }
+    // v3.11.19 (his log, 18 Oct: "no one working", "leave that empty", "clear Wednesday"): nobody on that day
+    if(choice == null && p.kind !== 'rbWho' && (p.kind === 'rbDay' || p.kind === 'rbChange' ? RB_EMPTY : RB_EMPTY_STRONG).test(c) && (dIn || day || s.focus)) return rbEmpty(s, d, dIn || day || s.focus);
     if(p.kind === 'rbDay' || p.kind === 'rbChange'){
       // "same as Wednesday": that day of this week
       var fromDay = /\bsame as\b/.test(c) && dIn && dIn !== day ? dIn : null;
@@ -3073,7 +3170,8 @@ function createRoom(host){
       if(ed) return ed;
       if(same || (yes && p.base === 'ref')) return rbSame(s, d, day);
       if(keep || yes) return rbDayDone(s, d, day);
-      if(no || /^(changes|some changes|a few changes|not quite)\b/.test(c)){
+      // v3.11.19 (his log, 18 Oct): "change" (one) to "Keep that, or same as last week?" was not understood
+      if(no || /^(changes|some changes|a few changes|not quite)\b/.test(c) || RB_CHANGE.test(c)){
         if(p.kind === 'rbChange') return rbDayDone(s, d, day);
         return rbAsk('rbChange', [], "What's different on " + DAY_FULL[day] + '?', [{ label: 'Nothing', value: 'keep' }], { day: day, base: p.base }, s, 'rb what changes', { expect: 'any' });
       }
@@ -3085,11 +3183,22 @@ function createRoom(host){
       return c ? rbEdit(text, Object.assign(plainEnv('draft'), { addBare: true })) : null;
     }
     if(p.kind === 'rbElse' || p.kind === 'rbChanges'){
+      /* v3.11.19 (his log, 18 Oct: "that's good", "Thursday's good next Friday" to "Anything
+         else for Thursday?"): the day's fine as it is; a later day said goes there next */
+      var good = choice == null && (RB_KEEP.test(c) || RB_GOOD_DAY.test(c)) && !rbAboutRoster(c, d);
+      if(good || ((no || (choice == null && RB_NEXT.test(c))) && p.kind === 'rbElse')){
+        var said = c.split(' ').map(rbDayOf).filter(function(x){ return x && RE.DAYS.indexOf(x) > -1 && x !== day; });
+        if(said.length && day && p.kind === 'rbElse'){ s.days[day] = 'done'; return rbGoTo(s, d, said[said.length - 1], [DAY_FULL[day] + "'s set."]); }
+      }
+      if(good && p.kind === 'rbElse' && day) return rbDayDone(s, d, day);
       if(no || (choice == null && RB_NEXT.test(c))){
         if(p.kind === 'rbChanges' || !day) return rbOnwardOrDone(s, d);
         return rbDayDone(s, d, day);
       }
       if(yes) return rbAsk(p.kind, [], 'What else?', p.kind === 'rbElse' ? [{ label: 'No, next day', value: 'no' }] : [{ label: "No, that's it", value: 'no' }], { day: day }, s, 'rb what else', { expect: 'any' });
+      // v3.11.19: a day on its own ("Thursday", to "What should change?") is that day
+      var only = choice == null ? /^(?:(?:on|for|the|um|uh|so|ok|okay)\s+)*([a-z]+)(?:\s+(?:please|then))?$/.exec(c) : null, oday = only && rbDayOf(only[1]);
+      if(oday && RE.DAYS.indexOf(oday) > -1 && oday !== day) return rbGoTo(s, d, oday, []);
       return c ? rbEdit(text, plainEnv('draft')) : null;
     }
     if(p.kind === 'rbBack'){
@@ -3105,6 +3214,11 @@ function createRoom(host){
     var find = rbFinder(d), named = rbClean(text).split(' ').some(function(w){ var m = find(w); return m && m.sure && !RB_WORDS[w]; });
     if(named || /\b(me|myself)\b/.test(rbClean(text))) return false;
     try{ return parse(text, catalogue(host.data(), taught())).items.some(function(it){ return it.exact && it.exact.length; }); }catch(e){ return false; }
+  }
+  /* v3.11.19: names someone on the staff for sure */
+  function rbAboutRosterName(c, d){
+    var find = rbFinder(d);
+    return c.split(' ').some(function(w){ var m = find(w); return m && m.sure && !RB_WORDS[w]; });
   }
   /* names someone on the staff for sure, or says the roster's own words */
   function rbAboutRoster(c, d){
@@ -3143,15 +3257,23 @@ function createRoom(host){
     if(!d || !RE) return cant("I can't reach the roster.", 'rb none');
     var s = c.env && c.env.session ? rbSession() : null;
     if(s && (s.finished || s.week !== c.plan.mon)) s = null;
-    if(c.plan.copyAll || c.plan.closed){
+    if(c.plan.copyAll || c.plan.closed || c.plan.emptied || c.plan.clearWeek){
       var r = RE.commit(rbWeekOf(d, c.plan.mon), { op: 'batch', ops: c.plan.ops }, rbCtx(d), rbSaver(c.plan.mon));
       var log = 'rb ' + c.plan.mon + ' ' + c.plan.ops.map(rbOpLog).join('; ');
       if(!r.ok) return rbRefused(r, c.plan, s, [], log);
       var lab = 'Roster: ' + (c.plan.copyAll ? 'copied last week' : c.plan.did.join('; '));
       var aid = r.undo ? remember(lab, [{ k: 'ro', mon: c.plan.mon, rec: r.undo }]) : null;
       var extra = aid ? { action: { id: aid, label: lab, undo: true }, logPre: log + ' saved' } : { logPre: log + ' saved' };
+      // v3.11.19: the whole week cleared, then built again from the start (his "and will build it again")
+      if(c.plan.clearWeek){
+        var wk = rbWeekWord(d, c.plan.mon), s3 = RE.newSession(c.plan.mon, 'day', now()), d3 = rbData();
+        if(!rbRefOf(d3, c.plan.mon)) return rbPresent(s3, d3, 'wed', ['Cleared. ' + wk + "'s roster is empty. Let's go day by day."], extra);
+        return rbAsk('rbMode', ['Cleared. ' + wk + "'s roster is empty."], 'Day by day, or copy last week and just tell me the changes?',
+          [{ label: 'Day by day', value: 'day' }, { label: 'Copy last week', value: 'copy' }], { short: RB_MODE_SHORT }, s3, 'rb cleared week', { ans: extra });
+      }
       if(!s) return rbSay('done', [cap(c.plan.did.join('. ')) + '.'], 'rb confirmed', extra);
       if(c.plan.copyAll) return rbCopied(s, rbData(), ["Done: it's last week's roster now."], extra);
+      if(c.plan.emptied) return rbEmptied(s, rbData(), c.plan.emptied, c.plan.back, DAY_FULL[c.plan.emptied] + "'s cleared: nobody's on.", extra);
       s.days[c.plan.closed] = 'closed'; s.focus = c.plan.closed;
       return rbOnward(s, rbData(), [DAY_FULL[c.plan.closed] + "'s cleared and closed."], extra);
     }
@@ -4470,6 +4592,26 @@ function createRoom(host){
   }
 
   /* ---------- the owner answering this room's question ---------- */
+  /* v3.11.19: every name word said is one of the asked item's ("add as potato",
+     "add roast potatoes" to "Roast potato isn't a prep item yet…") */
+  function sameItemWords(items, it){
+    function stems(ws){ return contentSet(toks((ws || []).join(' ')).filter(function(t){ return !STOP[t.r] && !REFS[t.r]; }).map(function(t){ return t.s; })); }
+    var asked = stems(it && it.words), said = [];
+    (items || []).forEach(function(x){ said = said.concat(stems(x.words)); });
+    return !!(asked.length && said.length && said.every(function(w){ return asked.indexOf(w) > -1 || asked.some(function(x){ return wordLike(w, x) >= 0.8; }); }));
+  }
+  /* v3.11.19: the one-off question once more, short; an unclear answer again leaves it */
+  function oneoffAgain(p){
+    if(p.again){ pending = null; return ans('answer', { say: ['Left it. Nothing changed.'], log: 'ask oneoff unclear again' }); }
+    var vals = (p.options || []).map(function(o){ return o.value; }), np = vals.indexOf('newprep') > -1;
+    var q = vals.indexOf('order') > -1 ? 'Sorry, the prep list for today' + (np ? ', a new prep item,' : ',') + ' or order it?'
+      : np ? 'Sorry, today only, or a new prep item?' : 'Sorry, add it as a one-off?';
+    var data = { again: true };
+    Object.keys(p).forEach(function(k){ if(['id', 'kind', 'options', 'say', 'again'].indexOf(k) < 0) data[k] = p[k]; });
+    var a = asking('oneoff', q, p.options, data);
+    a.log = 'ask oneoff unclear';
+    return a;
+  }
   function matchOption(text, options){
     var c = clean(text);
     if(!c || !options || !options.length) return null;
@@ -4608,9 +4750,18 @@ function createRoom(host){
       // "no, add chopped parsley": no to this one, and that one instead ("can you check mushroom off …" too)
       var nt = clean(text).replace(/^(?:no|nope|nah|not that|yes|yeah)\b[ ,]*/, '');
       var nc = parse(nt, (await fresh()).cat);
-      if(nc.verb && nc.verbWords && nc.items.some(function(x){ return x.words.length; })){ pending = null; return run(nc, req, mode); }
       // and an answer that points at the prep list ("not the order, the prep list") is "Prep list, today"
-      if(/\bprep\b/.test(clean(text)) && !/\b(?:not|dont|do not)\s+(?:on\s+|to\s+)?(?:the\s+)?prep\b/.test(clean(text))) choice = 'yes';
+      var toPrep = /\bprep\b/.test(clean(text)) && !/\b(?:not|dont|do not)\s+(?:on\s+|to\s+)?(?:the\s+)?prep\b/.test(clean(text));
+      if(nc.verb && nc.verbWords && nc.items.some(function(x){ return x.words.length; })){
+        /* v3.11.19 (his log, 18 Oct): "add roast potato to the prep list" →
+           "… today only, or as a new prep item?" → "add as potato" added 1 kilo
+           of Royal Blue Potatoes to the Michael's Fresh order. An add naming
+           only words of the item being asked about is an answer, not a new
+           request: one that isn't clear is asked once more, never acted on */
+        if(!sameItemWords(nc.items, cmd.items[p.item])){ pending = null; return run(nc, req, mode); }
+        if(!toPrep) return oneoffAgain(p);
+      }
+      if(toPrep) choice = 'yes';
     }
     /* v3.9.13: "Did you mean Pure Cream?" answered by saying "second cream"
        again isn't a pick: nothing new was said, so it never learns from it */
@@ -4962,7 +5113,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.18',
+  version: 'v3.11.19',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
