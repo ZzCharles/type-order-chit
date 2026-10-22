@@ -366,6 +366,7 @@ a.btn-block{display:block;}
 .fn-main{flex:1;min-width:0;}
 .fn-name{font-size:15.5px;font-weight:700;}
 .fn-sub{font-size:11.5px;color:var(--muted);margin-top:2px;}
+.fn-none{padding:12px 2px;color:var(--muted);font-size:12px;letter-spacing:0.3px;}
 .fn-item{display:flex;gap:11px;align-items:baseline;padding:10px 0;border-bottom:1px solid #F5F3EA;}
 .fn-item:last-child{border-bottom:none;}
 .fn-qty{flex:0 0 auto;min-width:34px;font-size:15px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--stamp);}
@@ -666,7 +667,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.22';
+const APP_VERSION = 'v3.11.23';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -1423,10 +1424,27 @@ async function pushTiers(){
 }
 
 function findFunction(id){ return state.functions.find(f => f.id === id); }
-function upcomingFunctions(days){
-  const from = serviceDateKey(), to = addDaysKey(days);
-  return state.functions.filter(f => f.date >= from && f.date <= to)
-    .sort((a,b)=> a.date < b.date ? -1 : a.date > b.date ? 1 : 0);
+/* v3.11.23 (his ask, 23 Oct: "see the next 4 weeks' worth of functions"): the next 4 weeks, week by
+   week (Monday to Sunday; this week from today), then anything booked further out as "later"
+   (before, a booking more than a month out wasn't shown anywhere). */
+const FN_WEEKS = 4;
+function functionWeeks(){
+  const today = serviceDateKey(), mon = weekStartKey();
+  const upcoming = state.functions.filter(f => f && f.date >= today)
+    .sort((a,b)=> a.date < b.date ? -1 : a.date > b.date ? 1 : String(a.startTime||'').localeCompare(String(b.startTime||'')));
+  const weeks = [];
+  for(let k = 0; k < FN_WEEKS; k++){
+    const from = shiftDateKey(mon, 7*k), to = shiftDateKey(mon, 7*k + 6);
+    weeks.push({ k, from, to, list: upcoming.filter(f => f.date >= from && f.date <= to) });
+  }
+  const end = shiftDateKey(mon, 7*FN_WEEKS - 1);
+  return { weeks, later: upcoming.filter(f => f.date > end) };
+}
+/* "19 – 25 Oct", "26 Oct – 1 Nov" */
+function fnRangeLabel(from, to){
+  const M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const a = new Date(from + 'T12:00:00'), b = new Date(to + 'T12:00:00');
+  return a.getMonth() === b.getMonth() ? a.getDate()+' – '+b.getDate()+' '+M[b.getMonth()] : a.getDate()+' '+M[a.getMonth()]+' – '+b.getDate()+' '+M[b.getMonth()];
 }
 
 function findRecipe(id){ return state.recipes.find(r => r.id === id); }
@@ -3013,9 +3031,9 @@ function attachMoveHandlers(){
 }
 
 function fnHint(){
-  const n = upcomingFunctions(31).length;
   if(!state.fnLoaded) return 'Upcoming bookings';
-  return n ? n+' in the next month' : 'Nothing booked';
+  const n = functionWeeks().weeks.reduce((s, w) => s + w.list.length, 0);
+  return n ? n+' in the next 4 weeks' : 'Nothing in the next 4 weeks';
 }
 
 function accessHint(){
@@ -3188,15 +3206,8 @@ function renderAccess(){
 
 /* ===== Function screens (chef) ===== */
 
-function renderFunctions(){
-  const list = upcomingFunctions(31);
-  let body;
-  if(!state.fnLoaded && list.length === 0){
-    body = `<div class="empty">Loading…</div>`;
-  } else if(list.length === 0){
-    body = `<div class="empty">Nothing booked in the next month.</div>`;
-  } else {
-    body = list.map(f => `
+function fnRowHTML(f){
+  return `
       <div class="fn-row" data-open-fn="${escapeHtml(f.id)}">
         <div class="fn-date">
           <div class="fn-dow">${escapeHtml(fnDateLabel(f.date).split(' ')[0])}</div>
@@ -3207,13 +3218,28 @@ function renderFunctions(){
           <div class="fn-sub">${f.pax} pax${f.tier?' &middot; '+escapeHtml(tierLabel(f.tier)):''}${f.startTime?' &middot; '+escapeHtml(f.startTime):''}</div>
         </div>
         <div class="chev">&rsaquo;</div>
-      </div>`).join('');
+      </div>`;
+}
+
+function renderFunctions(){
+  const w = functionWeeks();
+  let body;
+  if(!state.fnLoaded && !w.weeks.some(x => x.list.length) && !w.later.length){
+    body = `<div class="card tight"><div class="empty">Loading…</div></div>`;
+  } else {
+    // v3.11.23: week by week, an empty week said quietly, then "Later"
+    body = w.weeks.map(x => `
+    <div class="section-label">${escapeHtml((x.k === 0 ? 'This week · ' : x.k === 1 ? 'Next week · ' : '') + fnRangeLabel(x.from, x.to))}</div>
+    <div class="card tight" data-fn-week="${x.k}">${x.list.length ? x.list.map(fnRowHTML).join('') : '<div class="fn-none">Nothing booked</div>'}</div>`).join('')
+      + (w.later.length ? `
+    <div class="section-label">Later</div>
+    <div class="card tight" data-fn-week="later">${w.later.map(fnRowHTML).join('')}</div>` : '');
   }
   return `
     <div class="crumb"><button data-goto="home">&larr; Home</button> / Functions</div>
     <h2 class="screen-title">Functions</h2>
-    <p class="screen-sub">Next month. Staff see the next two weeks.</p>
-    <div class="card tight">${body}</div>
+    <p class="screen-sub">The next 4 weeks. Staff see the next two weeks.</p>
+    ${body}
     <div class="add-row"><button class="btn" data-goto="fnEdit" data-fid="new">+ New Function</button></div>
     <div class="sync-line"><button data-goto="fnTiers">Menu tiers</button></div>
   `;
@@ -5887,10 +5913,10 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.22"></script>
+<script src="move-data.js?v=3.11.23"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.22"></script>
-<script src="voice-brain.js?v=3.11.22"></script>
-<script src="voice.js?v=3.11.22"></script>
+<script src="roster-engine.js?v=3.11.23"></script>
+<script src="voice-brain.js?v=3.11.23"></script>
+<script src="voice.js?v=3.11.23"></script>
 </body>
 </html>

@@ -281,6 +281,7 @@ var host = {
     else if(v.view === 'timesheet') goto({ name: 'timesheet' });
     else if(v.view === 'recipe' && v.rid) goto({ name: 'recipe', rid: v.rid });   // v3.11.6
     else if(v.view === 'recipes') goto({ name: 'recipes' });
+    else if(v.view === 'functions') goto({ name: 'functions' });   // v3.11.23: Pluto's Functions screen, "Open The Pass"
     else if(v.view === 'rosterBuild'){ rosterWeek = v.week === 'next' ? 'next' : 'this'; rosterShowAll = false; goto({ name: 'rosterBuild' }); }   // v3.10.0
   },
   get: readJSON,
@@ -362,12 +363,32 @@ function roomMyShifts(){
   return { v: 1, status: 'answer', say: [], keep: false, data: { me: true, weeks: weeks },
     log: 'my shifts: ' + weeks[0].shifts.length + ' this week, ' + weeks[1].shifts.length + ' next' + (weeks[1].published ? '' : ' (not published)') };
 }
+/* v3.11.23 (his ask, 23 Oct: "see the next 4 weeks' worth of functions on the app, and each
+   function in the calendar"): a request { want: "functions" } is answered with data, never words:
+   the functions from today on, with only what Pluto's home shows (date, name, head count, start
+   time, menu tier, dietary), from the shared server or the copy kept on this phone (marked stale,
+   with its time). Read only; not in the heard log (no sentence); the log line holds a count only. */
+async function roomFunctions(){
+  var got = null;
+  try{ got = await host.functions(); }catch(e){ got = null; }
+  if(!got || !got.ok){
+    var why = (got && got.why) || 'failed';
+    return { v: 1, status: 'answer', say: [], keep: false, log: 'functions: ' + why, data: { ok: false, why: why } };
+  }
+  var today = serviceDateKey();
+  var list = (got.functions || []).filter(function(f){ return f && /^\d{4}-\d{2}-\d{2}$/.test(f.date || '') && f.date >= today; })
+    .sort(function(a, b){ return a.date < b.date ? -1 : a.date > b.date ? 1 : String(a.startTime || '').localeCompare(String(b.startTime || '')); })
+    .map(function(f){ return { id: f.id, date: f.date, name: f.name || '', pax: +f.pax || 0, startTime: f.startTime || '', tier: f.tierLabel || '', dietary: (f.dietary || []).slice() }; });
+  return { v: 1, status: 'answer', say: [], keep: false, log: 'functions: ' + list.length + (got.stale ? ' (the kept copy)' : ''),
+    data: { ok: true, at: got.at || 0, stale: !!got.stale, functions: list } };
+}
 var ROOM_CALLS = {
   hello: function(){ return room.hello(); },
   menu: function(){ return room.menu(); },
   handle: async function(r){
     r = r || {};
     if(r.want === 'my-shifts') return roomHeld() || roomMyShifts();    // v3.11.18
+    if(r.want === 'functions') return roomHeld() || await roomFunctions();   // v3.11.23
     var a = roomHeld() || await room.handle(Object.assign({}, r, { mode: 'pluto' }));
     if(r.text) logIt({ at: Date.now(), heard: String(r.text), alts: (r.alts || []).map(String), via: 'pluto' }, a || {});
     return a;
