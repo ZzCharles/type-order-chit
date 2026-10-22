@@ -138,6 +138,71 @@ var host = {
     saveData(); bgRender(); voiceMenuNews();
     return true;
   },
+  /* v3.11.22 (his ask, 23 Oct): the functions, for Pluto's questions. Asked afresh from the shared
+     server (2.5 s at most), else the copy kept on this phone at the last good read, which the
+     brain says is from then. -> { ok, at, functions, stale } | { ok: false, why } */
+  functions: async function(){
+    var why = 'failed';
+    if(typeof getChefKey === 'function' && !getChefKey()) why = 'key';
+    else try{
+      var ctl = typeof AbortController === 'function' ? new AbortController() : null;
+      var timer = setTimeout(function(){ if(ctl) ctl.abort(); }, 2500);
+      var opt = { cache: 'no-store', headers: chefHeaders(), signal: ctl ? ctl.signal : undefined };
+      var r = await Promise.all([fetch(API + '/api/functions', opt), fetch(API + '/api/tiers', opt).catch(function(){ return null; })]);
+      clearTimeout(timer);
+      if(r[0].ok){
+        var fd = await r[0].json(), td = {};
+        if(r[1] && r[1].ok){ try{ td = await r[1].json(); }catch(e){} }
+        var tiers = Array.isArray(td.tiers) && td.tiers.length ? td.tiers : (state.tiers && state.tiers.length ? state.tiers : TIER_SEED);
+        var out = { ok: true, at: Date.now(), functions: functionsForVoice(Array.isArray(fd.functions) ? fd.functions : [], tiers) };
+        try{ localStorage.setItem(FN_KEPT_KEY, JSON.stringify({ at: out.at, functions: out.functions })); }catch(e){}
+        return out;
+      }
+      why = r[0].status === 401 ? 'key' : 'server';
+    }catch(e){ why = 'offline'; }
+    var k = readJSON(FN_KEPT_KEY);
+    return k && Array.isArray(k.functions) ? { ok: true, stale: true, at: k.at || 0, functions: k.functions, why: why } : { ok: false, why: why };
+  },
+  /* v3.11.22 (his ask, 23 Oct): one dish of one function made a set total by voice, after his yes
+     (or put back by undo: only if it's still what that change made it). The functions are read
+     afresh from the shared server first, so nothing this phone hasn't seen is written over; the
+     whole list then goes back as the Functions screen saves it. Never from a starter or backup
+     copy, or while a function is open for editing on the screen.
+     -> { ok: true, before, after, pax } | { ok: false, why: 'copy'|'editing'|'key'|'server'|'gone'|'changed' } */
+  setFunctionItem: async function(fid, itemId, rule, expect){
+    if(typeof copyRole === 'function' && copyRole()) return { ok: false, why: 'copy' };
+    // a function's form open in this same copy would save over the change (Pluto's hidden room is another copy: it can't see the tab's screen)
+    if(state.view && (state.view.name === 'fnEdit' || state.view.name === 'fnTiers')) return { ok: false, why: 'editing' };
+    if(typeof getChefKey === 'function' && !getChefKey()) return { ok: false, why: 'key' };
+    var norm = function(i){ return i && (i.kind === 'set' || i.kind === 'fixed' || i.kind === 'text') ? { kind: 'set', qty: Math.max(0, +i.qty || 0) } : { kind: 'head', per: Math.max(1, +(i && i.per) || DEFAULT_PER) }; };
+    var list = null, why = 'server';
+    try{
+      var ctl = typeof AbortController === 'function' ? new AbortController() : null;
+      var timer = setTimeout(function(){ if(ctl) ctl.abort(); }, 4000);
+      var r = await fetch(API + '/api/functions', { cache: 'no-store', headers: chefHeaders(), signal: ctl ? ctl.signal : undefined });
+      clearTimeout(timer);
+      if(r.ok){ var d = await r.json(); list = Array.isArray(d.functions) ? d.functions : null; }
+      else why = r.status === 401 ? 'key' : 'server';
+    }catch(e){ why = 'server'; }
+    if(!list) return { ok: false, why: why };
+    var f = list.find(function(x){ return x && x.id === fid; }), item = null;
+    ((f && f.courses) || []).forEach(function(c){ (c.items || []).forEach(function(i){ if(i && i.id === itemId) item = i; }); });
+    if(!item) return { ok: false, why: 'gone' };
+    var before = norm(item), want = norm(rule);
+    if(expect && JSON.stringify(before) !== JSON.stringify(norm(expect))) return { ok: false, why: 'changed', before: before };
+    if(want.kind === 'set'){ item.kind = 'set'; item.qty = want.qty; delete item.per; }
+    else { item.kind = 'head'; item.per = want.per; delete item.qty; }
+    delete item.perPax;
+    try{
+      var res = await fetch(API + '/api/functions', { method: 'POST', headers: chefHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ functions: list }) });
+      if(!res.ok) return { ok: false, why: res.status === 401 ? 'key' : 'server' };
+    }catch(e){ return { ok: false, why: 'server' }; }
+    state.functions = list;
+    if(typeof normaliseFunctions === 'function') normaliseFunctions();
+    if(typeof keepFunctionsCopy === 'function') keepFunctionsCopy();
+    bgRender();
+    return { ok: true, before: before, after: want, pax: +f.pax || 0 };
+  },
   /* v3.9.6: his timesheet, and this week's rostered start times, read fresh
      from storage first (another copy of The Pass may have changed them) */
   timesheet: function(){

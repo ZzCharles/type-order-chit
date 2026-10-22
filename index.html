@@ -666,7 +666,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.21';
+const APP_VERSION = 'v3.11.22';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -1366,12 +1366,32 @@ async function fetchFunctions(){
     state.fnLoaded = true;
     normaliseFunctions();
     pruneFunctions();
+    if(fr.ok) keepFunctionsCopy();   // v3.11.22
     // never redraw over a form being filled in, or typing is lost
     const editing = state.view.name === 'fnEdit' || state.view.name === 'fnTiers';
     if(state.view.name && state.view.name.indexOf('fn') === 0) bgRender();
   }catch(e){
     if(!state.tiers.length) state.tiers = TIER_SEED.slice();
   }
+}
+
+/* v3.11.22 (his ask, 23 Oct: Pluto answers "any functions this week", time, day, tier, allergies):
+   the functions as the voice reads them, and a copy kept on this phone at each good read, so a
+   question asked without signal is still answered (said as "This is from 9:30 am"). Only what the
+   answers need: no other details. */
+const FN_KEPT_KEY = 'the-pass-functions-kept';
+function functionsForVoice(list, tiers){
+  const label = id => { const t = (tiers || []).find(x => x.id === id); return t ? (t.label || t.name || String(id)) : String(id); };   // never "no tier" for a tier set
+  return (list || []).filter(f => f && f.date).map(f => ({ id: f.id, date: f.date, name: f.name || '', pax: +f.pax || 0, startTime: f.startTime || '',
+    tier: f.tier || '', tierLabel: f.tier ? label(f.tier) : '', dietary: (f.dietary || []).map(String).filter(x => x.trim()), notes: f.notes || '',
+    // the dishes, for "how many plates of polenta" (each as the screen reads it: a set amount, or one per so many people)
+    courses: (f.courses || []).map(c => ({ name: c.name || '', items: (c.items || []).filter(i => i && i.label).map(i => {
+      const set = i.kind === 'set' || i.kind === 'fixed' || i.kind === 'text';
+      return set ? { id: i.id, label: i.label, kind: 'set', qty: Math.max(0, Number(i.qty) || 0) } : { id: i.id, label: i.label, kind: 'head', per: Math.max(1, Number(i.per) || DEFAULT_PER) };
+    }) })) }));
+}
+function keepFunctionsCopy(){
+  try{ localStorage.setItem(FN_KEPT_KEY, JSON.stringify({ at: Date.now(), functions: functionsForVoice(state.functions, state.tiers) })); }catch(e){}
 }
 
 /* Anything before the current service day is gone for good, as agreed. */
@@ -5867,10 +5887,10 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.21"></script>
+<script src="move-data.js?v=3.11.22"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.21"></script>
-<script src="voice-brain.js?v=3.11.21"></script>
-<script src="voice.js?v=3.11.21"></script>
+<script src="roster-engine.js?v=3.11.22"></script>
+<script src="voice-brain.js?v=3.11.22"></script>
+<script src="voice.js?v=3.11.22"></script>
 </body>
 </html>
