@@ -522,6 +522,14 @@ a.btn-block{display:block;}
 .rweek-btn{display:flex;flex-direction:column;align-items:center;gap:2px;padding:9px 6px;font-weight:700;letter-spacing:0.5px;}
 .rweek-range{font-size:10px;font-weight:500;letter-spacing:0;text-transform:none;opacity:.75;}
 .rday-week{font-size:10.5px;font-weight:700;letter-spacing:1px;color:var(--muted);margin-left:4px;}
+/* v3.11.21: "Send the roster as" picture or text (his pick: one button, then pick) */
+.share-sheet{position:fixed;inset:0;z-index:60;display:flex;flex-direction:column;justify-content:flex-end;}
+.ss-back{position:absolute;inset:0;background:rgba(0,0,0,0.35);}
+.ss-card{position:relative;background:var(--paper);border-radius:18px 18px 0 0;padding:18px 16px calc(16px + env(safe-area-inset-bottom));box-shadow:0 -6px 24px rgba(0,0,0,0.18);}
+.ss-title{font-weight:700;font-size:15px;margin:2px 4px 12px;}
+.ss-card .btn{display:block;margin-bottom:10px;}
+.ss-sub{display:block;font-size:11px;font-weight:500;letter-spacing:0.3px;text-transform:none;opacity:0.75;margin-top:3px;}
+.ss-cancel{display:block;width:100%;background:none;border:0;padding:10px;font:inherit;font-size:13px;color:var(--muted);cursor:pointer;}
 .rstaff-cover{border-style:dashed;border-color:var(--mustard);}
 
 /* ===== v3.8.1: laptops see the real time box while typing into it ===== */
@@ -658,7 +666,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.20';
+const APP_VERSION = 'v3.11.21';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -2443,6 +2451,194 @@ function shareText(text, areaId){
     showToast('Select & copy manually');
   });
   return 'copy';
+}
+/* v3.11.21 (his ask, 22 Oct: "be able to send as text or as image", ClockR's style "but a bit more
+   polished", small icons per section; his picks: the "C · Night" style of Pluto's
+   design/publish-mockup.html, today's text kept, one button then pick). The picture is drawn here on
+   a canvas, 1080 px wide (three times the mock-up), no internet needed, and shared as a PNG: in the
+   app through PlutoRoomHost.shareImage (Pluto app 1.24+), in Chrome through navigator.share with a
+   file. Where neither can take a picture, the button shares the text as before (no question asked). */
+function canSharePicture(){
+  if(ROOM) return false;                                    // the room never shares
+  try{ if(window.PlutoRoomHost) return typeof window.PlutoRoomHost.shareImage === 'function'; }catch(e){ return false; }   // in the Pluto app: only its own share sheet
+  try{ return !!(navigator.canShare && navigator.canShare({ files: [new File([new Uint8Array(8)], 'x.png', { type: 'image/png' })] })); }catch(e){ return false; }
+}
+function sharePicture(canvas, name, text, areaId){
+  try{
+    if(!ROOM && window.PlutoRoomHost && typeof window.PlutoRoomHost.shareImage === 'function'){
+      window.PlutoRoomHost.shareImage(canvas.toDataURL('image/png').split(',')[1], name);
+      return 'app';
+    }
+  }catch(e){}
+  canvas.toBlob(b=>{
+    if(!b){ shareText(text, areaId); return; }
+    navigator.share({ files: [new File([b], name + '.png', { type: 'image/png' })] }).catch(err=>{
+      if(!err || err.name !== 'AbortError') showToast('Couldn\u2019t share the picture');
+    });
+  }, 'image/png');
+  return 'share';
+}
+/* "Send the roster as": Picture (with the dates it shows) or Text. o: { what, range, picture(), text() } */
+function chooseShare(o){
+  if(!canSharePicture()){ o.text(); return 'text'; }
+  closeShareSheet();
+  const el = document.createElement('div');
+  el.className = 'share-sheet'; el.id = 'share-sheet';
+  el.innerHTML = '<div class="ss-back" data-ss="cancel"></div><div class="ss-card" role="dialog" aria-label="Send ' + escapeHtml(o.what) + ' as">'
+    + '<div class="ss-title">Send ' + escapeHtml(o.what) + ' as</div>'
+    + '<button class="btn btn-block" data-ss="picture">Picture<span class="ss-sub">' + escapeHtml(o.range) + '</span></button>'
+    + '<button class="btn btn-ghost btn-block" data-ss="text">Text</button>'
+    + '<button class="ss-cancel" data-ss="cancel">Cancel</button></div>';
+  el.addEventListener('click', ev=>{
+    const b = ev.target.closest('[data-ss]');
+    if(!b) return;
+    const a = b.dataset.ss;
+    closeShareSheet();
+    if(a === 'picture') o.picture(); else if(a === 'text') o.text();
+  });
+  (document.getElementById('app') || document.body).appendChild(el);   // a redraw of the screen takes it away
+  return 'asked';
+}
+function closeShareSheet(){ const s = document.getElementById('share-sheet'); if(s) s.remove(); }
+
+/* the dates, said short: "Wed 21 – Sun 25 Oct", "Wed 28 Oct – Sun 1 Nov", "Thu 22 Oct" */
+const PIC_DOW = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'], PIC_MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function picDate(key){ const d = new Date(key + 'T12:00:00'); return { dow: PIC_DOW[d.getDay()], day: d.getDate(), mon: PIC_MON[d.getMonth()] }; }
+function picDay(key){ const d = picDate(key); return d.dow + ' ' + d.day + ' ' + d.mon; }
+function picRange(a, b){ const x = picDate(a), y = picDate(b); return x.dow + ' ' + x.day + (x.mon !== y.mon ? ' ' + x.mon : '') + ' \u2013 ' + y.dow + ' ' + y.day + ' ' + y.mon; }
+/* the roster's Wednesday to Sunday: this week's or next week's */
+function rosterPicDates(which){ const mon = shiftDateKey(weekStartKey(), which === 'next' ? 7 : 0); return ROSTER_DAY_KEYS.map((k, i)=> shiftDateKey(mon, i + 2)); }
+/* The timesheet isn't tied to a week; its picture says the Wednesday to Sunday being worked, or just
+   worked (on a Monday or Tuesday: last week's). Shown on the "Send as" sheet before anything is sent. */
+function timesheetPicDates(){
+  const t = serviceDateKey(), back = (new Date(t + 'T12:00:00').getDay() - 3 + 7) % 7, wed = shiftDateKey(t, -back);
+  return ROSTER_DAY_KEYS.map((k, i)=> shiftDateKey(wed, i));
+}
+function fmtHM(hhmm){ const p = String(hhmm).split(':'), h = +p[0], m = +p[1]; return ((h % 12) || 12) + ':' + String(m).padStart(2, '0') + ' ' + (h < 12 ? 'am' : 'pm'); }
+
+/* the drawing: "C · Night" */
+const PIC = { W: 1080, pad: 46, font: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
+  ink: '#eaf0fb', soft: 'rgba(234,240,251,0.75)', muted: 'rgba(214,226,248,0.6)', day: '#9ccfff', time: '#d5e2f7',
+  card: 'rgba(18,28,58,0.72)', cardLine: 'rgba(150,180,235,0.16)', rowLine: 'rgba(150,180,235,0.10)', head: 'rgba(124,192,255,0.10)', headLine: 'rgba(124,192,255,0.28)' };
+function picCircle(cx, cy, r){ return 'M' + (cx - r) + ' ' + cy + 'a' + r + ' ' + r + ' 0 1 0 ' + (2 * r) + ' 0a' + r + ' ' + r + ' 0 1 0 ' + (-2 * r) + ' 0'; }
+/* the sections' small icons (24-unit line drawings) and colours */
+const PIC_ICON = {
+  Oven: ['#e0603a', 'M3 19h18M5 19v-6a7 7 0 0 1 14 0v6M9.5 19v-2.6a2.5 2.5 0 0 1 5 0V19M12 3.5c1 1 1 2.2 0 3.2'],
+  Dough: ['#b98a3e', 'M3 21l2.4-2.4M18.6 5.4L21 3M5.3 15.9l10.6-10.6a2 2 0 0 1 2.8 2.8L8.1 18.7a2 2 0 0 1-2.8-2.8z'],
+  Pasta: ['#d9a21b', 'M3 12h18a9 8 0 0 1-18 0zM8 12c0-3 1.6-5.6 4-8.5M12 12c0-2.6 1.2-5 3.2-7.2M16 12c0-1.9.7-3.5 2.2-5'],
+  Toppings: ['#d6453d', picCircle(12, 12, 8.5) + picCircle(9, 9.5, 1.6) + picCircle(14.8, 9.2, 1.3) + picCircle(12.6, 14.6, 1.7)],
+  Finisher: ['#2f9467', 'M12 21.5L3.6 7.2a15 15 0 0 1 16.8 0zM5.3 10a12.5 12.5 0 0 1 13.4 0' + picCircle(11, 13.5, 1) + picCircle(13.6, 16.6, 0.9)],
+  KH: ['#3d8bd1', 'M4 13.5h16v3.2a3.3 3.3 0 0 1-3.3 3.3H7.3A3.3 3.3 0 0 1 4 16.7z' + picCircle(9, 8, 2.1) + picCircle(14.6, 6.2, 1.4) + picCircle(15.2, 10.4, 1)]
+};
+const PIC_OTHER = ['#8fa3c4', picCircle(12, 12, 3)];
+function picHex(c, a){ const n = parseInt(c.slice(1), 16); return 'rgba(' + (n >> 16) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')'; }
+function picBox(ctx, x, y, w, h, r, fill, line){
+  ctx.beginPath();
+  if(ctx.roundRect) ctx.roundRect(x, y, w, h, r);
+  else { ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath(); }
+  ctx.fillStyle = fill; ctx.fill();
+  if(line){ ctx.lineWidth = 3; ctx.strokeStyle = line; ctx.stroke(); }
+}
+function picFit(ctx, s, max){ s = String(s); if(ctx.measureText(s).width <= max) return s; while(s.length > 1 && ctx.measureText(s + '\u2026').width > max) s = s.slice(0, -1); return s + '\u2026'; }
+function picText(ctx, s, x, y, size, weight, color, align, max){
+  ctx.font = weight + ' ' + size + 'px ' + PIC.font; ctx.fillStyle = color; ctx.textAlign = align || 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.fillText(max ? picFit(ctx, s, max) : s, x, y);
+}
+function picStart(h){
+  const c = document.createElement('canvas'); c.width = PIC.W; c.height = Math.ceil(h);
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#070c1d'; ctx.fillRect(0, 0, c.width, c.height);
+  const g = ctx.createRadialGradient(PIC.W / 2, 0, 0, PIC.W / 2, 0, Math.min(PIC.W * 1.2, c.height * 0.6 + 400));
+  g.addColorStop(0, '#14234d'); g.addColorStop(1, 'rgba(7,12,29,0)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, c.width, c.height);
+  return { c, ctx };
+}
+function picHead(ctx, y, title, sub){
+  const x = PIC.pad, w = PIC.W - 2 * PIC.pad;
+  picBox(ctx, x, y, w, 231, 42, PIC.head, PIC.headLine);
+  picText(ctx, title, x + 48, y + 106, 75, 700, PIC.ink, 'left', w - 96);
+  picText(ctx, sub, x + 48, y + 173, 39, 400, PIC.soft, 'left', w - 96);
+  return y + 231 + 30;
+}
+const PIC_ROW = 121, PIC_DAYTOP = 79, PIC_DAYEND = 24;
+function picIcon(ctx, cx, cy, station){
+  const ic = PIC_ICON[station] || PIC_OTHER;
+  ctx.save();
+  ctx.shadowColor = ic[0]; ctx.shadowBlur = 27;
+  ctx.beginPath(); ctx.arc(cx, cy, 36, 0, Math.PI * 2); ctx.fillStyle = picHex(ic[0], 0.22); ctx.fill();
+  ctx.shadowBlur = 9;
+  ctx.translate(cx - 22.5, cy - 22.5); ctx.scale(45 / 24, 45 / 24);
+  ctx.lineWidth = 1.9; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = ic[0];
+  ctx.stroke(new Path2D(ic[1]));
+  ctx.restore();
+}
+function drawRosterPicture(which){
+  const roster = rosterFor(which), dates = rosterPicDates(which);
+  const days = ROSTER_DAY_KEYS.map((k, i)=>{
+    const entries = roster[k] || {};
+    const rows = state.staff.filter(st=> entries[st.id] && entries[st.id].start).sort((a, b)=>{
+      const ra = stationRank(entries[a.id].station), rb = stationRank(entries[b.id].station);
+      if(ra !== rb) return ra - rb;
+      return (entries[a.id].start || '').localeCompare(entries[b.id].start || '');
+    }).map(st=>{ const e = entries[st.id]; return { name: st.name, station: e.station || '', time: e.end ? fmtTime(e.start, true) + ' \u2013 ' + fmtTime(e.end, true) : fmtTime(e.start, true) }; });
+    return { label: ROSTER_DAY_FULL[k] + ' ' + picDate(dates[i]).day, rows: rows };
+  });
+  const h = 48 + 261 + days.reduce((a, d)=> a + PIC_DAYTOP + Math.max(1, d.rows.length) * PIC_ROW + PIC_DAYEND + 27, 0) + 70;
+  const { c, ctx } = picStart(h);
+  let y = picHead(ctx, 48, 'Almo', 'Roster \u00b7 ' + picRange(dates[0], dates[4]));
+  const x = PIC.pad, w = PIC.W - 2 * PIC.pad;
+  days.forEach(d=>{
+    const ch = PIC_DAYTOP + Math.max(1, d.rows.length) * PIC_ROW + PIC_DAYEND;
+    picBox(ctx, x, y, w, ch, 33, PIC.card, PIC.cardLine);
+    picText(ctx, d.label, x + 36, y + 62, 36, 700, PIC.day);
+    let ry = y + PIC_DAYTOP;
+    if(!d.rows.length) picText(ctx, 'No shifts', x + 36, ry + 72, 39, 400, PIC.muted);
+    d.rows.forEach((r, i)=>{
+      if(i){ ctx.fillStyle = PIC.rowLine; ctx.fillRect(x + 36, ry, w - 72, 3); }
+      picIcon(ctx, x + 72, ry + 60, r.station);
+      ctx.font = '400 39px ' + PIC.font;
+      const tw = ctx.measureText(r.time).width, nameMax = w - 72 - 99 - tw - 40;
+      if(r.station){ picText(ctx, r.name, x + 135, ry + 55, 42, 600, PIC.ink, 'left', nameMax); picText(ctx, r.station, x + 135, ry + 97, 31, 400, PIC.muted, 'left', nameMax); }
+      else picText(ctx, r.name, x + 135, ry + 74, 42, 600, PIC.ink, 'left', nameMax);
+      picText(ctx, r.time, x + w - 36, ry + 74, 39, 400, PIC.time, 'right');
+      ry += PIC_ROW;
+    });
+    y += ch + 27;
+  });
+  picText(ctx, 'Published ' + picDay(serviceDateKey()) + ' \u00b7 The Pass', x + 6, y + 28, 30, 400, PIC.muted);
+  return c;
+}
+function drawTimesheetPicture(){
+  const rid = rabindraId(), me = state.staff.find(s=> s.id === rid), name = me ? me.name : 'Rabindra', dates = timesheetPicDates();
+  let total = 0;
+  const rows = [];
+  ROSTER_DAY_KEYS.forEach((k, i)=>{
+    const e = effectiveTs(k);
+    if(!e.start) return;
+    const hrs = e.end ? hoursBetween(e.start, e.end) : null;
+    if(hrs != null) total += hrs;
+    rows.push({ day: picDate(dates[i]).dow + ' ' + picDate(dates[i]).day, span: e.end ? fmtHM(e.start) + ' \u2013 ' + fmtHM(e.end) : fmtHM(e.start), hours: hrs != null ? fmtNum(hrs) + ' h' : '\u2014' });
+  });
+  const RH = 99, ch = 33 + Math.max(1, rows.length) * RH + 21;
+  const h = 48 + 261 + ch + 18 + 156 + 70;
+  const { c, ctx } = picStart(h);
+  let y = picHead(ctx, 48, name, 'Timesheet \u00b7 ' + picRange(dates[0], dates[4]));
+  const x = PIC.pad, w = PIC.W - 2 * PIC.pad;
+  picBox(ctx, x, y, w, ch, 33, PIC.card, PIC.cardLine);
+  let ry = y + 33;
+  rows.forEach((r, i)=>{
+    if(i){ ctx.fillStyle = PIC.rowLine; ctx.fillRect(x + 36, ry, w - 72, 3); }
+    picText(ctx, r.day, x + 36, ry + 64, 42, 700, PIC.day);
+    picText(ctx, r.span, x + 222, ry + 64, 42, 400, PIC.ink);
+    picText(ctx, r.hours, x + w - 36, ry + 64, 42, 600, PIC.ink, 'right');
+    ry += RH;
+  });
+  y += ch + 18;
+  picBox(ctx, x, y, w, 156, 33, PIC.head, PIC.headLine);
+  picText(ctx, 'Total', x + 36, y + 94, 42, 400, PIC.soft);
+  picText(ctx, fmtNum(total) + ' h', x + w - 36, y + 102, 66, 700, PIC.ink, 'right');
+  picText(ctx, 'Sent ' + picDay(serviceDateKey()) + ' \u00b7 The Pass', x + 6, y + 156 + 46, 30, 400, PIC.muted);
+  return c;
 }
 function showToast(msg){
   const t = document.getElementById('toast');
@@ -4541,8 +4737,11 @@ function attachHandlers(){
   if(rpub) rpub.addEventListener('click', ()=>{
     const text = buildRosterText(rosterWeek);
     if(!text){ showToast('Roster is empty'); return; }
-    markRosterPublished(rosterWeek);   // v3.11.18: Pluto counts a week he has published
-    shareText(text, 'roster-copy-area');
+    const which = rosterWeek, dates = rosterPicDates(which);
+    /* v3.11.21: a picture or the text (his pick: one button, then pick); either marks the week (v3.11.18: Pluto counts a week he has published) */
+    chooseShare({ what: 'the roster', range: picRange(dates[0], dates[4]),
+      text: ()=>{ markRosterPublished(which); shareText(text, 'roster-copy-area'); },
+      picture: ()=>{ markRosterPublished(which); sharePicture(drawRosterPicture(which), 'roster', text, 'roster-copy-area'); } });
   });
   const rcopy = document.getElementById('roster-copy');
   if(rcopy) rcopy.addEventListener('click', ()=>{
@@ -4582,7 +4781,10 @@ function attachHandlers(){
   if(tsSubmit) tsSubmit.addEventListener('click', ()=>{
     const text = buildTimesheetText();
     if(!text){ showToast('Timesheet is empty'); return; }
-    shareText(text, 'ts-copy-area');
+    const dates = timesheetPicDates();
+    chooseShare({ what: 'the timesheet', range: picRange(dates[0], dates[4]),
+      text: ()=> shareText(text, 'ts-copy-area'),
+      picture: ()=> sharePicture(drawTimesheetPicture(), 'timesheet', text, 'ts-copy-area') });
   });
   const tsCopy = document.getElementById('ts-copy');
   if(tsCopy) tsCopy.addEventListener('click', ()=>{
@@ -5665,10 +5867,10 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.20"></script>
+<script src="move-data.js?v=3.11.21"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.20"></script>
-<script src="voice-brain.js?v=3.11.20"></script>
-<script src="voice.js?v=3.11.20"></script>
+<script src="roster-engine.js?v=3.11.21"></script>
+<script src="voice-brain.js?v=3.11.21"></script>
+<script src="voice.js?v=3.11.21"></script>
 </body>
 </html>
