@@ -658,7 +658,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.19';
+const APP_VERSION = 'v3.11.20';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -2425,6 +2425,25 @@ function sentTimeLabel(at){
   }catch(e){ return ''; }
 }
 
+/* v3.11.20 (his report, 22 Oct: "the publish button is not working for roster
+   and timesheet"): inside the Pluto app the page has no share sheet
+   (navigator.share is missing in Android's web view: checked on his phone,
+   WebView 155), so Publish and Submit Timesheet did nothing useful there. The
+   app (1.23+) offers PlutoRoomHost.share in The Pass's tab, which opens
+   Android's own share sheet; Chrome keeps navigator.share; with neither, the
+   text is copied (or shown to copy by hand), as before. */
+function shareText(text, areaId){
+  try{
+    if(!ROOM && window.PlutoRoomHost && typeof window.PlutoRoomHost.share === 'function'){ window.PlutoRoomHost.share(text); return 'app'; }
+  }catch(e){}
+  if(navigator.share){ navigator.share({text}).catch(()=>{}); return 'share'; }
+  (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(()=>showToast('Copied - share sheet not available')).catch(()=>{
+    const area = document.getElementById(areaId);
+    if(area){ area.style.display='block'; area.value=text; area.select(); }
+    showToast('Select & copy manually');
+  });
+  return 'copy';
+}
 function showToast(msg){
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -4523,14 +4542,7 @@ function attachHandlers(){
     const text = buildRosterText(rosterWeek);
     if(!text){ showToast('Roster is empty'); return; }
     markRosterPublished(rosterWeek);   // v3.11.18: Pluto counts a week he has published
-    if(navigator.share){ navigator.share({text}).catch(()=>{}); }
-    else {
-      navigator.clipboard.writeText(text).then(()=>showToast('Copied - share sheet not available')).catch(()=>{
-        const area = document.getElementById('roster-copy-area');
-        if(area){ area.style.display='block'; area.value=text; area.select(); }
-        showToast('Select & copy manually');
-      });
-    }
+    shareText(text, 'roster-copy-area');
   });
   const rcopy = document.getElementById('roster-copy');
   if(rcopy) rcopy.addEventListener('click', ()=>{
@@ -4570,14 +4582,7 @@ function attachHandlers(){
   if(tsSubmit) tsSubmit.addEventListener('click', ()=>{
     const text = buildTimesheetText();
     if(!text){ showToast('Timesheet is empty'); return; }
-    if(navigator.share){ navigator.share({text}).catch(()=>{}); }
-    else {
-      navigator.clipboard.writeText(text).then(()=>showToast('Copied - share sheet not available')).catch(()=>{
-        const area = document.getElementById('ts-copy-area');
-        if(area){ area.style.display='block'; area.value=text; area.select(); }
-        showToast('Select & copy manually');
-      });
-    }
+    shareText(text, 'ts-copy-area');
   });
   const tsCopy = document.getElementById('ts-copy');
   if(tsCopy) tsCopy.addEventListener('click', ()=>{
@@ -5660,10 +5665,10 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.19"></script>
+<script src="move-data.js?v=3.11.20"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.19"></script>
-<script src="voice-brain.js?v=3.11.19"></script>
-<script src="voice.js?v=3.11.19"></script>
+<script src="roster-engine.js?v=3.11.20"></script>
+<script src="voice-brain.js?v=3.11.20"></script>
+<script src="voice.js?v=3.11.20"></script>
 </body>
 </html>
