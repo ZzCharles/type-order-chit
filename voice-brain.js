@@ -3347,7 +3347,7 @@ function createRoom(host){
       verbs: ['add', 'chuck in', 'we need', 'put', 'get', 'order', 'remove', 'take off', 'scrap', 'drop', 'change', 'make it', 'read', 'whats on', 'send', 'tick off', 'clear'],
       examples: ['add salad dressing to the prep list', 'chuck in 2 kilos of mozzarella', 'whats on the aziz order', 'take the speck off', 'pizza sauce is done', 'send the aziz order', 'add todays timesheet'] };
   }
-  function reset(){ ctx = null; pending = null; tsLast = null; dict = null; lastDone = null; lastUndone = null; goAhead = null; fnLast = null; fnPortion = null; }
+  function reset(){ ctx = null; pending = null; tsLast = null; dict = null; lastDone = null; lastUndone = null; goAhead = null; fnLast = null; fnPortion = null; fnFocus = null; }
 
   /* ---------- reading ---------- */
   /* v3.11.1 (owner, 13 Oct): the prep list says five on the first go; "is
@@ -4032,6 +4032,11 @@ function createRoom(host){
         if(!fu || !fu.ok){ skipped.push(o.label); continue; }
         said.push(o.label + ' is back to ' + fnRuleSay(o.before, o.pax) + '.');
       }
+      else if(o.k === 'fnDetail'){   // v3.11.24: only if it's still what the change made it
+        var fd = host.setFunctionDetail ? await host.setFunctionDetail(o.fid, o.field, o.before, o.after) : null;
+        if(!fd || !fd.ok){ skipped.push(cap(o.whose) + (o.field === 'pax' ? '’s head count' : o.field === 'mezze' ? '’s mezze boards' : '’s dietary')); continue; }
+        said.push(fnDetailBack(o));
+      }
       else if(o.k === 'newprep'){   // v3.11.13
         if(host.removePrepItem && host.removePrepItem(o.id)) said.push('Took ' + o.name + ' back off the prep items.'); else skipped.push(o.name);
       }
@@ -4653,6 +4658,7 @@ function createRoom(host){
     var choice = req.reply && req.reply.choice != null ? String(req.reply.choice) : null;
     var text = String(req.text || '');
     var cmd = p.cmd;
+    if(p.kind === 'fnMezzeHow') return await fnMezzeReply(p, req);   // v3.11.24
     if(/^new(?:sec|prod|supp|unit)$/.test(p.kind)) return await newItemAnswer(p, req, mode);   // v3.11.13
     if(/^dict/.test(p.kind)) return await dictAnswer(p, req, mode);   // v3.11.0
     if(/^ts/.test(p.kind)) return await tsAnswer(p, req, mode);   // v3.9.6
@@ -4828,6 +4834,7 @@ function createRoom(host){
   var FN_SAY_MAX = 4, fnLast = null, FN_FOLLOW_MS = 2 * 60 * 1000;
   function fnKind(c){
     if(FN_PLATES.test(c)) return 'portion';
+    if(FN_MEZZE_W.test(c)) return 'mezze';   // v3.11.24
     if(/\b(allerg\w*|dietar\w*|diets?|gluten|gf|vegan|vegans|vegetarians?|coeliac|celiac|nuts?|intoleran\w*)\b/.test(c)) return 'diet';
     if(/\b(tiers?|packages?|menus?)\b/.test(c)) return 'tier';
     if(/\bhow many\b|\b(pax|guests|heads|head count|headcount|covers|people)\b/.test(c)) return 'pax';
@@ -4901,6 +4908,9 @@ function createRoom(host){
     if(kind === 'day') return Whose + ' is ' + fnOn(f.date, today, true) + (f.startTime ? ', from ' + f.startTime : '') + '.';
     if(kind === 'tier') return f.tierLabel ? Whose + ' ' + on + ' is on the ' + f.tierLabel + ' menu.' : Whose + ' ' + on + ' has no menu tier yet.';
     if(kind === 'pax') return +f.pax ? Whose + ' ' + on + ' is for ' + f.pax + ' people.' : Whose + ' ' + on + ' has no head count yet.';
+    // v3.11.24: a copy kept by v3.11.23 or before doesn't hold the mezze boards: said, never "none"
+    if(kind === 'mezze') return f.mezze == null ? 'I can’t tell the mezze boards for ' + whose + ' ' + on + ' from the copy kept on this phone.'
+      : +f.mezze ? Whose + ' ' + on + ' has ' + fnMezzeWord(+f.mezze) + '.' : Whose + ' ' + on + ' has no mezze boards.';
     if(kind === 'diet'){
       var dl = (f.dietary || []).map(function(x){ return String(x).trim(); }).filter(Boolean);
       return dl.length ? 'Dietary for ' + whose + ' ' + on + ': ' + dl.join(', ') + '.' : 'No dietary needs are written for ' + whose + ' ' + on + '.';
@@ -4909,6 +4919,7 @@ function createRoom(host){
     var s = Whose + ', ' + fnOn(f.date, today, true) + (fnDetails(f) ? ': ' + fnDetails(f) : '') + '.';
     var dl2 = (f.dietary || []).map(function(x){ return String(x).trim(); }).filter(Boolean);
     if(dl2.length) s += ' Dietary: ' + dl2.join(', ') + '.';
+    if(+f.mezze > 0) s += ' Mezze: ' + (+f.mezze === 1 ? '1 board' : f.mezze + ' boards') + '.';   // v3.11.24
     if(String(f.notes || '').trim()) s += ' Notes: ' + String(f.notes).trim().replace(/[.\s]+$/, '') + '.';
     return s;
   }
@@ -4968,7 +4979,8 @@ function createRoom(host){
   }
   var FN_WHY = { server: 'I couldn\u2019t reach the functions, so nothing changed.', offline: 'I couldn\u2019t reach the functions, so nothing changed.',
     key: 'I can\u2019t change the functions: The Pass needs its chef key.', copy: 'This copy of The Pass can\u2019t change functions.',
-    editing: 'A function is open for editing on the screen. Save or close it first, then ask me again.', gone: 'That function or dish has changed since. Ask me again.' };
+    editing: 'A function is open for editing on the screen. Save or close it first, then ask me again.', gone: 'That function or dish has changed since. Ask me again.',
+    changed: 'That function changed since I read it to you, so I left it. Ask me again.' };   // v3.11.24: changed on another phone in between
   /* "make it 7 plates": the dish named (on the function named, or the one just talked about), as a set total, read back */
   async function fnChange(text){
     var c = clean(text), n = fnNumIn(c), today = tsToday();
@@ -4995,11 +5007,307 @@ function createRoom(host){
     askBack.confirm.corrections = true;   // "maybe make it 8 then" comes back here (Pluto page v0.11.1, contract §6.4)
     return askBack;
   }
+
+  /* ---------- v3.11.24 (his ask, 23 Oct): a function's head count, dietary and mezze boards changed
+     by voice, the plates' way: read back, a plain yes, undoable. His picks (tiles, 23 Oct):
+       head count: a short question that says how many dishes' plates change; the new plates after the yes
+       dietary: "add 2 gluten free" adds them on ("That makes 4 GF."); "make it 4 gluten free" sets it
+       mezze: no number said, it asks how many ---------- */
+  var FN_PAX_W = /\b(people|pax|guests?|heads|head count|headcount|covers|persons)\b/;
+  var FN_HEAD_W = /\b(pax|heads|head count|headcount|covers)\b/;      // the head count's own words (not "2 people with a nut allergy")
+  var FN_MEZZE_W = /\b(mezze|mezzes|meze|mezza|mezzas|mezzo|mezzos|messy boards?)\b/;
+  var FN_DIET_W = /\b(dietary|dietaries|diets?|allerg\w*|intoleran\w*|requirements)\b/;
+  var FN_ASK_START = /^(how|what|whats|when|whens|which|who|whos|is|are|was|were|do|does|did|any|anything|have|has|tell|give|read|check|show|list)\b/;
+  var FN_DETAIL_VERB = /\b(add|plus|put|include|another|extra|more|also|remove|take|drop|scrap|delete|cancel|clear|rid|without|no|none|minus|less|make|change|set|update|bump|up|down|now|actually|maybe|instead|should|lets|go with|about)\b/;
+  var FN_FIX_START = /^(?:(?:no|ok|okay|oh|yeah|so|sorry|um|uh)\s+)*(make it|make that|make the|change it|change that|set it|actually|maybe|instead|how about|what about|lets make it|lets do|up it|bump it|its now|now its|it should be|should be)\b/;
+  var FN_ROSTER_W = /\b(roster|rostered|shifts?|staff|working)\b/;
+  var FN_LIST_W = /\b(order|orders|prep|list|supplier|aziz|kilos?|kg|box|boxes|packets?|bags?|bases?|trays?|tubs?)\b/;
+  var FN_REMOVE = /\b(remove|take (?:off|away|out)|takeoff|drop|scrap|delete|get rid|no more|minus|less|without|clear|cancel)\b|\btake\b(?=.*\b(?:off|away|out)\b)|^(?:no|none)\b|\bno (?=\w)/;
+  var FN_ADD = /\b(add|plus|put|include|another|extra|more|also)\b/;
+  var FN_SET = /\b(make|change|set|should be|instead|update|bump|up to|down to|actually|maybe|go with|how about|what about)\b/;
+  var FN_NEEDS = [
+    { id: 'gluten', re: /^(gluten|gf|coeliacs?|celiacs?)$/ }, { id: 'dairy', re: /^(dairy|lactose|df)$/ }, { id: 'vegan', re: /^vegans?$/ },
+    { id: 'vegetarian', re: /^(vegetarians?|veggies?|vegos?)$/ }, { id: 'pescatarian', re: /^pesc[ae]tarians?$/ }, { id: 'nut', re: /^(nuts?|peanuts?)$/ },
+    { id: 'seafood', re: /^(seafood|shellfish|fish|prawns?|crustaceans?)$/ }, { id: 'egg', re: /^eggs?$/ }, { id: 'sesame', re: /^sesame$/ },
+    { id: 'soy', re: /^(soy|soya)$/ }, { id: 'halal', re: /^halal$/ }, { id: 'kosher', re: /^kosher$/ }, { id: 'pork', re: /^pork$/ }, { id: 'fodmap', re: /^fodmaps?$/ }];
+  var FN_NEED_TAIL = /^(free|allergy|allergies|allergic|intolerance|intolerances|intolerant|diet|option|options|meal|meals)$/;
+  var FN_NEED_SKIP = { a: 1, an: 1, the: 1, no: 1, any: 1, with: 1, food: 1, severe: 1, mild: 1, and: 1, or: 1, one: 1, has: 1, have: 1 };
+  var fnFocus = null;   // the detail last talked about (2 minutes): { at, fid, what: 'pax'|'mezze'|'diet', op, need }
+  function fnFocusNow(){ return fnFocus && now() - fnFocus.at <= FN_FOLLOW_MS ? fnFocus : null; }
+  function fnUpper(w){ return w === 'gf' || w === 'df' ? w.toUpperCase() : w; }
+  /* the dietary needs a sentence names, in order: { id, at (its word), display ("gluten free", "nut allergy") } */
+  function fnNeedsIn(c){
+    var t = c.split(' '), out = [], seen = {};
+    for(var i = 0; i < t.length; i++){
+      var id = null;
+      for(var k = 0; k < FN_NEEDS.length; k++) if(FN_NEEDS[k].re.test(t[i])){ id = FN_NEEDS[k].id; break; }
+      // "a mushroom allergy", "onion intolerance": a need by its own word
+      if(!id && t[i + 1] && /^(allergy|allergies|allergic|intolerance|intolerant)$/.test(t[i + 1]) && t[i].length >= 3 && !FN_NEED_SKIP[t[i]] && !/^\d/.test(t[i])) id = 'w:' + t[i].replace(/s$/, '');
+      if(!id || seen[id]) continue;
+      seen[id] = 1;
+      var end = i + 1;
+      if(t[end] && FN_NEED_TAIL.test(t[end])) end++;
+      out.push({ id: id, at: i, display: t.slice(i, end).map(fnUpper).join(' ') });
+    }
+    return out;
+  }
+  /* a need's words, to find it in a dietary line ("2 GF" is gluten) */
+  function fnNeedOf(id){
+    if(id.indexOf('w:') === 0) return new RegExp('\\b' + id.slice(2) + 's?\\b');
+    var n = FN_NEEDS.filter(function(x){ return x.id === id; })[0];
+    return n ? new RegExp('\\b' + n.re.source.replace(/^\^/, '').replace(/\$$/, '') + '\\b') : /$^/;
+  }
+  /* whole numbers said, with the word each starts at (never a date's "24 th", never "half") */
+  function fnNums(c){
+    var t = toks(c), out = [], i = 0;
+    while(i < t.length){
+      var q = readNumber(t, i);
+      if(q && !q.vague && q.n != null && Math.floor(q.n) === q.n && !(t[q.end] && /^(st|nd|rd|th)$/.test(t[q.end].r))){ out.push({ n: q.n, at: i, end: q.end }); i = q.end; }
+      else i = q && q.end > i ? q.end : i + 1;
+    }
+    return out;
+  }
+  /* the number for a need: one said up to 3 words before it (not past "and" or another need), else "a", "an", "another" → 1 */
+  function fnNeedNum(c, need, needs){
+    var t = c.split(' '), nums = fnNums(c), stop = -1;
+    for(var j = need.at - 1; j >= Math.max(0, need.at - 4); j--){ if(t[j] === 'and' || needs.some(function(x){ return x !== need && x.at === j; })){ stop = j; break; } }
+    var near = nums.filter(function(x){ return x.end <= need.at && x.at > stop && need.at - x.end <= 3; });
+    if(near.length) return near[near.length - 1].n;
+    for(var k = need.at - 1; k >= Math.max(stop + 1, need.at - 2); k--) if(/^(a|an|another|one)$/.test(t[k])) return 1;
+    return null;
+  }
+  /* which details a sentence is about: 'mezze', 'diet', 'pax' (two at once is refused) */
+  function fnWhatIn(c){
+    var w = [], needs = fnNeedsIn(c);
+    if(FN_MEZZE_W.test(c)) w.push('mezze');
+    if(needs.length || FN_DIET_W.test(c)) w.push('diet');
+    if(!w.length) return FN_PAX_W.test(c) ? ['pax'] : [];
+    // with another detail, the head count only by its own words, or "70 people" that isn't a need's number
+    // ("2 people with a nut allergy" is the dietary's; "make it 70 people and add 2 vegans" is two changes)
+    var t = c.split(' '), nums = fnNums(c), used = {};
+    needs.forEach(function(nd){ var n = fnNeedNum(c, nd, needs); nums.forEach(function(x){ if(x.n === n && x.end <= nd.at && nd.at - x.end <= 3) used[x.at] = 1; }); });
+    var people = nums.some(function(x){ return !used[x.at] && t[x.end] && /^(people|guests?|persons)$/.test(t[x.end]); });
+    if(FN_HEAD_W.test(c) || people) w.push('pax');
+    return w;
+  }
+  /* a change to a function's head count, dietary or mezze? Questions stay questions. Without the word
+     "function", only right after a function was talked about, and never a roster's or a list's sentence. */
+  function fnDetailRoute(c){
+    if(FN_PLATES.test(c)) return false;
+    var what = fnWhatIn(c), fw = FN_WORD.test(c), focus = fnFocusNow(), last = fnRecent();
+    var asks = FN_ASK_START.test(c) && !/^(how|what) about\b/.test(c);
+    if(what.length){
+      if(asks || !FN_DETAIL_VERB.test(c)) return false;
+      if(fw) return true;
+      if(FN_ROSTER_W.test(c) || FN_LIST_W.test(c)) return false;
+      if(what.indexOf('diet') > -1) return !!(focus && focus.what === 'diet');
+      if(what.indexOf('mezze') > -1) return !!(focus || last);
+      return !!((focus || last) && (FN_FIX_START.test(c) || (focus && focus.what === 'pax')));
+    }
+    // "actually make it 80", "maybe 3 then": a number for the detail just talked about (newer than a dish's plates),
+    // and nothing else ("make it 3 kilos of mozz" stays the order's)
+    if(!focus || asks || (fnPortion && fnPortion.at > focus.at && now() - fnPortion.at <= FN_FOLLOW_MS)) return false;
+    var nums = fnNums(c), t = c.split(' '), inNum = {};
+    nums.forEach(function(x){ for(var i = x.at; i < x.end; i++) inNum[i] = 1; });
+    return nums.length > 0 && (FN_FIX_START.test(c) || FN_SET.test(c)) && t.every(function(w, i){ return inNum[i] || FN_FIX_FILL[w]; });
+  }
+  var FN_FIX_FILL = { make: 1, it: 1, that: 1, the: 1, change: 1, set: 1, to: 1, actually: 1, maybe: 1, instead: 1, how: 1, what: 1, about: 1, lets: 1, let: 1, us: 1,
+    do: 1, go: 1, with: 1, then: 1, please: 1, in: 1, all: 1, total: 1, ok: 1, okay: 1, oh: 1, yeah: 1, so: 1, sorry: 1, um: 1, uh: 1, no: 1, should: 1, be: 1, its: 1,
+    now: 1, up: 1, bump: 1, just: 1, rather: 1, hmm: 1 };
+  /* the function a change is for: named, or on the day said, or the one just talked about, or the next one */
+  function fnPick(c, list, today, fid){
+    var when = fnWhen(c, today), named = fnNamed(c, list);
+    var sel = named ? (when ? named.filter(function(f){ return f.date >= when.from && f.date <= when.to; }) : named)
+      : when ? list.filter(function(f){ return f.date >= when.from && f.date <= when.to; }) : null;
+    if(sel) return sel.length === 1 ? sel[0] : sel.length ? 'many' : 'none';
+    var byId = function(id){ return list.filter(function(f){ return f.id === id; })[0] || null; };
+    var r = fnRecent(), p = fnPortion && now() - fnPortion.at <= FN_FOLLOW_MS ? fnPortion : null;
+    return (fid && byId(fid)) || (r && r.ids && r.ids.length === 1 && byId(r.ids[0])) || (p && byId(p.fid)) || list[0] || 'none';
+  }
+  /* the dishes whose plates move with a new head count: [{ label, from, to }] */
+  function fnPlatesMove(f, before, after){
+    return fnItems(f).filter(function(i){ return i.kind !== 'set'; }).map(function(i){ return { label: i.label, from: fnPlates(i, before), to: fnPlates(i, after) }; })
+      .filter(function(x){ return x.from !== x.to; });
+  }
+  function fnMezzeWord(n){ return n === 1 ? '1 mezze board' : n + ' mezze boards'; }
+  /* a function's dietary lines, part by part ("2 GF, 1 vegan" is two): { li, text, n, rest } */
+  function fnDietParts(lines){
+    var out = [];
+    (lines || []).forEach(function(line, li){
+      String(line).split(/\s*(?:,|;|\+|&|\band\b)\s*/i).forEach(function(p){
+        p = p.trim();
+        if(!p) return;
+        var m = /^(\d+)\s*(?:x\s+)?(.*)$/i.exec(p);
+        out.push({ li: li, text: p, n: m ? +m[1] : null, rest: m ? m[2] : p });
+      });
+    });
+    return out;
+  }
+  /* the lines again: each part on its own line as it was, a changed line's parts joined with ", " */
+  function fnDietJoin(parts, count){
+    var lines = [];
+    for(var li = 0; li < count; li++){
+      var ps = parts.filter(function(p){ return p.li === li && !p.gone; }).map(function(p){ return p.text; });
+      if(ps.length) lines.push(ps.join(', '));
+    }
+    parts.filter(function(p){ return p.li >= count && !p.gone; }).forEach(function(p){ lines.push(p.text); });
+    return lines;
+  }
+  /* the dietary as it would be after the change said -> { after, rb (the read-back) } | { same } | { cant } */
+  function fnDietPlan(f, whose, op, needs){
+    var before = (f.dietary || []).map(function(x){ return String(x).trim(); }).filter(Boolean);
+    var parts = fnDietParts(before), lines = before.length, added = [], makes = [], took = [], changed = [];
+    if(op === 'clear'){
+      if(!before.length) return { same: 'No dietary needs are written for ' + whose + '.' };
+      return { after: [], rb: 'Clear all the dietary for ' + whose + ' (' + before.join(', ') + ')?' };
+    }
+    for(var k = 0; k < needs.length; k++){
+      var nd = needs[k], re = fnNeedOf(nd.id), n = nd.n;
+      var part = parts.filter(function(p){ return !p.gone && re.test(clean(p.text)); })[0];
+      var said = (n != null ? n + ' ' : '') + nd.display;
+      if(op === 'remove'){
+        if(!part) return { cant: 'There’s no ' + nd.display + ' on ' + whose + '.' };
+        if(n != null && part.n != null && n < part.n){ part.n -= n; part.text = part.n + ' ' + part.rest; took.push(said); }
+        else if(n != null && part.n != null && n > part.n) return { cant: cap(whose) + ' has ' + part.text + ', not ' + n + '.' };
+        else { part.gone = true; took.push(part.text); }
+        continue;
+      }
+      if(!part){
+        if(n === 0) return { cant: 'There’s no ' + nd.display + ' on ' + whose + '.' };
+        parts.push({ li: lines + added.length, text: said, n: n, rest: nd.display }); added.push(said);
+        continue;
+      }
+      if(part.n == null) return { cant: cap(whose) + ' says “' + part.text + '” with no number, so I can’t change it by voice. Change it on the Functions screen.' };
+      if(n == null) return { cant: 'How many? Say it like “add 2 gluten free to ' + whose + '”.' };
+      var was = part.text, to = op === 'add' ? part.n + n : n;
+      if(to === part.n) return { same: cap(whose) + ' already has ' + part.text + '.' };
+      if(to === 0){ part.gone = true; took.push(was); continue; }
+      part.n = to; part.text = to + ' ' + part.rest;
+      if(op === 'add'){ added.push(said); makes.push(part.text); } else changed.push(was + ' to ' + part.text);
+    }
+    var after = fnDietJoin(parts, lines), left = after.length ? after.join(', ') : 'no dietary needs';
+    var rb = [];
+    if(added.length) rb.push('Add ' + joinAnd(added) + ' to ' + whose + '?' + (makes.length ? ' That makes ' + joinAnd(makes) + '.' : ''));
+    if(changed.length) rb.push('Change ' + joinAnd(changed) + ' for ' + whose + '?');
+    if(took.length) rb.push('Take ' + joinAnd(took) + ' off ' + whose + '? That leaves ' + left + '.');
+    return { after: after, rb: rb.join(' ') };
+  }
+  var FN_ONE_AT_A_TIME = 'One change at a time, please: the head count, the dietary or the mezze boards.';
+  /* "make it 70 people for Tara's function", "add 2 gluten free to Tara's function", "add 3 mezze boards":
+     the change read back (opt, from "How many mezze boards?": { what, fid, n, op }) */
+  async function fnDetailChange(text, opt){
+    var c = clean(text), today = tsToday(), focus = fnFocusNow();
+    opt = opt || {};
+    if(typeof host.setFunctionDetail !== 'function') return cant('I can’t change functions here yet.', 'fn detail no host');
+    var what = opt.what ? [opt.what] : fnWhatIn(c);
+    if(what.length > 1) return cant(FN_ONE_AT_A_TIME, 'fn detail two');
+    var w = what[0] || (focus && focus.what), fix = !what.length;   // a bare number: the detail just talked about
+    if(!w) return cant('What should change? The head count, the dietary or the mezze boards?', 'fn detail what');
+    var got = null;
+    try{ got = await host.functions(); }catch(e){ got = null; }
+    if(!got || !got.ok || got.stale) return cant(FN_WHY[(got && got.why) || 'server'] || FN_WHY.server, 'fn detail ' + ((got && got.why) || 'failed'));
+    var list = (got.functions || []).filter(function(f){ return f && f.date >= today; })
+      .sort(function(a, b){ return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+    var f = fnPick(c, list, today, opt.fid || (focus && focus.fid));
+    if(f === 'many') return cant('Which function? Say its name or its day.', 'fn detail which');
+    if(f === 'none') return cant(list.length ? 'I can’t find that function.' : 'No functions coming up.', 'fn detail none');
+    var whose = fnWhose(f) + ' ' + fnOn(f.date, today), nums = fnNums(c), t = c.split(' '), ask;
+    if(w === 'pax'){
+      // the number next to "people" or "guests", or after "head count", else the last one said
+      var n = null, hc = t.indexOf('headcount') > -1 ? t.indexOf('headcount') : t.indexOf('count');
+      nums.forEach(function(x){ if(n == null && t[x.end] && /^(people|pax|guests?|heads|covers|persons)$/.test(t[x.end])) n = x.n; });
+      nums.forEach(function(x){ if(n == null && hc > -1 && x.at > hc) n = x.n; });
+      if(n == null && nums.length) n = nums[nums.length - 1].n;
+      if(n == null || n < 1 || n > 2000) return cant('How many people? Say a number, like “make it 70 people for ' + whose + '”.', 'fn pax no number');
+      var before = +f.pax || 0;
+      fnFocus = { at: now(), fid: f.id, what: 'pax' };
+      if(before === n) return ans('answer', { say: [cap(whose) + ' is already ' + n + ' people.'], log: 'fn pax same' });
+      var mv = fnPlatesMove(f, before, n), heads = fnItems(f).some(function(i){ return i.kind !== 'set'; });
+      var tail = mv.length ? ' ' + (mv.length === 1 ? '1 dish’s plates change' : mv.length + ' dishes’ plates change') + ' with it.' : heads ? ' The plates stay the same.' : '';
+      ask = confirming('fnDetail', [(before ? 'Change ' + whose + ' from ' + before + ' to ' + n + ' people?' : 'Set the head count for ' + whose + ' to ' + n + ' people?') + tail], 'Confirm change?',
+        { fid: f.id, field: 'pax', value: n, expect: before, whose: whose }, 'fn pax ask ' + n);
+    }
+    else if(w === 'mezze'){
+      var mb = Math.max(0, +f.mezze || 0), mn = opt.n != null ? opt.n : null, mop = opt.op || (fix && focus && focus.op) || null;
+      if(mn == null){
+        nums.forEach(function(x){ if(mn == null && t[x.end] && /^(mezze|mezzes|meze|mezza|mezzas|mezzo|mezzos|boards?|messy)$/.test(t[x.end])) mn = x.n; });
+        if(mn == null && nums.length) mn = nums[nums.length - 1].n;
+      }
+      if(!mop) mop = FN_REMOVE.test(c) && mn == null ? 'remove' : FN_ADD.test(c) && !FN_SET.test(c) ? 'add' : 'set';
+      fnFocus = { at: now(), fid: f.id, what: 'mezze', op: mop === 'remove' ? 'set' : mop };
+      if(mop === 'remove'){
+        if(!mb) return ans('answer', { say: [cap(whose) + ' has no mezze boards.'], log: 'fn mezze none' });
+        ask = confirming('fnDetail', ['Remove the mezze boards (' + mb + ') from ' + whose + '?'], 'Confirm change?', { fid: f.id, field: 'mezze', value: 0, expect: mb, whose: whose }, 'fn mezze ask 0');
+      } else {
+        if(mn == null){
+          // never a guess: how many (1 to 4 to tap; any number by voice)
+          return asking('fnMezzeHow', mb ? cap(whose) + ' has ' + fnMezzeWord(mb) + '. How many in all?' : 'How many mezze boards for ' + whose + '?',
+            [1, 2, 3, 4].map(function(x){ return { label: String(x), value: String(x) }; }), { fid: f.id, op: 'set' }, 'number');
+        }
+        if(mn > 50) return cant('That’s a lot of mezze boards. Change it on the Functions screen.', 'fn mezze too many');
+        var mt = mop === 'add' ? mb + mn : mn;
+        if(mt === mb) return ans('answer', { say: [cap(whose) + ' already has ' + (mb ? fnMezzeWord(mb) : 'no mezze boards') + '.'], log: 'fn mezze same' });
+        var mrb = mt === 0 ? 'Remove the mezze boards (' + mb + ') from ' + whose + '?'
+          : !mb ? 'Add ' + fnMezzeWord(mt) + ' to ' + whose + '?'
+          : mop === 'add' ? 'Add ' + fnMezzeWord(mn) + ' to ' + whose + '? That makes ' + mt + '.'
+          : 'Change the mezze boards for ' + whose + ' from ' + mb + ' to ' + mt + '?';
+        ask = confirming('fnDetail', [mrb], 'Confirm change?', { fid: f.id, field: 'mezze', value: mt, expect: mb, whose: whose }, 'fn mezze ask ' + mt);
+      }
+    }
+    else {
+      var needs = fnNeedsIn(c), dop = null;
+      if(fix && focus && focus.need){ needs = [focus.need]; dop = focus.op; }
+      else if(!needs.length){
+        if(FN_REMOVE.test(c) && (FN_DIET_W.test(c) || /\ball\b/.test(c))) dop = 'clear';
+        else return cant('Which dietary need? Say it like “add 2 gluten free to ' + whose + '”.', 'fn diet which');
+      }
+      if(!dop) dop = FN_REMOVE.test(c) ? 'remove' : FN_SET.test(c) && !FN_ADD.test(c) ? 'set' : FN_ADD.test(c) ? 'add' : 'set';
+      needs = needs.map(function(nd){ return { id: nd.id, at: nd.at, display: nd.display, n: fix ? (nums.length ? nums[nums.length - 1].n : null) : fnNeedNum(c, nd, needs) }; });
+      var plan = fnDietPlan(f, whose, dop, needs);
+      fnFocus = { at: now(), fid: f.id, what: 'diet', op: dop === 'clear' ? null : dop, need: needs.length === 1 ? { id: needs[0].id, at: 0, display: needs[0].display } : null };
+      if(plan.cant) return cant(plan.cant, 'fn diet cant');
+      if(plan.same) return ans('answer', { say: [plan.same], log: 'fn diet same' });
+      ask = confirming('fnDetail', [plan.rb], 'Confirm change?', { fid: f.id, field: 'dietary', value: plan.after, expect: (f.dietary || []).slice(), whose: whose }, 'fn diet ask ' + dop);
+    }
+    ask.confirm.corrections = true;   // "actually make it 80" comes back here (Pluto page v0.11.1, contract §6.4)
+    return ask;
+  }
+  /* the answer to "How many mezze boards …?": a number, tapped or said; anything else is a new request */
+  async function fnMezzeReply(p, req){
+    pending = null;
+    var ch = req.reply && req.reply.choice != null ? String(req.reply.choice) : '';
+    var nm = /^\d+$/.test(ch) ? +ch : (fnNums(clean(req.text || ''))[0] || {}).n;
+    if(nm == null){
+      if(req.text) return handle(Object.assign({}, req, { reply: null }));
+      return ans('answer', { say: ['Left it. Nothing changed.'], log: 'fn mezze dropped' });
+    }
+    return fnDetailChange('', { what: 'mezze', fid: p.fid, n: nm, op: p.op });
+  }
+  /* after his yes: "Done. Tara's function on Saturday is 70 people: Polenta Chips 8 plates, Calamari 14 and Pizza 18." */
+  function fnDetailDone(c, rd){
+    if(c.field === 'pax'){
+      var mv = rd.fn ? fnPlatesMove(rd.fn, rd.before, rd.after) : [];
+      var heads = rd.fn && fnItems(rd.fn).some(function(i){ return i.kind !== 'set'; });
+      var pl = mv.slice(0, 6).map(function(x, i){ return x.label + ' ' + (i ? x.to : fnPlateWord(x.to)); });
+      if(mv.length > 6) pl.push(mv.length - 6 + ' more');
+      return 'Done. ' + cap(c.whose) + ' is ' + rd.after + ' people' + (pl.length ? ': ' + joinAnd(pl) + '.' : heads ? '. The plates stay the same.' : '.');
+    }
+    if(c.field === 'mezze') return rd.after ? 'Done. ' + cap(c.whose) + ' has ' + fnMezzeWord(rd.after) + '.' : 'Done. No mezze boards for ' + c.whose + '.';
+    return rd.after.length ? 'Done. Dietary for ' + c.whose + ': ' + rd.after.join(', ') + '.' : 'Done. No dietary needs for ' + c.whose + ' now.';
+  }
+  /* undo: "Tara's function on Saturday is back to 60 people." */
+  function fnDetailBack(o){
+    if(o.field === 'pax') return cap(o.whose) + ' is back to ' + o.before + ' people.';
+    if(o.field === 'mezze') return o.before ? cap(o.whose) + ' is back to ' + fnMezzeWord(o.before) + '.' : cap(o.whose) + ' has no mezze boards again.';
+    return 'The dietary for ' + o.whose + ' is back how it was: ' + (o.before.length ? o.before.join(', ') : 'none') + '.';
+  }
+
   /* is this a question about the functions? -> 'ask' | 'write' | null. "who's working the function on
      Saturday" is the roster's. Right after a function answer, a bare day or week ("and next week?",
      "what about Sunday") asks the same again. */
   function fnRoute(text){
     var c = clean(text);
+    if(fnDetailRoute(c)) return 'detail';   // v3.11.24: the head count, dietary or mezze boards
     var pr = fnPortion && now() - fnPortion.at <= FN_FOLLOW_MS;
     if((FN_WORD.test(c) || pr) && fnNumIn(c) != null && (FN_CHANGE.test(c) || FN_WRITE.test(c)) && (FN_PLATES.test(c) || pr) && !/^(how|what|whats|which)\b/.test(c)) return 'portion';
     if(FN_WORD.test(c)){
@@ -5107,7 +5415,8 @@ function createRoom(host){
       pending = null;
       if(isClose(req.text || '')) return notmine('close');
       var fnr = fnRoute(req.text || '');   // v3.11.22: the functions, read only
-      if(fnr === 'write') return cant('I can\u2019t change functions by voice yet. Use Functions in The Pass.', 'fn write');
+      if(fnr === 'write') return cant('I can\u2019t do that by voice yet: only a function\u2019s head count, dietary, mezze boards and plates. Use Functions in The Pass for the rest.', 'fn write');
+      if(fnr === 'detail') return await fnDetailChange(req.text || '');   // v3.11.24
       if(fnr === 'ask') return await fnAnswer(req.text || '');
       if(fnr === 'follow') return await fnAnswer(req.text || '', fnRecent());
       if(fnr === 'portion') return await fnChange(req.text || '');
@@ -5308,6 +5617,14 @@ function createRoom(host){
         fnPortion = { at: now(), fid: c.fid, itemId: c.itemId };
         return ans('done', { say: ['Done. ' + c.label + ' is ' + fnPlateWord(c.n) + ' in total for ' + c.whose + '.'], action: { id: fid2, label: flab, undo: true }, log: 'fn portion ok ' + c.n });
       }
+      if(c.kind === 'fnDetail'){   // v3.11.24: a function's head count, dietary or mezze boards
+        var rd = host.setFunctionDetail ? await host.setFunctionDetail(c.fid, c.field, c.value, c.expect) : null;
+        if(!rd || !rd.ok) return ans('error', { say: [FN_WHY[rd && rd.why] || 'I couldn’t save that, so nothing changed.'], log: 'fn detail failed ' + ((rd && rd.why) || '') });
+        var dlab = cap(c.whose) + ': ' + (c.field === 'pax' ? rd.after + ' people' : c.field === 'mezze' ? fnMezzeWord(rd.after) : 'dietary');
+        var did = remember(dlab, [{ k: 'fnDetail', fid: c.fid, field: c.field, before: rd.before, after: rd.after, whose: c.whose }]);
+        if(fnFocus && fnFocus.fid === c.fid) fnFocus.at = now();
+        return ans('done', { say: [fnDetailDone(c, rd)], action: { id: did, label: dlab, undo: true }, log: 'fn detail ok ' + c.field });
+      }
       if(c.kind === 'roster') return rbConfirmed(c);   // v3.10.0
       if(c.kind === 'dict') return await dictAdd(c);    // v3.11.0
       if(c.kind === 'again'){
@@ -5401,7 +5718,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.23',
+  version: 'v3.11.24',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,

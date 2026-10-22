@@ -203,6 +203,45 @@ var host = {
     bgRender();
     return { ok: true, before: before, after: want, pax: +f.pax || 0 };
   },
+  /* v3.11.24 (his ask, 23 Oct): one detail of one function changed by voice after his yes (or put
+     back by undo): the head count, the dietary lines or the mezze boards. As setFunctionItem: never
+     from a starter or backup copy, or while a function is open for editing on the screen; read
+     afresh from the shared server; refused when that detail isn't what was read back to him (changed
+     since, on another phone); the whole list then goes back as the Functions screen saves it.
+     -> { ok: true, before, after, fn (as the voice reads it) } | { ok: false, why: 'copy'|'editing'|'key'|'server'|'gone'|'changed' } */
+  setFunctionDetail: async function(fid, field, value, expect){
+    var int = function(v){ return Math.max(0, parseInt(v, 10) || 0); };
+    var norm = { pax: int, mezze: int,
+      dietary: function(v){ return (Array.isArray(v) ? v : []).map(function(x){ return String(x == null ? '' : x).trim(); }).filter(Boolean); } }[field];
+    if(!norm) return { ok: false, why: 'gone' };
+    if(typeof copyRole === 'function' && copyRole()) return { ok: false, why: 'copy' };
+    if(state.view && (state.view.name === 'fnEdit' || state.view.name === 'fnTiers')) return { ok: false, why: 'editing' };
+    if(typeof getChefKey === 'function' && !getChefKey()) return { ok: false, why: 'key' };
+    var list = null, why = 'server';
+    try{
+      var ctl = typeof AbortController === 'function' ? new AbortController() : null;
+      var timer = setTimeout(function(){ if(ctl) ctl.abort(); }, 4000);
+      var r = await fetch(API + '/api/functions', { cache: 'no-store', headers: chefHeaders(), signal: ctl ? ctl.signal : undefined });
+      clearTimeout(timer);
+      if(r.ok){ var d = await r.json(); list = Array.isArray(d.functions) ? d.functions : null; }
+      else why = r.status === 401 ? 'key' : 'server';
+    }catch(e){ why = 'server'; }
+    if(!list) return { ok: false, why: why };
+    var f = list.find(function(x){ return x && x.id === fid; });
+    if(!f) return { ok: false, why: 'gone' };
+    var before = norm(f[field]);
+    if(expect !== undefined && JSON.stringify(before) !== JSON.stringify(norm(expect))) return { ok: false, why: 'changed', before: before };
+    f[field] = norm(value);
+    try{
+      var res = await fetch(API + '/api/functions', { method: 'POST', headers: chefHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ functions: list }) });
+      if(!res.ok) return { ok: false, why: res.status === 401 ? 'key' : 'server' };
+    }catch(e){ return { ok: false, why: 'server' }; }
+    state.functions = list;
+    if(typeof normaliseFunctions === 'function') normaliseFunctions();
+    if(typeof keepFunctionsCopy === 'function') keepFunctionsCopy();
+    bgRender();
+    return { ok: true, before: before, after: f[field], fn: functionsForVoice([f], state.tiers)[0] };
+  },
   /* v3.9.6: his timesheet, and this week's rostered start times, read fresh
      from storage first (another copy of The Pass may have changed them) */
   timesheet: function(){
