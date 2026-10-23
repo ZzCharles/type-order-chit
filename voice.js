@@ -211,7 +211,7 @@ var host = {
      -> { ok: true, before, after, fn (as the voice reads it) } | { ok: false, why: 'copy'|'editing'|'key'|'server'|'gone'|'changed' } */
   setFunctionDetail: async function(fid, field, value, expect){
     var int = function(v){ return Math.max(0, parseInt(v, 10) || 0); };
-    var norm = { pax: int, mezze: int,
+    var norm = { pax: int, mezze: int, tiramisu: int,   // v3.11.25: the tiramisu add-on
       dietary: function(v){ return (Array.isArray(v) ? v : []).map(function(x){ return String(x == null ? '' : x).trim(); }).filter(Boolean); } }[field];
     if(!norm) return { ok: false, why: 'gone' };
     if(typeof copyRole === 'function' && copyRole()) return { ok: false, why: 'copy' };

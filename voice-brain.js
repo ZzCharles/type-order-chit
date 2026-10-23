@@ -4034,7 +4034,7 @@ function createRoom(host){
       }
       else if(o.k === 'fnDetail'){   // v3.11.24: only if it's still what the change made it
         var fd = host.setFunctionDetail ? await host.setFunctionDetail(o.fid, o.field, o.before, o.after) : null;
-        if(!fd || !fd.ok){ skipped.push(cap(o.whose) + (o.field === 'pax' ? '’s head count' : o.field === 'mezze' ? '’s mezze boards' : '’s dietary')); continue; }
+        if(!fd || !fd.ok){ skipped.push(cap(o.whose) + (o.field === 'pax' ? '’s head count' : FN_ADDONS[o.field] ? '’s ' + FN_ADDONS[o.field].name : '’s dietary')); continue; }
         said.push(fnDetailBack(o));
       }
       else if(o.k === 'newprep'){   // v3.11.13
@@ -4658,7 +4658,7 @@ function createRoom(host){
     var choice = req.reply && req.reply.choice != null ? String(req.reply.choice) : null;
     var text = String(req.text || '');
     var cmd = p.cmd;
-    if(p.kind === 'fnMezzeHow') return await fnMezzeReply(p, req);   // v3.11.24
+    if(p.kind === 'fnAddonHow' || p.kind === 'fnMezzeHow') return await fnAddonReply(p, req);   // v3.11.24, v3.11.25
     if(/^new(?:sec|prod|supp|unit)$/.test(p.kind)) return await newItemAnswer(p, req, mode);   // v3.11.13
     if(/^dict/.test(p.kind)) return await dictAnswer(p, req, mode);   // v3.11.0
     if(/^ts/.test(p.kind)) return await tsAnswer(p, req, mode);   // v3.9.6
@@ -4834,7 +4834,9 @@ function createRoom(host){
   var FN_SAY_MAX = 4, fnLast = null, FN_FOLLOW_MS = 2 * 60 * 1000;
   function fnKind(c){
     if(FN_PLATES.test(c)) return 'portion';
+    if(FN_ADDONS_Q.test(c)) return 'addons';   // v3.11.25: "what add-ons for Tara's function"
     if(FN_MEZZE_W.test(c)) return 'mezze';   // v3.11.24
+    if(FN_TIRA_W.test(c)) return 'tiramisu';   // v3.11.25
     if(/\b(allerg\w*|dietar\w*|diets?|gluten|gf|vegan|vegans|vegetarians?|coeliac|celiac|nuts?|intoleran\w*)\b/.test(c)) return 'diet';
     if(/\b(tiers?|packages?|menus?)\b/.test(c)) return 'tier';
     if(/\bhow many\b|\b(pax|guests|heads|head count|headcount|covers|people)\b/.test(c)) return 'pax';
@@ -4902,15 +4904,33 @@ function createRoom(host){
     if(fnDetails(f)) bits.push(fnDetails(f));
     return bits.join(', ');
   }
+  /* v3.11.25: a function's add-ons, as said: "2 mezze boards", "30 tiramisu", "1 Birthday cake platter" */
+  function fnAddonList(f){
+    var out = [];
+    if(+f.mezze > 0) out.push(FN_ADDONS.mezze.say(+f.mezze));
+    if(+f.tiramisu > 0) out.push(FN_ADDONS.tiramisu.say(+f.tiramisu));
+    (Array.isArray(f.extras) ? f.extras : []).forEach(function(x){ if(x && String(x.label || '').trim()) out.push(Math.max(1, +x.qty || 1) + ' ' + String(x.label).trim()); });
+    return out;
+  }
   function fnSentence(kind, f, today, dated){
     var whose = fnWhose(f), on = fnOn(f.date, today, dated), Whose = cap(whose);
     if(kind === 'time') return f.startTime ? Whose + ' ' + on + ' starts at ' + f.startTime + '.' : Whose + ' ' + on + ' has no start time yet.';
     if(kind === 'day') return Whose + ' is ' + fnOn(f.date, today, true) + (f.startTime ? ', from ' + f.startTime : '') + '.';
     if(kind === 'tier') return f.tierLabel ? Whose + ' ' + on + ' is on the ' + f.tierLabel + ' menu.' : Whose + ' ' + on + ' has no menu tier yet.';
     if(kind === 'pax') return +f.pax ? Whose + ' ' + on + ' is for ' + f.pax + ' people.' : Whose + ' ' + on + ' has no head count yet.';
-    // v3.11.24: a copy kept by v3.11.23 or before doesn't hold the mezze boards: said, never "none"
-    if(kind === 'mezze') return f.mezze == null ? 'I can’t tell the mezze boards for ' + whose + ' ' + on + ' from the copy kept on this phone.'
-      : +f.mezze ? Whose + ' ' + on + ' has ' + fnMezzeWord(+f.mezze) + '.' : Whose + ' ' + on + ' has no mezze boards.';
+    // v3.11.24/25: an add-on; a copy kept by an older The Pass doesn't hold it: said, never "none"
+    if(FN_ADDONS[kind]){
+      var ao = FN_ADDONS[kind], q = f[ao.field];
+      if(q == null) return 'I can’t tell the ' + ao.name + ' for ' + whose + ' ' + on + ' from the copy kept on this phone.';
+      var dish = ao.field === 'tiramisu' ? fnItems(f).filter(function(i){ return /tiramisu/i.test(i.label); })[0] : null;
+      if(+q) return Whose + ' ' + on + ' has ' + ao.say(+q) + (dish ? ' as an add-on' : '') + '.';
+      return Whose + ' ' + on + ' has no ' + fnAddonName(ao, f) + (dish ? '; ' + dish.label + ' is on its menu' : '') + '.';
+    }
+    if(kind === 'addons'){   // v3.11.25: "Add-ons for Tara's function tomorrow: 2 mezze boards, 30 tiramisu and 1 birthday cake platter."
+      if(f.tiramisu == null || f.extras == null) return 'I can’t tell the add-ons for ' + whose + ' ' + on + ' from the copy kept on this phone.';
+      var al = fnAddonList(f);
+      return al.length ? 'Add-ons for ' + whose + ' ' + on + ': ' + joinAnd(al) + '.' : 'No add-ons for ' + whose + ' ' + on + '.';
+    }
     if(kind === 'diet'){
       var dl = (f.dietary || []).map(function(x){ return String(x).trim(); }).filter(Boolean);
       return dl.length ? 'Dietary for ' + whose + ' ' + on + ': ' + dl.join(', ') + '.' : 'No dietary needs are written for ' + whose + ' ' + on + '.';
@@ -4919,7 +4939,8 @@ function createRoom(host){
     var s = Whose + ', ' + fnOn(f.date, today, true) + (fnDetails(f) ? ': ' + fnDetails(f) : '') + '.';
     var dl2 = (f.dietary || []).map(function(x){ return String(x).trim(); }).filter(Boolean);
     if(dl2.length) s += ' Dietary: ' + dl2.join(', ') + '.';
-    if(+f.mezze > 0) s += ' Mezze: ' + (+f.mezze === 1 ? '1 board' : f.mezze + ' boards') + '.';   // v3.11.24
+    var al2 = fnAddonList(f);   // v3.11.25 (v3.11.24 said the mezze boards alone)
+    if(al2.length) s += ' Add-ons: ' + al2.join(', ') + '.';
     if(String(f.notes || '').trim()) s += ' Notes: ' + String(f.notes).trim().replace(/[.\s]+$/, '') + '.';
     return s;
   }
@@ -5016,6 +5037,17 @@ function createRoom(host){
   var FN_PAX_W = /\b(people|pax|guests?|heads|head count|headcount|covers|persons)\b/;
   var FN_HEAD_W = /\b(pax|heads|head count|headcount|covers)\b/;      // the head count's own words (not "2 people with a nut allergy")
   var FN_MEZZE_W = /\b(mezze|mezzes|meze|mezza|mezzas|mezzo|mezzos|messy boards?)\b/;
+  /* v3.11.25 (his picks, 23 Oct): the tiramisu is an add-on like the mezze boards (a switch and a number) */
+  var FN_TIRA_W = /\b(tiramisus?|tiramasus?|tira misu|terra misu|tierra misu)\b/;
+  var FN_ADDONS_Q = /\b(add ons?|addons?|extras?)\b/;
+  var FN_ADDONS = {
+    mezze: { field: 'mezze', re: FN_MEZZE_W, unit: /^(mezze|mezzes|meze|mezza|mezzas|mezzo|mezzos|boards?|messy)$/, name: 'mezze boards', max: 50,
+      say: function(n){ return n === 1 ? '1 mezze board' : n + ' mezze boards'; } },
+    tiramisu: { field: 'tiramisu', re: FN_TIRA_W, unit: /^(tiramisus?|tiramasus?|tira|terra|tierra|serves?|pieces?)$/, name: 'tiramisu', max: 500,
+      say: function(n){ return n + ' tiramisu'; } }
+  };
+  /* "the tiramisu add-on" on a function that has a tiramisu dish too ($69's Grand Tiramisu) */
+  function fnAddonName(ad, f){ return ad.field === 'tiramisu' && fnItems(f).some(function(i){ return /tiramisu/i.test(i.label); }) ? ad.name + ' add-on' : ad.name; }
   var FN_DIET_W = /\b(dietary|dietaries|diets?|allerg\w*|intoleran\w*|requirements)\b/;
   var FN_ASK_START = /^(how|what|whats|when|whens|which|who|whos|is|are|was|were|do|does|did|any|anything|have|has|tell|give|read|check|show|list)\b/;
   var FN_DETAIL_VERB = /\b(add|plus|put|include|another|extra|more|also|remove|take|drop|scrap|delete|cancel|clear|rid|without|no|none|minus|less|make|change|set|update|bump|up|down|now|actually|maybe|instead|should|lets|go with|about)\b/;
@@ -5080,6 +5112,7 @@ function createRoom(host){
   function fnWhatIn(c){
     var w = [], needs = fnNeedsIn(c);
     if(FN_MEZZE_W.test(c)) w.push('mezze');
+    if(FN_TIRA_W.test(c)) w.push('tiramisu');   // v3.11.25
     if(needs.length || FN_DIET_W.test(c)) w.push('diet');
     if(!w.length) return FN_PAX_W.test(c) ? ['pax'] : [];
     // with another detail, the head count only by its own words, or "70 people" that isn't a need's number
@@ -5101,7 +5134,7 @@ function createRoom(host){
       if(fw) return true;
       if(FN_ROSTER_W.test(c) || FN_LIST_W.test(c)) return false;
       if(what.indexOf('diet') > -1) return !!(focus && focus.what === 'diet');
-      if(what.indexOf('mezze') > -1) return !!(focus || last);
+      if(what.indexOf('mezze') > -1 || what.indexOf('tiramisu') > -1) return !!(focus || last);
       return !!((focus || last) && (FN_FIX_START.test(c) || (focus && focus.what === 'pax')));
     }
     // "actually make it 80", "maybe 3 then": a number for the detail just talked about (newer than a dish's plates),
@@ -5129,7 +5162,6 @@ function createRoom(host){
     return fnItems(f).filter(function(i){ return i.kind !== 'set'; }).map(function(i){ return { label: i.label, from: fnPlates(i, before), to: fnPlates(i, after) }; })
       .filter(function(x){ return x.from !== x.to; });
   }
-  function fnMezzeWord(n){ return n === 1 ? '1 mezze board' : n + ' mezze boards'; }
   /* a function's dietary lines, part by part ("2 GF, 1 vegan" is two): { li, text, n, rest } */
   function fnDietParts(lines){
     var out = [];
@@ -5192,7 +5224,7 @@ function createRoom(host){
     if(took.length) rb.push('Take ' + joinAnd(took) + ' off ' + whose + '? That leaves ' + left + '.');
     return { after: after, rb: rb.join(' ') };
   }
-  var FN_ONE_AT_A_TIME = 'One change at a time, please: the head count, the dietary or the mezze boards.';
+  var FN_ONE_AT_A_TIME = 'One change at a time, please: the head count, the dietary, the mezze boards or the tiramisu.';
   /* "make it 70 people for Tara's function", "add 2 gluten free to Tara's function", "add 3 mezze boards":
      the change read back (opt, from "How many mezze boards?": { what, fid, n, op }) */
   async function fnDetailChange(text, opt){
@@ -5202,7 +5234,7 @@ function createRoom(host){
     var what = opt.what ? [opt.what] : fnWhatIn(c);
     if(what.length > 1) return cant(FN_ONE_AT_A_TIME, 'fn detail two');
     var w = what[0] || (focus && focus.what), fix = !what.length;   // a bare number: the detail just talked about
-    if(!w) return cant('What should change? The head count, the dietary or the mezze boards?', 'fn detail what');
+    if(!w) return cant('What should change? The head count, the dietary, the mezze boards or the tiramisu?', 'fn detail what');
     var got = null;
     try{ got = await host.functions(); }catch(e){ got = null; }
     if(!got || !got.ok || got.stale) return cant(FN_WHY[(got && got.why) || 'server'] || FN_WHY.server, 'fn detail ' + ((got && got.why) || 'failed'));
@@ -5227,31 +5259,32 @@ function createRoom(host){
       ask = confirming('fnDetail', [(before ? 'Change ' + whose + ' from ' + before + ' to ' + n + ' people?' : 'Set the head count for ' + whose + ' to ' + n + ' people?') + tail], 'Confirm change?',
         { fid: f.id, field: 'pax', value: n, expect: before, whose: whose }, 'fn pax ask ' + n);
     }
-    else if(w === 'mezze'){
-      var mb = Math.max(0, +f.mezze || 0), mn = opt.n != null ? opt.n : null, mop = opt.op || (fix && focus && focus.op) || null;
+    else if(FN_ADDONS[w]){   // the mezze boards (v3.11.24) and the tiramisu (v3.11.25): a switch and a number
+      var ad = FN_ADDONS[w], nm = fnAddonName(ad, f), as = nm === ad.name ? '' : ' as an add-on', lg = 'fn ' + w;
+      var mb = Math.max(0, +f[ad.field] || 0), mn = opt.n != null ? opt.n : null, mop = opt.op || (fix && focus && focus.op) || null;
       if(mn == null){
-        nums.forEach(function(x){ if(mn == null && t[x.end] && /^(mezze|mezzes|meze|mezza|mezzas|mezzo|mezzos|boards?|messy)$/.test(t[x.end])) mn = x.n; });
+        nums.forEach(function(x){ if(mn == null && t[x.end] && ad.unit.test(t[x.end])) mn = x.n; });
         if(mn == null && nums.length) mn = nums[nums.length - 1].n;
       }
       if(!mop) mop = FN_REMOVE.test(c) && mn == null ? 'remove' : FN_ADD.test(c) && !FN_SET.test(c) ? 'add' : 'set';
-      fnFocus = { at: now(), fid: f.id, what: 'mezze', op: mop === 'remove' ? 'set' : mop };
+      fnFocus = { at: now(), fid: f.id, what: w, op: mop === 'remove' ? 'set' : mop };
       if(mop === 'remove'){
-        if(!mb) return ans('answer', { say: [cap(whose) + ' has no mezze boards.'], log: 'fn mezze none' });
-        ask = confirming('fnDetail', ['Remove the mezze boards (' + mb + ') from ' + whose + '?'], 'Confirm change?', { fid: f.id, field: 'mezze', value: 0, expect: mb, whose: whose }, 'fn mezze ask 0');
+        if(!mb) return ans('answer', { say: [cap(whose) + ' has no ' + nm + '.'], log: lg + ' none' });
+        ask = confirming('fnDetail', ['Remove the ' + nm + ' (' + mb + ') from ' + whose + '?'], 'Confirm change?', { fid: f.id, field: ad.field, value: 0, expect: mb, whose: whose }, lg + ' ask 0');
       } else {
         if(mn == null){
           // never a guess: how many (1 to 4 to tap; any number by voice)
-          return asking('fnMezzeHow', mb ? cap(whose) + ' has ' + fnMezzeWord(mb) + '. How many in all?' : 'How many mezze boards for ' + whose + '?',
-            [1, 2, 3, 4].map(function(x){ return { label: String(x), value: String(x) }; }), { fid: f.id, op: 'set' }, 'number');
+          return asking('fnAddonHow', mb ? cap(whose) + ' has ' + ad.say(mb) + '. How many in all?' : 'How many ' + ad.name + ' for ' + whose + '?',
+            [1, 2, 3, 4].map(function(x){ return { label: String(x), value: String(x) }; }), { fid: f.id, op: 'set', what: w }, 'number');
         }
-        if(mn > 50) return cant('That’s a lot of mezze boards. Change it on the Functions screen.', 'fn mezze too many');
+        if(mn > ad.max) return cant('That\u2019s a lot of ' + ad.name + '. Change it on the Functions screen.', lg + ' too many');
         var mt = mop === 'add' ? mb + mn : mn;
-        if(mt === mb) return ans('answer', { say: [cap(whose) + ' already has ' + (mb ? fnMezzeWord(mb) : 'no mezze boards') + '.'], log: 'fn mezze same' });
-        var mrb = mt === 0 ? 'Remove the mezze boards (' + mb + ') from ' + whose + '?'
-          : !mb ? 'Add ' + fnMezzeWord(mt) + ' to ' + whose + '?'
-          : mop === 'add' ? 'Add ' + fnMezzeWord(mn) + ' to ' + whose + '? That makes ' + mt + '.'
-          : 'Change the mezze boards for ' + whose + ' from ' + mb + ' to ' + mt + '?';
-        ask = confirming('fnDetail', [mrb], 'Confirm change?', { fid: f.id, field: 'mezze', value: mt, expect: mb, whose: whose }, 'fn mezze ask ' + mt);
+        if(mt === mb) return ans('answer', { say: [cap(whose) + ' already has ' + (mb ? ad.say(mb) : 'no ' + nm) + '.'], log: lg + ' same' });
+        var mrb = mt === 0 ? 'Remove the ' + nm + ' (' + mb + ') from ' + whose + '?'
+          : !mb ? 'Add ' + ad.say(mt) + as + ' to ' + whose + '?'
+          : mop === 'add' ? 'Add ' + ad.say(mn) + as + ' to ' + whose + '? That makes ' + mt + '.'
+          : 'Change the ' + nm + ' for ' + whose + ' from ' + mb + ' to ' + mt + '?';
+        ask = confirming('fnDetail', [mrb], 'Confirm change?', { fid: f.id, field: ad.field, value: mt, expect: mb, whose: whose }, lg + ' ask ' + mt);
       }
     }
     else {
@@ -5273,7 +5306,7 @@ function createRoom(host){
     return ask;
   }
   /* the answer to "How many mezze boards …?": a number, tapped or said; anything else is a new request */
-  async function fnMezzeReply(p, req){
+  async function fnAddonReply(p, req){
     pending = null;
     var ch = req.reply && req.reply.choice != null ? String(req.reply.choice) : '';
     var nm = /^\d+$/.test(ch) ? +ch : (fnNums(clean(req.text || ''))[0] || {}).n;
@@ -5281,7 +5314,7 @@ function createRoom(host){
       if(req.text) return handle(Object.assign({}, req, { reply: null }));
       return ans('answer', { say: ['Left it. Nothing changed.'], log: 'fn mezze dropped' });
     }
-    return fnDetailChange('', { what: 'mezze', fid: p.fid, n: nm, op: p.op });
+    return fnDetailChange('', { what: p.what || 'mezze', fid: p.fid, n: nm, op: p.op });
   }
   /* after his yes: "Done. Tara's function on Saturday is 70 people: Polenta Chips 8 plates, Calamari 14 and Pizza 18." */
   function fnDetailDone(c, rd){
@@ -5292,13 +5325,15 @@ function createRoom(host){
       if(mv.length > 6) pl.push(mv.length - 6 + ' more');
       return 'Done. ' + cap(c.whose) + ' is ' + rd.after + ' people' + (pl.length ? ': ' + joinAnd(pl) + '.' : heads ? '. The plates stay the same.' : '.');
     }
-    if(c.field === 'mezze') return rd.after ? 'Done. ' + cap(c.whose) + ' has ' + fnMezzeWord(rd.after) + '.' : 'Done. No mezze boards for ' + c.whose + '.';
+    var ad = FN_ADDONS[c.field];
+    if(ad) return rd.after ? 'Done. ' + cap(c.whose) + ' has ' + ad.say(rd.after) + '.' : 'Done. No ' + ad.name + ' for ' + c.whose + '.';
     return rd.after.length ? 'Done. Dietary for ' + c.whose + ': ' + rd.after.join(', ') + '.' : 'Done. No dietary needs for ' + c.whose + ' now.';
   }
   /* undo: "Tara's function on Saturday is back to 60 people." */
   function fnDetailBack(o){
     if(o.field === 'pax') return cap(o.whose) + ' is back to ' + o.before + ' people.';
-    if(o.field === 'mezze') return o.before ? cap(o.whose) + ' is back to ' + fnMezzeWord(o.before) + '.' : cap(o.whose) + ' has no mezze boards again.';
+    var ad = FN_ADDONS[o.field];
+    if(ad) return o.before ? cap(o.whose) + ' is back to ' + ad.say(o.before) + '.' : cap(o.whose) + ' has no ' + ad.name + ' again.';
     return 'The dietary for ' + o.whose + ' is back how it was: ' + (o.before.length ? o.before.join(', ') : 'none') + '.';
   }
 
@@ -5415,7 +5450,7 @@ function createRoom(host){
       pending = null;
       if(isClose(req.text || '')) return notmine('close');
       var fnr = fnRoute(req.text || '');   // v3.11.22: the functions, read only
-      if(fnr === 'write') return cant('I can\u2019t do that by voice yet: only a function\u2019s head count, dietary, mezze boards and plates. Use Functions in The Pass for the rest.', 'fn write');
+      if(fnr === 'write') return cant('I can\u2019t do that by voice yet: only a function\u2019s head count, dietary, mezze boards, tiramisu and plates. Use Functions in The Pass for the rest.', 'fn write');
       if(fnr === 'detail') return await fnDetailChange(req.text || '');   // v3.11.24
       if(fnr === 'ask') return await fnAnswer(req.text || '');
       if(fnr === 'follow') return await fnAnswer(req.text || '', fnRecent());
@@ -5620,7 +5655,7 @@ function createRoom(host){
       if(c.kind === 'fnDetail'){   // v3.11.24: a function's head count, dietary or mezze boards
         var rd = host.setFunctionDetail ? await host.setFunctionDetail(c.fid, c.field, c.value, c.expect) : null;
         if(!rd || !rd.ok) return ans('error', { say: [FN_WHY[rd && rd.why] || 'I couldn’t save that, so nothing changed.'], log: 'fn detail failed ' + ((rd && rd.why) || '') });
-        var dlab = cap(c.whose) + ': ' + (c.field === 'pax' ? rd.after + ' people' : c.field === 'mezze' ? fnMezzeWord(rd.after) : 'dietary');
+        var dlab = cap(c.whose) + ': ' + (c.field === 'pax' ? rd.after + ' people' : FN_ADDONS[c.field] ? FN_ADDONS[c.field].say(rd.after) : 'dietary');
         var did = remember(dlab, [{ k: 'fnDetail', fid: c.fid, field: c.field, before: rd.before, after: rd.after, whose: c.whose }]);
         if(fnFocus && fnFocus.fid === c.fid) fnFocus.at = now();
         return ans('done', { say: [fnDetailDone(c, rd)], action: { id: did, label: dlab, undo: true }, log: 'fn detail ok ' + c.field });
@@ -5718,7 +5753,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.24',
+  version: 'v3.11.25',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,

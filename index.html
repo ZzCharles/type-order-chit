@@ -393,6 +393,12 @@ a.btn-block{display:block;}
 .mezze-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:16px 0 4px;padding-top:14px;border-top:1px solid var(--line);}
 .mezze-row .switch,.mezze-row label.switch{flex:1 1 auto;min-width:0;}
 .mezze-row .switch-label{white-space:nowrap;}
+/* v3.11.25 (his picks, 23 Oct): a function's Add-ons: the mezze boards and the tiramisu (a switch and a number), and one-offs */
+.addon-row{margin:0;padding:12px 0;border-top:0;}
+.addon-row + .addon-row{border-top:1px solid #F0EEE4;}
+.fn-once-head{font-size:11px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--muted);padding:12px 0 4px;border-top:1px solid #F0EEE4;}
+.extra-row .ing-item{min-width:0;}
+.fn-once{display:inline-block;font-size:10.5px;font-weight:600;color:#7A6E4E;background:#EFE9D5;border-radius:999px;padding:2px 8px;margin-left:4px;vertical-align:1px;}
 .switch-track{position:relative;display:inline-block;}
 .acc-row{display:flex;align-items:center;gap:12px;padding:14px 2px;border-bottom:1px solid #F5F3EA;}
 .acc-row:last-child{border-bottom:none;}
@@ -667,7 +673,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.24';
+const APP_VERSION = 'v3.11.25';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -1386,6 +1392,8 @@ function functionsForVoice(list, tiers){
   return (list || []).filter(f => f && f.date).map(f => ({ id: f.id, date: f.date, name: f.name || '', pax: +f.pax || 0, startTime: f.startTime || '',
     tier: f.tier || '', tierLabel: f.tier ? label(f.tier) : '', dietary: (f.dietary || []).map(String).filter(x => x.trim()), notes: f.notes || '',
     mezze: Math.max(0, parseInt(f.mezze, 10) || 0),   // v3.11.24: the mezze boards, for "add mezze boards to Tara's function"
+    tiramisu: Math.max(0, parseInt(f.tiramisu, 10) || 0),   // v3.11.25: the add-ons, for "what add-ons for Tara's function"
+    extras: fnExtras(f).map(x => ({ label: x.label, qty: x.qty })),
     // the dishes, for "how many plates of polenta" (each as the screen reads it: a set amount, or one per so many people)
     courses: (f.courses || []).map(c => ({ name: c.name || '', items: (c.items || []).filter(i => i && i.label).map(i => {
       const set = i.kind === 'set' || i.kind === 'fixed' || i.kind === 'text';
@@ -3265,9 +3273,13 @@ function renderFunction(id){
   const f = findFunction(id);
   if(!f) return `<div class="crumb"><button data-goto="functions">&larr; Functions</button></div><div class="empty">Function not found.</div>`;
 
-  const mezze = f.mezze ? `
-    <div class="section-label">Mezze</div>
-    <div class="card tight"><div class="fn-item"><span class="fn-qty">${f.mezze} &times;</span><span class="fn-label">Mezze board</span></div></div>` : '';
+  // v3.11.25 (his picks, 23 Oct): "Add-ons" where "Mezze" was: the mezze boards, the tiramisu, and one-offs for this function only
+  const addonRows = (f.mezze ? `<div class="fn-item"><span class="fn-qty">${f.mezze} &times;</span><span class="fn-label">Mezze board</span></div>` : '')
+    + (f.tiramisu ? `<div class="fn-item"><span class="fn-qty">${f.tiramisu} &times;</span><span class="fn-label">Tiramisu</span></div>` : '')
+    + fnExtras(f).map(x => `<div class="fn-item"><span class="fn-qty">${x.qty} &times;</span><span class="fn-label">${escapeHtml(x.label)} <span class="fn-once">this function only</span></span></div>`).join('');
+  const addons = addonRows ? `
+    <div class="section-label">Add-ons</div>
+    <div class="card tight">${addonRows}</div>` : '';
 
   const courses = sortCourses(f.courses).map(c => {
     const items = (c.items||[]).map(i => {
@@ -3296,14 +3308,34 @@ function renderFunction(id){
     </div>
     ${diet}
     ${f.notes?`<div class="section-label">Notes</div><div class="card"><div class="rn-text">${escapeHtml(f.notes)}</div></div>`:''}
-    ${mezze}
+    ${addons}
     ${courses}
     <div class="add-row"><button class="btn" data-goto="fnEdit" data-fid="${escapeHtml(f.id)}">Edit function</button></div>
   `;
 }
 
 function blankFunction(){
-  return { id:'', date: addDaysKey(7), name:'', pax:0, tier:'', startTime:'', dietary:[], notes:'', mezze:0, courses:[] };
+  return { id:'', date: addDaysKey(7), name:'', pax:0, tier:'', startTime:'', dietary:[], notes:'', mezze:0, tiramisu:0, extras:[], courses:[] };
+}
+/* v3.11.25: a function's one-off add-ons with a name, each with a whole number (1 at least) */
+function fnExtras(f){
+  return (Array.isArray(f && f.extras) ? f.extras : []).filter(x => x && String(x.label||'').trim())
+    .map(x => ({ id: String(x.id||''), label: String(x.label).trim(), qty: Math.max(1, parseInt(x.qty, 10) || 1) }));
+}
+/* v3.11.25: an add-on's row on the edit form: a switch, and its number when it's on (the mezze row's way) */
+function addonSwitchHTML(key, label, qty, unit, aria){
+  return `
+      <div class="mezze-row addon-row">
+        <label class="switch" for="f-${key}">
+          <input type="checkbox" id="f-${key}" ${qty?'checked':''}>
+          <span class="switch-track"><span class="switch-knob"></span></span>
+          <span class="switch-label">${label}</span>
+        </label>
+        <span class="fni-amt" id="f-${key}-wrap" ${qty?'':'hidden'}>
+          <input class="fni-num" id="f-${key}-qty" value="${qty||1}" inputmode="numeric" aria-label="${aria}">
+          <span class="fni-unit">${unit}</span>
+        </span>
+      </div>`;
 }
 
 function renderFunctionEdit(id){
@@ -3313,6 +3345,14 @@ function renderFunctionEdit(id){
 
   const tierChips = state.tiers.map(tr =>
     `<button type="button" class="chip cat-chip ${tr.id===f.tier?'chip-on':''}" data-tier-pick="${escapeHtml(tr.id)}">${escapeHtml(tr.label)}</button>`).join('');
+
+  // v3.11.25: one-offs for this function only (kept while being typed; one with no name is dropped on save)
+  const extraRows = (Array.isArray(f.extras) ? f.extras : []).map(x => `
+    <div class="ing-row extra-row">
+      <input class="ing-item" data-extra-label="${escapeHtml(x.id)}" value="${escapeHtml(x.label||'')}" placeholder="e.g. Birthday cake platter">
+      <input class="fni-num" data-extra-qty="${escapeHtml(x.id)}" value="${Math.max(1, parseInt(x.qty,10)||1)}" inputmode="numeric" aria-label="How many">
+      <button class="del-x" data-extra-del="${escapeHtml(x.id)}" aria-label="Remove">&times;</button>
+    </div>`).join('');
 
   const dietRows = (f.dietary||[]).map((d,i)=>`
     <div class="ing-row">
@@ -3372,22 +3412,20 @@ function renderFunctionEdit(id){
       <div class="chip-row">${tierChips}<button type="button" class="chip cat-chip cat-new" data-tier-pick="">None</button></div>
       <label>Notes</label>
       <textarea id="f-notes" rows="2" placeholder="Anything the kitchen should know">${escapeHtml(f.notes||'')}</textarea>
-      <div class="mezze-row">
-        <label class="switch" for="f-mezze">
-          <input type="checkbox" id="f-mezze" ${f.mezze?'checked':''}>
-          <span class="switch-track"><span class="switch-knob"></span></span>
-          <span class="switch-label">Mezze boards</span>
-        </label>
-        <span class="fni-amt" id="f-mezze-wrap" ${f.mezze?'':'hidden'}>
-          <input class="fni-num" id="f-mezze-qty" value="${f.mezze||1}" inputmode="numeric" aria-label="How many mezze boards">
-          <span class="fni-unit">boards</span>
-        </span>
-      </div>
     </div>
 
     <div class="section-label">Dietary requirements</div>
     <div class="card tight"><div id="diet-list">${dietRows || '<div class="empty">None yet.</div>'}</div></div>
     <div class="add-row"><button class="btn btn-ghost" id="diet-add">+ Add a dietary line</button></div>
+
+    <div class="section-label">Add-ons</div>
+    <div class="card tight">
+      ${addonSwitchHTML('mezze', 'Mezze boards', f.mezze, 'boards', 'How many mezze boards')}
+      ${addonSwitchHTML('tira', 'Tiramisu', f.tiramisu, 'serves', 'How many tiramisu')}
+      <div class="fn-once-head">Just for this function</div>
+      <div id="extra-list">${extraRows || '<div class="fn-none">None yet.</div>'}</div>
+    </div>
+    <div class="add-row"><button class="btn btn-ghost" id="extra-add">+ Add a one-off item</button></div>
 
     <div class="section-label">Running order</div>
     ${courseBlocks || '<div class="card"><div class="empty">Pick a menu tier above, or add a course.</div></div>'}
@@ -5179,6 +5217,16 @@ function attachHandlers(){
     const mz = document.getElementById('f-mezze');
     const mzq = document.getElementById('f-mezze-qty');
     if(mz){ f.mezze = mz.checked ? Math.max(1, parseInt(mzq ? mzq.value : '1', 10) || 1) : 0; }
+    // v3.11.25: the tiramisu (a switch and a number, as the mezze) and the one-offs
+    const tr = document.getElementById('f-tira');
+    const trq = document.getElementById('f-tira-qty');
+    if(tr){ f.tiramisu = tr.checked ? Math.max(1, parseInt(trq ? trq.value : '1', 10) || 1) : 0; }
+    if(document.getElementById('extra-list')){
+      f.extras = (Array.isArray(f.extras) ? f.extras : []).map(x => {
+        const lab = document.querySelector('[data-extra-label="'+x.id+'"]'), q = document.querySelector('[data-extra-qty="'+x.id+'"]');
+        return { id: x.id, label: lab ? (lab.value||'').trim() : String(x.label||''), qty: Math.max(1, parseInt(q ? q.value : x.qty, 10) || 1) };
+      });
+    }
     return f;
   }
 
@@ -5204,6 +5252,22 @@ function attachHandlers(){
 
   const dietAdd = document.getElementById('diet-add');
   if(dietAdd) dietAdd.addEventListener('click', ()=>{ const f = readFnDraft(); f.dietary.push(''); stashFn(f); });
+  // v3.11.25: a one-off add-on for this function, typed straight away
+  const extraAdd = document.getElementById('extra-add');
+  if(extraAdd) extraAdd.addEventListener('click', ()=>{
+    const f = readFnDraft();
+    f.extras = (Array.isArray(f.extras) ? f.extras : []).concat([{ id:'x'+uid(), label:'', qty:1 }]);
+    stashFn(f);
+    const boxes = document.querySelectorAll('[data-extra-label]');
+    if(boxes.length) boxes[boxes.length - 1].focus();
+  });
+  document.querySelectorAll('[data-extra-del]').forEach(b => {
+    b.addEventListener('click', ()=>{
+      const f = readFnDraft();
+      f.extras = (f.extras||[]).filter(x => x.id !== b.dataset.extraDel);
+      stashFn(f);
+    });
+  });
   document.querySelectorAll('[data-diet-del]').forEach(b => {
     b.addEventListener('click', ()=>{
       const f = readFnDraft();
@@ -5242,15 +5306,17 @@ function attachHandlers(){
       stashFn(f);
     });
   });
-  const mzToggle = document.getElementById('f-mezze');
-  if(mzToggle){
-    mzToggle.addEventListener('change', ()=>{
-      const wrap = document.getElementById('f-mezze-wrap');
-      const q = document.getElementById('f-mezze-qty');
-      if(wrap) wrap.hidden = !mzToggle.checked;
-      if(q && mzToggle.checked) q.focus();
+  // the add-ons' switches (v3.11.25: the tiramisu too): the number shows when it's on
+  ['mezze', 'tira'].forEach(key => {
+    const tog = document.getElementById('f-'+key);
+    if(!tog) return;
+    tog.addEventListener('change', ()=>{
+      const wrap = document.getElementById('f-'+key+'-wrap');
+      const q = document.getElementById('f-'+key+'-qty');
+      if(wrap) wrap.hidden = !tog.checked;
+      if(q && tog.checked) q.focus();
     });
-  }
+  });
 
   document.querySelectorAll('[data-fi-kind],[data-fi-course],[data-course-name]').forEach(sel => {
     sel.addEventListener('change', ()=> stashFn(readFnDraft()));
@@ -5267,6 +5333,7 @@ function attachHandlers(){
   document.querySelectorAll('[data-fn-save]').forEach(b => {
     b.addEventListener('click', async ()=>{
       const f = readFnDraft();
+      f.extras = fnExtras(f);   // v3.11.25: a one-off with no name isn't kept
       if(!f.date){ showToast('Pick a date'); return; }
       if(!f.name){ showToast('Give it a name'); return; }
       b.disabled = true; b.textContent = 'Saving…';
@@ -5914,10 +5981,10 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.24"></script>
+<script src="move-data.js?v=3.11.25"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.24"></script>
-<script src="voice-brain.js?v=3.11.24"></script>
-<script src="voice.js?v=3.11.24"></script>
+<script src="roster-engine.js?v=3.11.25"></script>
+<script src="voice-brain.js?v=3.11.25"></script>
+<script src="voice.js?v=3.11.25"></script>
 </body>
 </html>
