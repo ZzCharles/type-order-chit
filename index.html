@@ -676,6 +676,8 @@ a.btn-block{display:block;}
 .pl-acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;align-items:center;}
 .pl-acts .cb-matchbtn{margin-top:0;}
 .pl-other{margin-top:3px;}
+/* v3.11.34: a prices-only supplier renamed */
+.ps-name{flex:1;min-width:0;font:inherit;font-size:14px;padding:7px 9px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);}
 </style>
 
 </head>
@@ -769,7 +771,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.33';
+const APP_VERSION = 'v3.11.34';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -2813,6 +2815,7 @@ function goto(view){
   if(view.name !== 'fnDoc'){ state.fnDocText = ''; state.fnDocRead = null; state.fnDocPicks = null; }   // v3.11.28
   if(INV_FLOW.indexOf(view.name) < 0){ state.invText = ''; state.invRead = null; state.invPicks = null; state.invMatchAt = -1; state.invMatchPick = null; state.invVia = ''; }   // v3.11.30
   if(view.name !== 'plPaste' && view.name !== 'plCheck'){ state.plText = ''; state.plRead = null; state.plPicks = null; state.plOpen = {}; }   // v3.11.32
+  if(view.name !== 'invPrices'){ state.psEdit = ''; state.psText = null; }   // v3.11.34
   state.view = view; try{ history.pushState({view}, ''); }catch(e){} animate(render);
 }
 function findSupplier(id){ return state.suppliers.find(s=>s.id===id); }
@@ -3504,7 +3507,19 @@ function renderInvPrices(){
   return crumb + `<h2 class="screen-title">Prices</h2><p class="screen-sub">The current price of everything you’ve matched, from your invoices and price lists. Tap one for its history.</p>
     <div class="add-row"><button class="btn btn-ghost" data-goto="plPaste">Bring in a price list</button></div>
     ${plNewHTML()}
-    ${blocks || '<div class="empty">No prices yet: bring in an invoice or a price list.</div>'}`;
+    ${blocks || '<div class="empty">No prices yet: bring in an invoice or a price list.</div>'}
+    ${psListHTML()}`;
+}
+/* v3.11.34 (his answer, 24 Oct: the sheet's "Seafood supplier" was Southern Fresh, its old order sheet Sydney
+   Freezers): the prices-only suppliers, each renamable. A name another supplier already has is refused (never two
+   suppliers that look the same). What's typed lives in state, so a background redraw keeps it. */
+function psListHTML(){
+  const ps = invLoad(PRICE_SUPPLIERS_KEY, []);
+  if(!ps.length) return '';
+  return `<div class="section-label">Prices-only suppliers</div><div class="card tight">${ps.map(x => state.psEdit === x.id
+    ? `<div class="iv-packrow"><input class="ps-name" id="ps-name" value="${escapeHtml(state.psText != null ? state.psText : x.name)}" maxlength="60"><span><button class="cb-link" data-ps-save="${escapeHtml(x.id)}">Save</button><button class="cb-link" data-ps-cancel="1">Cancel</button></span></div>`
+    : `<div class="iv-packrow"><span>${escapeHtml(x.name)}</span><button class="cb-link" data-ps-edit="${escapeHtml(x.id)}">Rename</button></div>`).join('')}</div>
+    <div class="rd-note">Kept for comparing prices: never on the order list, the staff app or an email.</div>`;
 }
 
 /* ===== v3.11.32: a price list brought in (24 Oct 2026; invoice-plan.md §11; his picks) =====
@@ -5895,6 +5910,22 @@ function attachHandlers(){
     if(!invSave(INV_PRICES_KEY, r.prices) || !invSave(INV_MATCHES_KEY, r.matches)) return;
     render(); showToast('Pack set: ' + (Math.round(amt * 10000) / 10000) + ' ' + unit);
   }));
+  // v3.11.34: renaming a prices-only supplier
+  document.querySelectorAll('[data-ps-edit]').forEach(b => b.addEventListener('click', ()=>{ state.psEdit = b.dataset.psEdit; state.psText = null; render(); const i = document.getElementById('ps-name'); if(i){ i.focus(); i.select(); } }));
+  document.querySelectorAll('[data-ps-cancel]').forEach(b => b.addEventListener('click', ()=>{ state.psEdit = ''; state.psText = null; render(); }));
+  const psName = document.getElementById('ps-name');
+  if(psName) psName.addEventListener('input', ()=>{ state.psText = psName.value; });
+  document.querySelectorAll('[data-ps-save]').forEach(b => b.addEventListener('click', ()=>{
+    const id = b.dataset.psSave, name = String((document.getElementById('ps-name') || {}).value || '').trim().slice(0, 60), E = InvoiceEngine;
+    if(!name){ showToast('Give it a name'); return; }
+    const ps = invLoad(PRICE_SUPPLIERS_KEY, []), me = ps.find(x => x.id === id);
+    if(!me) return;
+    const clash = state.suppliers.find(s => E.looseKey(s.name) === E.looseKey(name)) || ps.find(x => x.id !== id && E.looseKey(x.name) === E.looseKey(name));
+    if(clash){ showToast('There’s already a supplier called ' + clash.name); return; }
+    me.name = name;
+    if(!invSave(PRICE_SUPPLIERS_KEY, ps)) return;
+    state.psEdit = ''; state.psText = null; render(); showToast('Renamed: ' + name);
+  }));
   const plClear = document.getElementById('pl-clearnew');
   if(plClear) plClear.addEventListener('click', ()=>{ invSave(NEW_ITEMS_KEY, []); render(); showToast('NEW marks cleared'); });
   const plKeep = document.getElementById('pl-keep');
@@ -6816,16 +6847,16 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.33"></script>
+<script src="move-data.js?v=3.11.34"></script>
 <!-- v3.11.28: the function doc reader. A separate file too: if it fails, only "From management's doc" says so. -->
-<script src="function-reader.js?v=3.11.33"></script>
+<script src="function-reader.js?v=3.11.34"></script>
 <!-- v3.11.30: the invoice rules. A separate file too: if it fails, only bringing in an invoice says so. -->
-<script src="invoice-engine.js?v=3.11.33"></script>
+<script src="invoice-engine.js?v=3.11.34"></script>
 <!-- v3.11.31: the supplier readers for a scanned invoice (Aziz's so far). -->
-<script src="invoice-readers.js?v=3.11.33"></script>
+<script src="invoice-readers.js?v=3.11.34"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.33"></script>
-<script src="voice-brain.js?v=3.11.33"></script>
-<script src="voice.js?v=3.11.33"></script>
+<script src="roster-engine.js?v=3.11.34"></script>
+<script src="voice-brain.js?v=3.11.34"></script>
+<script src="voice.js?v=3.11.34"></script>
 </body>
 </html>

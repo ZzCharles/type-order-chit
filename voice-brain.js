@@ -5803,7 +5803,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.33',
+  version: 'v3.11.34',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
