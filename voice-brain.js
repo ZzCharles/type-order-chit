@@ -104,7 +104,14 @@ function heardFix(text){
     .replace(new RegExp('\\broasted ((?:on|for) (?:' + DAY_WORDS + ')s?)\\b', 'gi'), 'rostered $1')
     // v3.11.2 (his log, 13 Oct: "how many hours am I roasted for this week")
     .replace(/\b(am i|are we|are they|is he|is she|i am|im|i'm|will i be|ill be|i'll be)\s+roasted\b/gi, '$1 rostered')
-    .replace(/\broasted(?=\s+(?:on|for|in|this|next)\s+(?:this\s+|next\s+|the\s+)?(?:week|weeks|weekend|weekends)\b)/gi, 'rostered');
+    .replace(/\broasted(?=\s+(?:on|for|in|this|next)\s+(?:this\s+|next\s+|the\s+)?(?:week|weeks|weekend|weekends)\b)/gi, 'rostered')
+    /* v3.11.26 (his log, 23 Oct): "could you also adds 10 pinets of cherry tomatoes", "read me back the micro
+       Freshwater" (Michael's Fresh), "make it for" (four: "make it" and nothing after it was "didn't catch that") */
+    .replace(/(^|\b(?:also|you|please|and|then|just|i|we|can|could|would)\s+)adds\b/gi, '$1add')
+    .replace(/\b(?:pinets?|pinnets?|punets?|pennets?)\b/gi, 'punnets')
+    .replace(/\b(?:micro|michael|michaels|michael's)\s*(?:fresh ?water)\b/gi, "Michael's Fresh")
+    .replace(/\bmicro fresh\b/gi, "Michael's Fresh")
+    .replace(/\b(make (?:it|that|them|those)) for(?=\s*[.!?]*\s*$|\s+(?:\d|kilos?|kgs?|kg|boxes|box|bunch(?:es)?|packets?|punnets?|trays?|tins?|cans?|bags?|bottles?|tubs?|plates?)\b)/gi, '$1 four');
 }
 function stem(w){
   if(IRREG[w]) return IRREG[w];   // v3.11.17: before the short-word rule, for "veg"
@@ -4839,12 +4846,22 @@ function createRoom(host){
     if(FN_TIRA_W.test(c)) return 'tiramisu';   // v3.11.25
     if(/\b(allerg\w*|dietar\w*|diets?|gluten|gf|vegan|vegans|vegetarians?|coeliac|celiac|nuts?|intoleran\w*)\b/.test(c)) return 'diet';
     if(/\b(tiers?|packages?|menus?)\b/.test(c)) return 'tier';
+    // v3.11.26 (his log, 23 Oct: "what dishes are we sending for the function"; "how many peaches …", his "pizzas"
+    // misheard, was answered with the head count): the dishes, and "how many <a dish>" is a dish's question
+    if(/\b(dishes|food)\b|\bwhat (?:are|do) we send(?:ing)?\b/.test(c)) return 'portion';
+    if(/\bhow many functions?\b/.test(c)) return 'list';   // "how many functions this week" (was the head count's)
+    var hm = /\bhow many ([a-z]+)/.exec(c);
+    if(hm && !FN_HM_NOT[hm[1]] && !FN_PAX_W.test(c)) return 'portion';
     if(/\bhow many\b|\b(pax|guests|heads|head count|headcount|covers|people)\b/.test(c)) return 'pax';
     if(/\b(notes?|details?|anything (special|else|i should know|to know)|tell me about)\b/.test(c)) return 'detail';
     if(/\bwhat time\b|\bstart(s|ing)?\b|\bkick(s)? off\b/.test(c)) return 'time';
     if(/\b(what|which) (day|date)\b|\bwhen\b/.test(c)) return 'day';
     return 'list';
   }
+  // "how many …" words that aren't a dish (the head count's, or a question's own)
+  var FN_HM_NOT = { are: 1, is: 1, was: 1, were: 1, do: 1, does: 1, did: 1, will: 1, would: 1, have: 1, has: 1, of: 1, more: 1, function: 1, functions: 1,
+    we: 1, they: 1, there: 1, people: 1, persons: 1, guests: 1, pax: 1, heads: 1, covers: 1, kids: 1, children: 1, adults: 1, staff: 1, coming: 1,
+    attending: 1, days: 1, hours: 1, plates: 1, plate: 1, portions: 1, serves: 1, mezze: 1, tiramisu: 1, in: 1, at: 1, for: 1, on: 1, the: 1, a: 1 };
   function fnOrd(n){ var t = n % 100; return n + (t >= 11 && t <= 13 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th'); }
   /* the days asked about: one day, or a stretch ("this week" is today to Sunday) -> { from, to, words, one } | null */
   function fnWhen(c, today){
@@ -4878,7 +4895,9 @@ function createRoom(host){
     return 'on ' + name + (dated || n > 6 ? ' the ' + fnOrd(d.getDate()) : '');
   }
   function fnName(f){ return String(f.name || '').trim(); }
-  function fnWhose(f){ var n = fnName(f); return n ? n + '\u2019s function' : 'the function'; }
+  /* "Tara's", and a name ending in s: "Tara Cousins'" (v3.11.26, his log: "Tara Cousins\u2019s") */
+  function fnPoss(n){ return /s$/i.test(n) ? n + '\u2019' : n + '\u2019s'; }
+  function fnWhose(f){ var n = fnName(f); return n ? fnPoss(n) + ' function' : 'the function'; }
   /* the functions a name in the sentence picks out ("Tara's function"): the first word of each name */
   function fnNamed(c, list){
     var hit = list.filter(function(f){ var w = clean(fnName(f)).split(' ')[0]; return w && w.length >= 3 && new RegExp('\\b' + w + 's?\\b').test(c); });
@@ -5352,7 +5371,17 @@ function createRoom(host){
     }
     var r = fnRecent();
     if(r && /^(?:(?:and|so|ok|okay|what|how|about|for|on|the|then|also) )*(?:(?:this|next) )?(?:week|weekend|today|tonight|tomorrow|monday|tuesday|wednesday|thursday|friday|saturday|sunday)s?$/.test(c)) return 'follow';
+    // v3.11.26 (his log, 23 Oct: "how many polenta are we sending", "and how many calamari" right after a function answer
+    // went to the order): a dish of the function just talked about, asked about (never an order's or a list's sentence)
+    if(r && FN_DISH_Q.test(c) && !FN_LIST_W.test(c) && !FN_ROSTER_W.test(c) && fnDishSaid(c, r.dishes)) return 'dish';
     return null;
+  }
+  var FN_DISH_Q = /^(?:(?:and|so|ok|okay|also|then|um|uh)\s+)*(?:how many|how much|whats? about|what about)\b/;
+  /* a dish of these names said ("polenta" is Polenta Chips), the way fnDishIn finds one */
+  function fnDishSaid(c, labels){
+    return (labels || []).some(function(l){
+      return clean(l).split(' ').some(function(w){ return w.length >= 4 && !FN_DISH_SKIP[w] && new RegExp('\\b' + w.replace(/(es|s)$/, '') + '(e?s)?\\b').test(c); });
+    });
   }
   async function fnAnswer(text, follow){
     var c = clean(text), today = tsToday();
@@ -5366,15 +5395,27 @@ function createRoom(host){
     var kind = follow ? follow.kind : fnKind(c), when = fnWhen(c, today), named = follow ? null : fnNamed(c, list);
     var say, log;
     function done(s, l, sel){
-      fnLast = { at: now(), kind: kind, ids: (sel || []).map(function(f){ return f.id; }) };
+      // v3.11.26: and their dishes, so "and how many calamari" right after is theirs
+      fnLast = { at: now(), kind: kind, ids: (sel || []).map(function(f){ return f.id; }), dishes: [].concat.apply([], (sel || []).map(function(f){ return fnItems(f).map(function(i){ return i.label; }); })) };
       return ans('answer', { say: [s + stale], log: 'fn ' + l + (got.stale ? ' (kept)' : '') });
+    }
+    // v3.11.26 (his log: "any more functions after that" repeated this week's): the ones after the function just talked about
+    var prev = fnRecent();
+    if(kind === 'list' && !named && !when && prev && prev.ids.length && /\b(after (?:that|this|it|them|those)|any ?more|other (?:ones?|functions?)|another (?:one|function))\b/.test(c)){
+      var bf = list.filter(function(f){ return prev.ids.indexOf(f.id) > -1; }).sort(function(a, b){ return a.date < b.date ? -1 : 1; }).pop();
+      if(bf){
+        var later = list.filter(function(f){ return f.date > bf.date; }), base = fnWhose(bf) + ' ' + fnOn(bf.date, today);
+        if(!later.length) return done('No functions after ' + base + ' yet.', 'after none', [bf]);
+        var al = later.slice(0, FN_SAY_MAX).map(function(f){ return fnLine(f, today, true); }), am = later.length - al.length;
+        return done('After ' + base + ': ' + (al.length > 1 ? al.slice(0, -1).join('; ') + '; and ' + al[al.length - 1] : al[0]) + (am ? '; and ' + am + ' more' : '') + '.', 'after ' + later.length, later);
+      }
     }
     if(kind === 'list' && !named){
       var single = /\bnext function\b|\bthe next one\b/.test(c) && !when;
       if(single){
         if(!list.length) return done('No functions coming up.', 'next none');
         var f0 = list[0];
-        return done('The next function is ' + (fnName(f0) ? fnName(f0) + '\u2019s, ' : '') + fnOn(f0.date, today, true) + (fnDetails(f0) ? ': ' + fnDetails(f0) : '') + '.', 'next', [f0]);
+        return done('The next function is ' + (fnName(f0) ? fnPoss(fnName(f0)) + ', ' : '') + fnOn(f0.date, today, true) + (fnDetails(f0) ? ': ' + fnDetails(f0) : '') + '.', 'next', [f0]);
       }
       var w = when || { from: today, to: addDays(mondayOf(today), 6), words: 'this week' };
       var inR = list.filter(function(f){ return f.date >= w.from && f.date <= w.to; });
@@ -5393,7 +5434,9 @@ function createRoom(host){
     // the plates of a dish (or all of them), for one function
     if(kind === 'portion' || kind === 'pax'){
       var pf = named ? (when ? named.filter(function(f){ return f.date >= when.from && f.date <= when.to; }) : named)
-        : when ? list.filter(function(f){ return f.date >= when.from && f.date <= when.to; }) : list.slice(0, 1);
+        : when ? list.filter(function(f){ return f.date >= when.from && f.date <= when.to; })
+        // v3.11.26: the one just talked about ("for that function", "and how many calamari"), else the next one
+        : (function(r){ var ids = follow && follow.ids ? follow.ids : r && r.ids.length === 1 && /\b(that|this|the same) function\b/.test(c) ? r.ids : null; var x = ids ? list.filter(function(f){ return ids.indexOf(f.id) > -1; }) : []; return x.length ? x : list.slice(0, 1); })(prev);
       var withDish = pf.filter(function(f){ return fnDishIn(c, f).length; });
       if(kind === 'portion' || withDish.length){
         if(!pf.length) return done(named ? 'I can\u2019t find that function.' : when ? (when.one ? 'No function ' : 'No functions ') + when.words + '.' : 'No functions coming up.', 'portion none');
@@ -5406,6 +5449,9 @@ function createRoom(host){
             if(ds.length === 1 && pf.length === 1) fnPortion = { at: now(), fid: f.id, itemId: ds[0].id };
             return;
           }
+          // v3.11.26: "how many peaches" (his "pizzas", misheard): the word said isn't on it, said so (never the head count instead)
+          var askd = (/\bhow many ([a-z]+)/.exec(c) || [])[1];
+          if(askd && !FN_HM_NOT[askd] && !FN_PLATES.test(c)){ outs.push('I can\u2019t find ' + askd + ' on ' + fnWhose(f) + ' ' + fnOn(f.date, today) + '.'); return; }
           if(FN_PLATES.test(c) && fnWords(c)){ outs.push('I can\u2019t find that dish on ' + fnWhose(f) + ' ' + fnOn(f.date, today) + '.'); return; }
           if(!fnCounted(f.pax) && items.some(function(i){ return i.kind !== 'set'; })){ outs.push(cap(fnWhose(f)) + ' ' + fnOn(f.date, today) + ' has no head count yet, so I can\u2019t work out the plates.'); return; }
           outs.push('For ' + fnWhose(f) + ' ' + fnOn(f.date, today) + ' (' + f.pax + ' people): ' + items.slice(0, 8).map(function(i){ return i.label + ' ' + fnPlateWord(fnPlates(i, f.pax)); }).join(', ') + '.');
@@ -5454,6 +5500,7 @@ function createRoom(host){
       if(fnr === 'detail') return await fnDetailChange(req.text || '');   // v3.11.24
       if(fnr === 'ask') return await fnAnswer(req.text || '');
       if(fnr === 'follow') return await fnAnswer(req.text || '', fnRecent());
+      if(fnr === 'dish') return await fnAnswer(req.text || '', { kind: 'portion', ids: fnRecent().ids });   // v3.11.26
       if(fnr === 'portion') return await fnChange(req.text || '');
       // v3.11.1 (his log, 13 Oct): "and Friday", "check Saturday as well" right after a roster answer
       var roF = roFollowDay(req.text || '', lastR);
@@ -5753,7 +5800,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.25',
+  version: 'v3.11.26',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
