@@ -174,10 +174,28 @@
 
   /* ---------- matches (plan §3, §7: matched once per printed name, per supplier) ---------- */
   function nameKey(s){ return String(s || '').toUpperCase().replace(/\s+/g, ' ').replace(/[\s.,;:]+$/, '').trim(); }
+  /* v3.11.31: a scan can read a name a little differently each time ("OLVES" for "OLIVES"), so with no exact match,
+     the remembered name most like it counts: letters at least 85% the same, the numbers in it identical (so "MOZZA 2KG"
+     never takes "MOZZA 12KG"'s match), and clearly the closest (5 points ahead of the next). Marked fuzzy. */
+  function lev(a, b){
+    var prev = [], cur, i, j;
+    for(j = 0; j <= b.length; j++) prev.push(j);
+    for(i = 1; i <= a.length; i++){ cur = [i]; for(j = 1; j <= b.length; j++) cur.push(Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1))); prev = cur; }
+    return prev[b.length];
+  }
+  function scanKey(s){ return nameKey(s).replace(/\b[IL](?=\s?(KG|G|GR|L|LT|ML)\b)/g, '1').replace(/(\d)O|O(\d)/g, function(x, p, q){ return p ? p + '0' : '0' + q; }).replace(/[^A-Z0-9. ]+/g, ' ').replace(/\s+/g, ' ').trim(); }
+  function numbersIn(s){ return (scanKey(s).match(/\d+(?:\.\d+)?/g) || []).join(' '); }
   function findMatch(matches, supplier, description){
     var sk = nameKey(supplier), dk = nameKey(description), hit = null;
     (matches || []).forEach(function(m){ if(!hit && nameKey(m.supplier) === sk && nameKey(m.key || m.description) === dk) hit = m; });
-    return hit;
+    if(hit) return hit;
+    var d = scanKey(description), dn = numbersIn(description), best = null, bs = 0, second = 0;
+    (matches || []).forEach(function(m){
+      if(nameKey(m.supplier) !== sk || numbersIn(m.key || m.description) !== dn) return;
+      var k = scanKey(m.key || m.description), sim = d || k ? 1 - lev(d, k) / Math.max(d.length, k.length) : 0;
+      if(sim > bs){ second = bs; bs = sim; best = m; } else if(sim > second) second = sim;
+    });
+    return best && bs >= 0.85 && bs - second >= 0.05 ? Object.assign({}, best, { fuzzy: true }) : null;
   }
   var SKIP = { the: 1, and: 1, with: 1, for: 1, ctn: 1, pkt: 1, each: 1, tin: 1, bag: 1, box: 1, full: 1, premium: 1, fresh: 1 };
   function words(s){

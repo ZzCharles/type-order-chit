@@ -760,7 +760,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.30';
+const APP_VERSION = 'v3.11.31';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -772,6 +772,7 @@ let state = {
   functions: [], tiers: [], fnLoaded: false, fnDraft: null,
   fnDocText: '', fnDocRead: null, fnDocPicks: null, fnFromDoc: false,   // v3.11.28: a new function from management's doc (never saved)
   invText: '', invRead: null, invPicks: null, invMatchAt: -1, invMatchPick: null,   // v3.11.30: an invoice being brought in (never saved until Keep)
+  invScanId: '', invVia: '',   // v3.11.31: a scan being waited for; how the invoice came in
   devices: [], codes: [], authEnforced: false, authLoaded: false,
   recipes: [], recipeSections: [], recipeSync: null, recipesLoaded: false,
   recipeSearch: '', recipeFilter: null, importPreview: null, importRaw: '',
@@ -2801,7 +2802,7 @@ function goto(view){
   if(view.name !== state.view.name && (view.name === 'recipeImport' || state.view.name === 'recipeImport')){ state.importPreview = null; state.importRaw = ''; }
   if(!(view.name === 'fnEdit' && view.fid === 'new')){ state.fnDraft = null; state.fnFromDoc = false; }
   if(view.name !== 'fnDoc'){ state.fnDocText = ''; state.fnDocRead = null; state.fnDocPicks = null; }   // v3.11.28
-  if(INV_FLOW.indexOf(view.name) < 0){ state.invText = ''; state.invRead = null; state.invPicks = null; state.invMatchAt = -1; state.invMatchPick = null; }   // v3.11.30
+  if(INV_FLOW.indexOf(view.name) < 0){ state.invText = ''; state.invRead = null; state.invPicks = null; state.invMatchAt = -1; state.invMatchPick = null; state.invVia = ''; }   // v3.11.30
   state.view = view; try{ history.pushState({view}, ''); }catch(e){} animate(render);
 }
 function findSupplier(id){ return state.suppliers.find(s=>s.id===id); }
@@ -3253,6 +3254,25 @@ const INV_FLOW = ['invPaste','invCheck','invMatch','invHist'];
 const INV_KEPT_KEY = 'order-chit-inv-kept', INV_MATCHES_KEY = 'order-chit-inv-matches', INV_SUPPLIERS_KEY = 'order-chit-inv-suppliers',
   INV_PRICES_KEY = 'order-chit-prices', PRICE_ITEMS_KEY = 'order-chit-price-items';
 const INV_PROMPT = 'Copy this supplier invoice into CSV, exactly in this layout. Columns: row,supplier,invoice_no,date,page,description,unit,qty_printed,unit_price_ex_gst,net_ex_gst,gst,total,note. One "invoice" row with the printed totals (page = number of pages), then one "line" row per invoice line, in order. Copy words and numbers exactly as printed, including spelling mistakes; join a description that wraps onto two lines. Put a quantity in qty_printed only if it is printed, never from handwriting (handwriting may go in note). Numbers without $ or commas; dates as YYYY-MM-DD. If you can\'t read a number, leave it empty and write "unreadable" in note; never guess. Leave out phone numbers, names, addresses, customer numbers, bank details, balances and credits. No comments, no totals of your own, no comparisons: only the CSV.';
+/* v3.11.31: the Pluto app's Scan (app 1.25+): Google's document scanner and on-phone text reader in the app; the
+   words come back as window.passScan, and the supplier's reader (invoice-readers.js) turns them into the check's
+   lines. Only in the app's tab, never in a room or Chrome. */
+const IN_APP_SCAN = (function(){ try{ return !ROOM && !!(window.PlutoRoomHost && typeof window.PlutoRoomHost.scanInvoice === 'function'); }catch(e){ return false; } })();
+window.passScan = function(json){
+  let o = null;
+  try{ o = typeof json === 'string' ? JSON.parse(json) : json; }catch(e){ o = null; }
+  if(!o || o.id !== state.invScanId) return;
+  state.invScanId = '';
+  if(!o.ok){ showToast(o.why === 'cancelled' ? 'Scan cancelled' : 'Couldn’t scan: ' + (o.why || 'it failed')); return; }
+  if(typeof InvoiceReaders === 'undefined'){ showToast('The invoice reader didn’t load. Reload The Pass.'); return; }
+  const r = InvoiceReaders.read(o.pages);
+  if(!r.ok){ showToast(r.why); return; }
+  const p = r.parsed, printed = (p.invoice && p.invoice.supplier) || (p.lines[0] && p.lines[0].supplier) || '';
+  state.invRead = p; state.invText = ''; state.invVia = 'scan';
+  state.invPicks = { supplierId: invSupplierFor(printed), received: p.lines.map(() => true), choice: {} };
+  goto({name:'invCheck'}); window.scrollTo(0,0);
+  showToast('Read ' + p.lines.length + ' line' + (p.lines.length === 1 ? '' : 's') + ' from ' + o.pages.length + ' page' + (o.pages.length === 1 ? '' : 's'));
+};
 function invLoad(key, empty){ const v = readStoredJSON(key); return v == null ? empty : v; }
 function invSave(key, v){ try{ localStorage.setItem(key, JSON.stringify(v)); return true; }catch(e){ showToast('The phone’s storage is full: not kept.'); return false; } }
 function invProducts(supplierId){
@@ -3289,8 +3309,9 @@ function invBringHTML(){
   return `
     <div class="form-card">
       <div class="fd-title">Bring in an invoice</div>
-      <div class="iv-two"><button class="btn" data-goto="invPaste">Paste an invoice</button><button class="btn btn-doc" data-goto="invPrices">Prices</button></div>
-      <div class="rd-note">Scan comes with the next Pluto app update. Only the words and numbers are kept, on this phone.</div>
+      ${IN_APP_SCAN ? `<div class="iv-two"><button class="btn" id="inv-scan">Scan</button><button class="btn btn-doc" data-goto="invPaste">Paste</button></div><div class="add-row"><button class="cb-link" data-goto="invPrices">Prices</button></div>`
+        : `<div class="iv-two"><button class="btn" data-goto="invPaste">Paste an invoice</button><button class="btn btn-doc" data-goto="invPrices">Prices</button></div>`}
+      <div class="rd-note">${IN_APP_SCAN ? 'Scan reads Aziz’s invoices so far; the picture is deleted once read.' : 'Scan works in the Pluto app (1.25 or newer).'} Only the words and numbers are kept, on this phone.</div>
     </div>
     ${rows ? `<div class="section-label">Kept lately</div><div class="card tight">${rows}</div>` : ''}`;
 }
@@ -3373,7 +3394,7 @@ function renderInvCheck(){
   const wait = !sup ? 'Pick the supplier first.' : [st.unmatched ? `match ${st.unmatched} line${st.unmatched === 1 ? '' : 's'}` : '', st.toDecide ? `decide ${st.toDecide} price${st.toDecide === 1 ? '' : 's'}` : ''].filter(Boolean).join(' and ');
   return back + `
     ${r.problems.length ? `<div class="move-why">${escapeHtml(r.problems.join(' '))}</div>` : ''}
-    <div class="recipe-head"><div class="recipe-eyebrow">${escapeHtml(invDayLabel(st.date))}${st.number ? ' · invoice ' + escapeHtml(st.number) : ''}${r.invoice && r.invoice.pages ? ' · ' + r.invoice.pages + ' page' + (r.invoice.pages === 1 ? '' : 's') : ''}</div><h2 class="recipe-title">${escapeHtml(sup ? sup.name : printed || 'Invoice')}</h2>
+    <div class="recipe-head"><div class="recipe-eyebrow">${state.invVia === 'scan' ? 'Scanned · ' : ''}${escapeHtml(invDayLabel(st.date))}${st.number ? ' · invoice ' + escapeHtml(st.number) : ''}${r.invoice && r.invoice.pages ? ' · ' + r.invoice.pages + ' page' + (r.invoice.pages === 1 ? '' : 's') : ''}</div><h2 class="recipe-title">${escapeHtml(sup ? sup.name : printed || 'Invoice')}</h2>
       <div class="cb-sum">${adds}${need ? ` · <span class="cb-amb">${need} thing${need === 1 ? '' : 's'} need${need === 1 ? 's' : ''} you</span>` : ''}</div></div>
     ${supPick}
     <div class="cb-bar"><span>${ticked} of ${r.lines.length} delivered</span><button class="cb-link" id="inv-tickall">Tick all</button></div>
@@ -5528,6 +5549,12 @@ function attachHandlers(){
   // v3.11.30: invoices brought in (his picks, 23 Oct)
   const ivText = document.getElementById('inv-text');
   if(ivText) ivText.addEventListener('input', ()=>{ state.invText = ivText.value; });
+  const ivScan = document.getElementById('inv-scan');
+  if(ivScan) ivScan.addEventListener('click', ()=>{
+    if(!IN_APP_SCAN) return;
+    state.invScanId = 's' + Date.now();
+    try{ window.PlutoRoomHost.scanInvoice(state.invScanId); showToast('Opening the scanner…'); }catch(e){ state.invScanId = ''; showToast('Couldn’t open the scanner'); }
+  });
   const ivPrompt = document.getElementById('inv-prompt');
   if(ivPrompt) ivPrompt.addEventListener('click', ()=>{ try{ navigator.clipboard.writeText(INV_PROMPT).then(()=>showToast('Prompt copied'), ()=>showToast('Couldn’t copy: it’s in invoice-plan.md')); }catch(e){ showToast('Couldn’t copy'); } });
   const ivRead = document.getElementById('inv-read');
@@ -5536,7 +5563,7 @@ function attachHandlers(){
     if(!text.trim()){ showToast('Paste the invoice first'); return; }
     const r = InvoiceEngine.readCSV(text);
     const printed = (r.invoice && r.invoice.supplier) || (r.lines[0] && r.lines[0].supplier) || '';
-    state.invRead = r; state.invText = '';
+    state.invRead = r; state.invText = ''; state.invVia = 'paste';
     state.invPicks = { supplierId: invSupplierFor(printed), received: r.lines.map(() => true), choice: {} };
     goto({name:'invCheck'}); window.scrollTo(0,0);
   });
@@ -5618,7 +5645,7 @@ function attachHandlers(){
     });
     const credits = InvoiceEngine.credits(st.chk.lines, st.p.received).total;
     const total = r.invoice && r.invoice.total != null ? r.invoice.total : st.chk.sums.total;
-    kept.unshift({ id: id, supplierId: sid, printedSupplier: (r.invoice && r.invoice.supplier) || '', number: st.number, date: st.date, pages: r.invoice ? r.invoice.pages : null,
+    kept.unshift({ id: id, via: state.invVia || 'paste', supplierId: sid, printedSupplier: (r.invoice && r.invoice.supplier) || '', number: st.number, date: st.date, pages: r.invoice ? r.invoice.pages : null,
       net: r.invoice ? r.invoice.net : st.chk.sums.net, gst: r.invoice ? r.invoice.gst : st.chk.sums.gst, total: total, credits: credits, keptAt: now, lines: lines });
     if(!invSave(INV_PRICES_KEY, prices.slice(-5000)) || !invSave(INV_KEPT_KEY, kept.slice(0, 400))) return;
     const wk = invWeekStart(st.date);
@@ -6506,14 +6533,16 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.30"></script>
+<script src="move-data.js?v=3.11.31"></script>
 <!-- v3.11.28: the function doc reader. A separate file too: if it fails, only "From management's doc" says so. -->
-<script src="function-reader.js?v=3.11.30"></script>
+<script src="function-reader.js?v=3.11.31"></script>
 <!-- v3.11.30: the invoice rules. A separate file too: if it fails, only bringing in an invoice says so. -->
-<script src="invoice-engine.js?v=3.11.30"></script>
+<script src="invoice-engine.js?v=3.11.31"></script>
+<!-- v3.11.31: the supplier readers for a scanned invoice (Aziz's so far). -->
+<script src="invoice-readers.js?v=3.11.31"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.30"></script>
-<script src="voice-brain.js?v=3.11.30"></script>
-<script src="voice.js?v=3.11.30"></script>
+<script src="roster-engine.js?v=3.11.31"></script>
+<script src="voice-brain.js?v=3.11.31"></script>
+<script src="voice.js?v=3.11.31"></script>
 </body>
 </html>
