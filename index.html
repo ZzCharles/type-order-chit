@@ -580,6 +580,36 @@ a.btn-block{display:block;}
 .move-alt{font-size:11.5px;text-align:center;margin-top:14px;}
 .move-alt button{background:none;border:none;font-family:inherit;font-size:11.5px;color:var(--muted);text-decoration:underline;cursor:pointer;padding:2px;}
 .move-done{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--mustard);border-radius:12px;padding:12px 14px;margin-bottom:12px;font-size:13px;line-height:1.45;}
+/* v3.11.28: a new function from management's doc (the paste, the check list) */
+.add-two{flex-direction:column;align-items:stretch;gap:8px;}
+.btn-doc{background:#EDEBDF;color:var(--ink);border:none;}
+.fd-title{font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;}
+.rd-steps{font-size:12.5px;line-height:1.5;color:var(--ink-soft);margin:8px 0 10px;padding-left:20px;}
+.form-card textarea.rd-paste{font-size:11.5px;line-height:1.35;}
+.rd-note{font-size:11.5px;color:var(--muted);margin-top:8px;}
+.pill-check{background:#F6EBDC;color:#8A5A16;}
+.pill-miss{background:#F3E3E1;color:var(--stamp);}
+.rd-row{display:flex;gap:11px;align-items:flex-start;padding:11px 0;border-bottom:1px solid #F5F3EA;}
+.rd-row:last-child{border-bottom:none;}
+.rd-ic{flex:0 0 22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;margin-top:1px;}
+.rd-ic.ok{background:#E3EFDC;color:#2F5F39;}
+.rd-ic.warn{background:#F6EBDC;color:#8A5A16;}
+.rd-ic.miss{background:#F3E3E1;color:var(--stamp);}
+.rd-ic.lock{background:#EDEBDF;color:var(--muted);}
+.rd-body{flex:1;min-width:0;}
+.rd-k{font-size:10.5px;font-weight:800;letter-spacing:0.8px;text-transform:uppercase;color:var(--muted);}
+.rd-v{font-size:14.5px;font-weight:700;margin-top:1px;overflow-wrap:anywhere;}
+.rd-small{font-size:12.5px;font-weight:500;line-height:1.45;}
+.rd-from{font-size:11.5px;font-weight:500;color:var(--muted);}
+.rd-why{font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.4;}
+.rd-chips{margin-top:7px;}
+.rd-left .rd-v{color:var(--muted);}
+.fd-notes{margin-top:6px;}
+.fd-note{display:flex;gap:9px;align-items:flex-start;padding:6px 0;font-size:13px;line-height:1.4;cursor:pointer;}
+.fd-note input{margin-top:2px;flex:0 0 auto;}
+.fd-add{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px;}
+.fd-add-name{font-weight:600;font-size:14px;}
+.rd-banner{background:#F6EBDC;color:#6E4810;border-radius:12px;padding:10px 13px;font-size:12.5px;line-height:1.45;margin-bottom:12px;}
 </style>
 
 </head>
@@ -673,7 +703,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.27';
+const APP_VERSION = 'v3.11.28';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -683,6 +713,7 @@ let state = {
   homeOpen: null,
   codeDrafts: {},
   functions: [], tiers: [], fnLoaded: false, fnDraft: null,
+  fnDocText: '', fnDocRead: null, fnDocPicks: null, fnFromDoc: false,   // v3.11.28: a new function from management's doc (never saved)
   devices: [], codes: [], authEnforced: false, authLoaded: false,
   recipes: [], recipeSections: [], recipeSync: null, recipesLoaded: false,
   recipeSearch: '', recipeFilter: null, importPreview: null, importRaw: '',
@@ -2710,7 +2741,8 @@ function goto(view){
   if(view.name !== state.view.name){ state.move = null; state.broughtIn = false; }   // v3.11.3
   if(!(view.name === 'recipeEdit' && view.rid === 'new')) state.recipeDraft = null;
   if(view.name !== state.view.name && (view.name === 'recipeImport' || state.view.name === 'recipeImport')){ state.importPreview = null; state.importRaw = ''; }
-  if(!(view.name === 'fnEdit' && view.fid === 'new')) state.fnDraft = null;
+  if(!(view.name === 'fnEdit' && view.fid === 'new')){ state.fnDraft = null; state.fnFromDoc = false; }
+  if(view.name !== 'fnDoc'){ state.fnDocText = ''; state.fnDocRead = null; state.fnDocPicks = null; }   // v3.11.28
   state.view = view; try{ history.pushState({view}, ''); }catch(e){} animate(render);
 }
 function findSupplier(id){ return state.suppliers.find(s=>s.id===id); }
@@ -2753,7 +2785,7 @@ function buildSendLink(supplier, message, subject){
 
 /* Screens where the user is typing. A background poll must never redraw these
    or half-entered forms vanish — which is what wiped function names and pax. */
-const EDIT_VIEWS = ['fnEdit','fnTiers','recipeEdit','addSupplier','addProduct','editProduct','recipeImport','access','prepItems','voiceTeach','welcome','move'];
+const EDIT_VIEWS = ['fnEdit','fnTiers','fnDoc','recipeEdit','addSupplier','addProduct','editProduct','recipeImport','access','prepItems','voiceTeach','welcome','move'];
 function isEditing(){ return EDIT_VIEWS.indexOf(state.view.name) > -1; }
 function bgRender(){ if(isEditing()) return; render(); }
 
@@ -2795,6 +2827,7 @@ function render(){
   else if(v.name === "fnView") html += renderFunction(v.fid);
   else if(v.name === "fnEdit") html += renderFunctionEdit(v.fid);
   else if(v.name === "fnTiers") html += renderTiers();
+  else if(v.name === "fnDoc") html += renderFunctionDoc();
   else if(v.name === "prepAdd") html += renderPrepAdd();
   else if(v.name === "prepItems") html += renderPrepItems();
   else if(v.name === "recipes") html += renderRecipes();
@@ -3249,7 +3282,7 @@ function renderFunctions(){
     <h2 class="screen-title">Functions</h2>
     <p class="screen-sub">The next 4 weeks. Staff see the next two weeks.</p>
     ${body}
-    <div class="add-row"><button class="btn" data-goto="fnEdit" data-fid="new">+ New Function</button></div>
+    <div class="add-row add-two"><button class="btn" data-goto="fnEdit" data-fid="new">+ New Function</button><button class="btn btn-doc" data-goto="fnDoc">+ From management’s doc</button></div>
     <div class="sync-line"><button data-goto="fnTiers">Menu tiers</button></div>
   `;
 }
@@ -3312,6 +3345,59 @@ function renderFunction(id){
     ${courses}
     <div class="add-row"><button class="btn" data-goto="fnEdit" data-fid="${escapeHtml(f.id)}">Edit function</button></div>
   `;
+}
+
+/* v3.11.28: a new function from management's doc (his order's step 2; his pick 3A, the check list
+   first). He pastes the doc's text; function-reader.js reads it by its labels (no AI: what it can't
+   find it says, what it isn't sure of is marked "check"; a client's phone and email are never kept);
+   his taps pick the name and the head count, leave notes out, set the add-ons; "Fill the form" opens
+   the New Function form filled in, the tier's courses filled the usual way. Nothing is saved before
+   Save, and the pasted text is dropped as soon as it's read. */
+function fdRow(st, k, v, why, extra){
+  const ic = st === 'ok' ? '<span class="rd-ic ok">&#10003;</span>' : st === 'check' ? '<span class="rd-ic warn">!</span>'
+    : st === 'lock' ? '<span class="rd-ic lock">&#8856;</span>' : st === 'skip' ? '<span class="rd-ic lock">&ndash;</span>' : '<span class="rd-ic miss">?</span>';
+  return `<div class="rd-row${st==='lock'||st==='skip'?' rd-left':''}">${ic}<div class="rd-body"><div class="rd-k">${k}</div>${v?`<div class="rd-v">${v}</div>`:''}${why?`<div class="rd-why">${escapeHtml(why)}</div>`:''}${extra||''}</div></div>`;
+}
+function renderFunctionDoc(){
+  const crumb = `<div class="crumb"><button data-goto="functions">&larr; Functions</button></div>`;
+  if(typeof FunctionReader === 'undefined') return crumb + `<div class="empty">The doc reader didn’t load. Reload The Pass.</div>`;
+  const r = state.fnDocRead;
+  if(!r){
+    return crumb + `
+    <div class="form-card">
+      <div class="fd-title">New function from a doc</div>
+      <ol class="rd-steps"><li>Open the function in Google Calendar and tap its doc.</li><li>In the doc, touch and hold a word &rarr; <b>Select all</b> &rarr; <b>Copy</b>.</li><li>Come back here and paste.</li></ol>
+      <textarea id="fndoc-text" class="rd-paste" rows="12" placeholder="Paste the doc here">${escapeHtml(state.fnDocText||'')}</textarea>
+      <div class="rd-note">A client’s phone number and email are never kept.</div>
+    </div>
+    <div class="oi-actions"><button class="btn btn-ghost" data-goto="functions">Cancel</button><button class="btn" id="fndoc-read">Read it</button></div>`;
+  }
+  const back = `<div class="crumb"><button data-fndoc-back="1">&larr; Back to the paste</button></div>`;
+  if(!r.ok) return back + `<div class="move-why">${escapeHtml(r.why)}</div><div class="oi-actions"><button class="btn" data-fndoc-back="1">Paste again</button></div>`;
+  const f = r.fields, p = state.fnDocPicks || {}, c = r.counts;
+  const chips = (opts, on, attr) => opts.length > 1 ? `<div class="chip-row rd-chips">${opts.map(o => `<button type="button" class="chip cat-chip ${String(o)===String(on)?'chip-on':''}" ${attr}="${escapeHtml(o)}">${escapeHtml(o)}</button>`).join('')}</div>` : '';
+  const tier = state.tiers.find(t => t.id === f.tier.value);
+  const add = f.addons.value || {}, tira = p.tiramisu != null ? p.tiramisu : add.tiramisu, mezze = p.mezze != null ? p.mezze : add.mezze;
+  const num = (id, val, unit, label) => `<div class="fd-add"><span class="fd-add-name">${label}</span><span class="fni-amt"><input class="fni-num" id="${id}" value="${val}" inputmode="numeric" aria-label="How many ${label}"><span class="fni-unit">${unit}</span></span></div>`;
+  const off = p.notesOff || [];
+  const notes = f.notes.value.map((n, i) => `<label class="fd-note"><input type="checkbox" data-fd-note="${i}" ${off.indexOf(i) > -1 ? '' : 'checked'}><span>${escapeHtml(n)}</span></label>`).join('');
+  const LEFT = { phone: 'phone number', email: 'email', address: 'address' };
+  const pills = `<span class="pill">${c.ok + c.check} found</span>${c.check ? `<span class="pill pill-check">${c.check} to check</span>` : ''}${c.missing ? `<span class="pill pill-miss">${c.missing} couldn’t find</span>` : ''}`;
+  return back + `
+    <div class="recipe-head"><div class="recipe-eyebrow">From the doc</div><h2 class="recipe-title">${escapeHtml(p.name || 'New function')}</h2><div class="pill-row">${pills}</div></div>
+    <div class="card tight">
+      ${fdRow(f.name.status, 'Name', escapeHtml(p.name || ''), f.name.why, chips(f.name.options || [], p.name, 'data-fd-name'))}
+      ${fdRow(f.date.status, 'Date', f.date.value ? escapeHtml(FunctionReader.niceDate(f.date.value)) : '', f.date.why)}
+      ${fdRow(f.startTime.status, 'Start time', escapeHtml(f.startTime.value || ''), f.startTime.why)}
+      ${fdRow(f.pax.status, 'Head count', p.pax ? escapeHtml(String(p.pax)) + (f.pax.said && f.pax.said !== String(p.pax) ? ` <span class="rd-from">the doc: ${escapeHtml(f.pax.said)}</span>` : '') : '', f.pax.why, chips(f.pax.options || [], p.pax, 'data-fd-pax'))}
+      ${fdRow(f.tier.status, 'Menu tier', tier ? escapeHtml(tier.label) + (f.tier.said ? ` <span class="rd-from">“${escapeHtml(f.tier.said)}”</span>` : '') : '', f.tier.why)}
+      ${fdRow(f.dietary.status, 'Dietary', escapeHtml((f.dietary.value || []).join(' · ')), f.dietary.why)}
+      ${fdRow(f.notes.status, 'Notes', '', f.notes.value.length ? 'Untick any you don’t want in the notes.' : f.notes.why, notes ? `<div class="fd-notes">${notes}</div>` : '')}
+      ${fdRow(f.addons.status, 'Add-ons', '', f.addons.why, (tira ? num('fd-tira', tira, 'serves', 'Tiramisu') : '') + (mezze ? num('fd-mezze', mezze, 'boards', 'Mezze boards') : ''))}
+      ${r.left.length ? fdRow('lock', 'Left out', `<span class="rd-small">A client’s ${r.left.map(k => LEFT[k] || k).join(' and ')}: never kept.</span>`, '') : ''}
+      ${r.notRead.length ? fdRow('skip', 'Not read', `<span class="rd-small">${escapeHtml(r.notRead.join(', '))}</span>`, '') : ''}
+    </div>
+    <div class="oi-actions"><button class="btn btn-ghost" data-goto="functions">Cancel</button><button class="btn" id="fndoc-fill">Fill the form</button></div>`;
 }
 
 function blankFunction(){
@@ -3398,6 +3484,7 @@ function renderFunctionEdit(id){
 
   return `
     <div class="crumb"><button data-goto="${isNew?'functions':'fnView'}" data-fid="${escapeHtml(id)}">&larr; Cancel</button></div>
+    ${isNew && state.fnFromDoc ? `<div class="rd-banner">Filled from management’s doc. Check it, then Save. A client’s phone and email were left out.</div>` : ''}
     <div class="form-card">
       <div style="font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;">${isNew?'New Function':'Edit Function'}</div>
       <label>Date</label>
@@ -5152,6 +5239,46 @@ function attachHandlers(){
     el.addEventListener('click', ()=> goto({name:'fnView', fid: el.dataset.openFn}));
   });
 
+  // v3.11.28: a new function from management's doc. Background syncs can redraw the paste box,
+  // so what's pasted lives in state until it's read, then it's dropped.
+  const fdText = document.getElementById('fndoc-text');
+  if(fdText) fdText.addEventListener('input', ()=>{ state.fnDocText = fdText.value; });
+  const fdRead = document.getElementById('fndoc-read');
+  if(fdRead) fdRead.addEventListener('click', ()=>{
+    const text = fdText ? fdText.value : '';
+    if(!text.trim()){ showToast('Paste the doc first'); return; }
+    const r = FunctionReader.read(text, { today: addDaysKey(0), tiers: state.tiers });
+    state.fnDocText = '';
+    state.fnDocRead = r;
+    state.fnDocPicks = { name: r.ok ? r.fields.name.value || '' : '', pax: r.ok ? r.fields.pax.value || 0 : 0, notesOff: [] };
+    render(); window.scrollTo(0,0);
+  });
+  function fdKeepNums(){
+    const p = state.fnDocPicks; if(!p) return;
+    const t = document.getElementById('fd-tira'), m = document.getElementById('fd-mezze');
+    if(t) p.tiramisu = Math.max(0, parseInt(t.value,10) || 0);
+    if(m) p.mezze = Math.max(0, parseInt(m.value,10) || 0);
+  }
+  document.querySelectorAll('[data-fndoc-back]').forEach(b => b.addEventListener('click', ()=>{ state.fnDocRead = null; state.fnDocPicks = null; render(); window.scrollTo(0,0); }));
+  document.querySelectorAll('[data-fd-name]').forEach(b => b.addEventListener('click', ()=>{ fdKeepNums(); state.fnDocPicks.name = b.dataset.fdName; render(); }));
+  document.querySelectorAll('[data-fd-pax]').forEach(b => b.addEventListener('click', ()=>{ fdKeepNums(); state.fnDocPicks.pax = parseInt(b.dataset.fdPax,10) || 0; render(); }));
+  document.querySelectorAll('[data-fd-note]').forEach(cb => cb.addEventListener('change', ()=>{
+    const off = state.fnDocPicks.notesOff, i = parseInt(cb.dataset.fdNote,10), at = off.indexOf(i);
+    if(cb.checked && at > -1) off.splice(at, 1);
+    if(!cb.checked && at < 0) off.push(i);
+  }));
+  const fdFill = document.getElementById('fndoc-fill');
+  if(fdFill) fdFill.addEventListener('click', ()=>{
+    fdKeepNums();
+    const d = FunctionReader.draft(state.fnDocRead, state.fnDocPicks);
+    const tier = state.tiers.find(x => x.id === d.tier);
+    d.courses = tier ? coursesFromTier(tier) : [];
+    state.fnDraft = Object.assign(blankFunction(), d);
+    state.fnFromDoc = true;   // goto keeps both for the New Function form
+    goto({name:'fnEdit', fid:'new'});
+    window.scrollTo(0,0);
+  });
+
   function readFnDraft(){
     const f = state.view.fid === 'new'
       ? Object.assign(blankFunction(), state.fnDraft || {})
@@ -5981,10 +6108,12 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.27"></script>
+<script src="move-data.js?v=3.11.28"></script>
+<!-- v3.11.28: the function doc reader. A separate file too: if it fails, only "From management's doc" says so. -->
+<script src="function-reader.js?v=3.11.28"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.27"></script>
-<script src="voice-brain.js?v=3.11.27"></script>
-<script src="voice.js?v=3.11.27"></script>
+<script src="roster-engine.js?v=3.11.28"></script>
+<script src="voice-brain.js?v=3.11.28"></script>
+<script src="voice.js?v=3.11.28"></script>
 </body>
 </html>
