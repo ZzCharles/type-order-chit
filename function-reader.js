@@ -17,7 +17,7 @@
   if(typeof module === 'object' && module.exports) module.exports = factory();
   else root.FunctionReader = factory();
 })(this, function(){
-  var MAX_TEXT = 30000, MAX_NOTES = 15, MAX_DIET = 8;
+  var MAX_TEXT = 60000, MAX_NOTES = 15, MAX_DIET = 8;   // 60,000 letters: his 4-page doc is about 2,200, so over 25 times that
   var MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
   var MON = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   var DAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
@@ -218,6 +218,7 @@
     opts = opts || {};
     var today = /^\d{4}-\d{2}-\d{2}$/.test(opts.today || '') ? opts.today : '2026-01-01';
     var tiers = Array.isArray(opts.tiers) ? opts.tiers : [];
+    var cut = String(text == null ? '' : text).length > MAX_TEXT;   // v3.11.29: a cut paste is said, never silent
     var L = lines(text), sec = 'top', seen = {}, title = '', got = {}, host = '', hostScrubbed = false;
     var notes = [], food = [], dessert = [], diet = [], notRead = [], left = [], extraLines = [];
     function leave(kinds){ kinds.forEach(function(k){ if(left.indexOf(k) < 0) left.push(k); }); }
@@ -332,20 +333,25 @@
     else if(dNone) f.dietary = { value: [], status: 'ok', why: 'None.' };
     else f.dietary = { value: [], status: 'missing', why: 'No dietary line in the doc.' };
 
-    /* add-ons: complimentary tiramisu -> 1 batch (his rule); a mezze board -> 1, to check */
+    /* add-ons: complimentary tiramisu -> 1 batch (his rule); a mezze board -> 1, to check.
+       v3.11.29: a line that says no ("No mezze board", his real doc; "not included", "without") adds none, and says so. */
+    var NO = /\b(no|not|without|excluding|exclude|excluded|nil|none)\b/i;
     var all = notes.concat(food.map(function(x){ return x.t; }), dessert.map(function(x){ return x.t; }), extraLines);
-    var tira = all.some(function(t){ return complimentary.test(t); }) ? 1 : 0;
+    var tiraLines = all.filter(function(t){ return complimentary.test(t); });
+    var tira = tiraLines.some(function(t){ return !NO.test(t); }) ? 1 : 0, tiraNo = !tira && tiraLines.length > 0;
     var mezzeLine = null;
     all.some(function(t){ if(/mezze\s*boards?|mezze\b/i.test(t)){ mezzeLine = t; return true; } return false; });
-    var mezze = 0;
-    if(mezzeLine){
+    var mezze = 0, mezzeNo = !!mezzeLine && NO.test(mezzeLine);
+    if(mezzeLine && !mezzeNo){
       var NUM = { one: 1, two: 2, three: 3, four: 4, five: 5, a: 1, an: 1 };
       var mm = /(\d{1,2})\s*x?\s*(?:[a-z]+\s+){0,2}mezze/i.exec(mezzeLine) || /\b(one|two|three|four|five)\b\s+(?:[a-z]+\s+){0,2}mezze/i.exec(mezzeLine);
       mezze = mm ? (+mm[1] || NUM[mm[1].toLowerCase()] || 1) : 1;
     }
     var addWhy = [];
     if(tira) addWhy.push('"Complimentary tiramisu": Tiramisu 1 (one batch).');
+    if(tiraNo) addWhy.push('The doc says no complimentary tiramisu.');
     if(mezze) addWhy.push('The doc mentions a mezze board: Mezze boards ' + mezze + '.');
+    if(mezzeNo) addWhy.push('The doc says no mezze board.');
     f.addons = { value: { tiramisu: tira, mezze: mezze }, status: mezze ? 'check' : 'ok', why: addWhy.join(' ') || 'None in the doc.' };
 
     /* notes: occasion, style, the Important Notes bullets (each can be left out), TBCs */
@@ -363,7 +369,7 @@
     keys.forEach(function(k){ counts[f[k].status]++; });
     var looks = !!(got.date || got.time || got.guests || priceLine);
     return { ok: looks, why: looks ? '' : "This doesn't look like a function doc: there's no Date, Time, Guests or package line.",
-      fields: f, left: left, notRead: notRead, counts: counts, title: title };
+      fields: f, left: left, notRead: notRead, counts: counts, title: title, cut: cut };
   }
 
   /* The New Function form's fields from a read, with his taps on the check list:

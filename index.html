@@ -703,7 +703,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.28';
+const APP_VERSION = 'v3.11.29';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -3385,6 +3385,7 @@ function renderFunctionDoc(){
   const pills = `<span class="pill">${c.ok + c.check} found</span>${c.check ? `<span class="pill pill-check">${c.check} to check</span>` : ''}${c.missing ? `<span class="pill pill-miss">${c.missing} couldn’t find</span>` : ''}`;
   return back + `
     <div class="recipe-head"><div class="recipe-eyebrow">From the doc</div><h2 class="recipe-title">${escapeHtml(p.name || 'New function')}</h2><div class="pill-row">${pills}</div></div>
+    ${r.cut ? `<div class="rd-banner">This paste was very long: only the first 60,000 letters were read. Check nothing’s missing.</div>` : ''}
     <div class="card tight">
       ${fdRow(f.name.status, 'Name', escapeHtml(p.name || ''), f.name.why, chips(f.name.options || [], p.name, 'data-fd-name'))}
       ${fdRow(f.date.status, 'Date', f.date.value ? escapeHtml(FunctionReader.niceDate(f.date.value)) : '', f.date.why)}
@@ -6108,12 +6109,12 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.28"></script>
+<script src="move-data.js?v=3.11.29"></script>
 <!-- v3.11.28: the function doc reader. A separate file too: if it fails, only "From management's doc" says so. -->
-<script src="function-reader.js?v=3.11.28"></script>
+<script src="function-reader.js?v=3.11.29"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.28"></script>
-<script src="voice-brain.js?v=3.11.28"></script>
-<script src="voice.js?v=3.11.28"></script>
+<script src="roster-engine.js?v=3.11.29"></script>
+<script src="voice-brain.js?v=3.11.29"></script>
+<script src="voice.js?v=3.11.29"></script>
 </body>
 </html>
