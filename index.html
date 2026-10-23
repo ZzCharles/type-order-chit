@@ -678,6 +678,10 @@ a.btn-block{display:block;}
 .pl-other{margin-top:3px;}
 /* v3.11.34: a prices-only supplier renamed */
 .ps-name{flex:1;min-width:0;font:inherit;font-size:14px;padding:7px 9px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);}
+/* v3.11.35: a kept price changed or removed (his pick: tap a row, edit below) */
+.iv-hist[data-pr-edit]{cursor:pointer;}
+.iv-hist.pr-on{background:#F6EBDC;border-radius:8px;}
+.pr-card .form-actions .btn-danger{margin-right:auto;}
 </style>
 
 </head>
@@ -771,7 +775,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.34';
+const APP_VERSION = 'v3.11.35';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -2816,6 +2820,7 @@ function goto(view){
   if(INV_FLOW.indexOf(view.name) < 0){ state.invText = ''; state.invRead = null; state.invPicks = null; state.invMatchAt = -1; state.invMatchPick = null; state.invVia = ''; }   // v3.11.30
   if(view.name !== 'plPaste' && view.name !== 'plCheck'){ state.plText = ''; state.plRead = null; state.plPicks = null; state.plOpen = {}; }   // v3.11.32
   if(view.name !== 'invPrices'){ state.psEdit = ''; state.psText = null; }   // v3.11.34
+  if(view.name !== 'invHist' || view.fid !== state.view.fid){ state.prEdit = null; state.prDraft = null; }   // v3.11.35
   state.view = view; try{ history.pushState({view}, ''); }catch(e){} animate(render);
 }
 function findSupplier(id){ return state.suppliers.find(s=>s.id===id); }
@@ -3464,12 +3469,31 @@ function renderInvHist(pid){
   const defUnit = /^(l|lt|ltr|litres?)$/i.test(pu) ? 'L' : 'kg';
   const packHTML = packless.length ? `<div class="section-label">Pack size not known</div><div class="card tight">${packless.map(sid => `<div class="iv-packrow"><span>${escapeHtml(invSupName(sid))}</span><span class="fni-amt"><input class="fni-num" data-pack-amt="${escapeHtml(sid)}" inputmode="decimal" placeholder="size"><select class="iv-unit" data-pack-unit="${escapeHtml(sid)}">${['kg','L','each'].map(u => `<option ${u === defUnit ? 'selected' : ''}>${u}</option>`).join('')}</select><button class="cb-link" data-pack-set="${escapeHtml(sid)}">Set</button></span></div>`).join('')}</div>
     <div class="rd-note">Type it once, from the label: its prices then show a price per kg, L or each.</div>` : '';
-  const rows = h.map(x => `<div class="iv-hist"><span>${escapeHtml(invDayLabel(x.rec.date) || 'undated')}${many ? `<br><span class="iv-pk">${escapeHtml(invSupName(x.rec.supplier))}</span>` : ''}</span><span>${invMoney(x.rec.price)}</span><span>${x.rec.perBase != null ? invMoney(x.rec.perBase) : '–'}</span><span class="${x.dir === 'up' ? 'up' : x.dir === 'down' ? 'down' : ''}">${x.dir === 'up' ? '▲ ' + x.pct + '%' : x.dir === 'down' ? '▼ ' + Math.abs(x.pct) + '%' : x.dir === 'same' ? 'same' : 'first'}${x.rec.once ? '<br><span class="iv-pk">once</span>' : ''}</span></div>`).join('');
+  // v3.11.35 (his pick: tap a row, edit below): the price being changed, found again by its fingerprint if the list moved
+  const pe = state.prEdit, ei = !pe ? -1 : prices[pe.idx] && JSON.stringify(prices[pe.idx]) === pe.fp ? pe.idx : prices.findIndex(r => JSON.stringify(r) === pe.fp);
+  const er = ei > -1 ? prices[ei] : null;
+  let editHTML = '';
+  if(er){
+    const d = state.prDraft || (state.prDraft = { price: String(er.price), billing: er.billing === 'weight' ? 'weight' : 'pack', amt: er.pack ? String(er.pack.amount) : '', unit: er.pack ? er.pack.unit : defUnit, date: er.date || '', note: er.note || '' });
+    editHTML = `<div class="section-label">Edit · ${escapeHtml(invSupName(er.supplier))} · ${escapeHtml(invDayLabel(er.date) || 'undated')}</div>
+    <div class="form-card pr-card">
+      <label>Price (ex GST)</label><input data-pr-f="price" inputmode="decimal" value="${escapeHtml(d.price)}">
+      <div class="chip-row"><button type="button" class="chip cat-chip${d.billing === 'pack' ? ' chip-on' : ''}" data-pr-billing="pack">Per pack</button><button type="button" class="chip cat-chip${d.billing === 'weight' ? ' chip-on' : ''}" data-pr-billing="weight">Per kg (weighed)</button></div>
+      ${d.billing === 'pack' ? `<label>Pack size <span class="iv-pk">(empty if not known)</span></label><div class="iv-packrow"><span class="fni-amt"><input class="fni-num" data-pr-f="amt" inputmode="decimal" value="${escapeHtml(d.amt)}"><select class="iv-unit" data-pr-f="unit">${['kg','L','each'].map(u => `<option ${u === d.unit ? 'selected' : ''}>${u}</option>`).join('')}</select></span></div>` : ''}
+      <label>Date <span class="iv-pk">(empty if undated)</span></label><input type="date" data-pr-f="date" value="${escapeHtml(d.date)}">
+      <label>Note</label><input data-pr-f="note" maxlength="200" value="${escapeHtml(d.note)}">
+      <div class="rd-why" id="pr-per">${escapeHtml(prPerText(er, d))}</div>
+      ${er.invoiceId ? `<div class="rd-note">From a kept invoice: the invoice itself isn’t changed.</div>` : ''}
+      <div class="form-actions"><button class="btn btn-danger" id="pr-remove">Remove</button><button class="btn btn-ghost" id="pr-cancel">Cancel</button><button class="btn" id="pr-save">Save</button></div>
+    </div>`;
+  }
+  const rows = h.map(x => `<div class="iv-hist${x.rec === er ? ' pr-on' : ''}" data-pr-edit="${prices.indexOf(x.rec)}"><span>${escapeHtml(invDayLabel(x.rec.date) || 'undated')}${many ? `<br><span class="iv-pk">${escapeHtml(invSupName(x.rec.supplier))}</span>` : ''}</span><span>${invMoney(x.rec.price)}</span><span>${x.rec.perBase != null ? invMoney(x.rec.perBase) : '–'}</span><span class="${x.dir === 'up' ? 'up' : x.dir === 'down' ? 'down' : ''}">${x.dir === 'up' ? '▲ ' + x.pct + '%' : x.dir === 'down' ? '▼ ' + Math.abs(x.pct) + '%' : x.dir === 'same' ? 'same' : 'first'}${x.rec.once ? '<br><span class="iv-pk">once</span>' : ''}</span></div>`).join('');
   return `
     <div class="crumb">${back}</div>
     <div class="recipe-head"><div class="recipe-eyebrow">Price history${latest && !many ? ' · ' + escapeHtml(invSupName(latest.supplier)) : ''}</div><h2 class="recipe-title">${escapeHtml(invProductName(pid))}</h2>
       ${cur ? `<div class="pill-row">${cur.pack ? `<span class="pill">${cur.pack.amount} ${escapeHtml(cur.pack.unit)} pack</span>` : ''}<span class="pill">now ${invMoney(cur.perBase != null ? cur.perBase : cur.price)}${cur.perBase != null ? '/' + escapeHtml(unit(cur)) : ''}</span></div>` : ''}</div>
     ${rows ? `<div class="card tight"><div class="iv-hist iv-hh"><span>Date</span><span>Price</span><span>Per ${escapeHtml(latest ? unit(latest) || 'unit' : 'unit')}</span><span>Change</span></div>${rows}</div>
+    ${editHTML || '<div class="rd-note">Tap a price to change or remove it.</div>'}
     ${h.filter(x => x.rec.note || x.rec.code).map(x => `<div class="pl-note">${escapeHtml(invDayLabel(x.rec.date) || 'Undated')}${many ? ' · ' + escapeHtml(invSupName(x.rec.supplier)) : ''}: ${escapeHtml([x.rec.code ? 'code ' + x.rec.code : '', x.rec.note || ''].filter(Boolean).join('. '))}</div>`).join('')}
     <div class="rd-note">The last ${h.length} price${h.length === 1 ? '' : 's'}, from ${escapeHtml(h.map(x => x.rec.source).filter((s, i, a) => s && a.indexOf(s) === i).join(', '))}. Kept on this phone only.</div>` : `<div class="empty">No prices kept for it yet.</div>`}${packHTML}`;
 }
@@ -3541,6 +3565,12 @@ function invSupName(sid){
   return p ? p.name : retiredName(sid) || 'A removed supplier';
 }
 function plNewSet(){ try{ return new Set(invLoad(NEW_ITEMS_KEY, []).map(m => m.id)); }catch(e){ return new Set(); } }
+/* v3.11.35: the edit card's values -> InvoiceEngine.editPrice's, and what they come to */
+function prVals(d){ return { price: d.price, billing: d.billing, pack: { amount: d.amt, unit: d.unit }, date: d.date, note: d.note }; }
+function prPerText(rec, d){
+  const r = InvoiceEngine.editPrice(rec, prVals(d));
+  return !r.ok ? r.why : r.rec.perBase != null ? '= ' + invMoney(r.rec.perBase) + '/' + (d.billing === 'weight' ? 'kg' : d.unit) : 'No price per kg until the pack size is known.';
+}
 /* v3.11.33: an item he has edited (renamed, moved) is no longer NEW */
 function plUnmark(pid){ try{ const m = invLoad(NEW_ITEMS_KEY, []); if(m.some(x => x.id === pid)) invSave(NEW_ITEMS_KEY, m.filter(x => x.id !== pid)); }catch(e){} }
 /* the NEW marks whose item is still on an order list */
@@ -5910,6 +5940,46 @@ function attachHandlers(){
     if(!invSave(INV_PRICES_KEY, r.prices) || !invSave(INV_MATCHES_KEY, r.matches)) return;
     render(); showToast('Pack set: ' + (Math.round(amt * 10000) / 10000) + ' ' + unit);
   }));
+  // v3.11.35: a kept price changed or removed (his pick: tap a row, edit below)
+  document.querySelectorAll('[data-pr-edit]').forEach(el => el.addEventListener('click', ()=>{
+    const i = +el.dataset.prEdit, p = invLoad(INV_PRICES_KEY, []);
+    if(!p[i]) return;
+    const same = el.classList.contains('pr-on');
+    state.prEdit = same ? null : { idx: i, fp: JSON.stringify(p[i]) }; state.prDraft = null; render();
+    const c = document.querySelector('.pr-card'); if(c && c.scrollIntoView) c.scrollIntoView({ block: 'nearest' });
+  }));
+  document.querySelectorAll('[data-pr-f]').forEach(el => el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'input', ()=>{
+    if(!state.prDraft) return;
+    state.prDraft[el.dataset.prF] = el.value;
+    const f = prFind(), out = document.getElementById('pr-per');
+    if(f.i > -1 && out) out.textContent = prPerText(f.p[f.i], state.prDraft);
+  }));
+  document.querySelectorAll('[data-pr-billing]').forEach(b => b.addEventListener('click', ()=>{ if(state.prDraft){ state.prDraft.billing = b.dataset.prBilling; render(); } }));
+  function prFind(){
+    const p = invLoad(INV_PRICES_KEY, []), pe = state.prEdit;
+    return { p: p, i: !pe ? -1 : p[pe.idx] && JSON.stringify(p[pe.idx]) === pe.fp ? pe.idx : p.findIndex(r => JSON.stringify(r) === pe.fp) };
+  }
+  function prGone(){ state.prEdit = null; state.prDraft = null; render(); showToast('That price changed meanwhile: tap it again'); }
+  const prCancel = document.getElementById('pr-cancel');
+  if(prCancel) prCancel.addEventListener('click', ()=>{ state.prEdit = null; state.prDraft = null; render(); });
+  const prSave = document.getElementById('pr-save');
+  if(prSave) prSave.addEventListener('click', ()=>{
+    const f = prFind(); if(f.i < 0) return prGone();
+    const r = InvoiceEngine.editPrice(f.p[f.i], prVals(state.prDraft));
+    if(!r.ok){ showToast(r.why); return; }
+    f.p[f.i] = r.rec;
+    if(!invSave(INV_PRICES_KEY, f.p)) return;
+    state.prEdit = null; state.prDraft = null; render(); showToast('Price saved');
+  });
+  const prRemove = document.getElementById('pr-remove');
+  if(prRemove) prRemove.addEventListener('click', ()=>{
+    const f = prFind(); if(f.i < 0) return prGone();
+    const r = f.p[f.i];
+    if(!confirm('Remove this price from the history?\n\n' + invSupName(r.supplier) + ' · ' + (invDayLabel(r.date) || 'undated') + ' · ' + invMoney(r.price))) return;
+    f.p.splice(f.i, 1);
+    if(!invSave(INV_PRICES_KEY, f.p)) return;
+    state.prEdit = null; state.prDraft = null; render(); showToast('Price removed');
+  });
   // v3.11.34: renaming a prices-only supplier
   document.querySelectorAll('[data-ps-edit]').forEach(b => b.addEventListener('click', ()=>{ state.psEdit = b.dataset.psEdit; state.psText = null; render(); const i = document.getElementById('ps-name'); if(i){ i.focus(); i.select(); } }));
   document.querySelectorAll('[data-ps-cancel]').forEach(b => b.addEventListener('click', ()=>{ state.psEdit = ''; state.psText = null; render(); }));
@@ -6847,16 +6917,16 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.34"></script>
+<script src="move-data.js?v=3.11.35"></script>
 <!-- v3.11.28: the function doc reader. A separate file too: if it fails, only "From management's doc" says so. -->
-<script src="function-reader.js?v=3.11.34"></script>
+<script src="function-reader.js?v=3.11.35"></script>
 <!-- v3.11.30: the invoice rules. A separate file too: if it fails, only bringing in an invoice says so. -->
-<script src="invoice-engine.js?v=3.11.34"></script>
+<script src="invoice-engine.js?v=3.11.35"></script>
 <!-- v3.11.31: the supplier readers for a scanned invoice (Aziz's so far). -->
-<script src="invoice-readers.js?v=3.11.34"></script>
+<script src="invoice-readers.js?v=3.11.35"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.34"></script>
-<script src="voice-brain.js?v=3.11.34"></script>
-<script src="voice.js?v=3.11.34"></script>
+<script src="roster-engine.js?v=3.11.35"></script>
+<script src="voice-brain.js?v=3.11.35"></script>
+<script src="voice.js?v=3.11.35"></script>
 </body>
 </html>

@@ -424,8 +424,30 @@
     };
   }
 
+  /* v3.11.35 (his ask, 24 Oct: a price pasted wrong, "soon enough it will be editable"): a kept price changed by hand.
+     c = { price, billing: 'pack'|'weight', pack: { amount, unit } | null (empty = not known), date: 'YYYY-MM-DD' or '' (undated),
+     note }. -> { ok, rec } (a new record: $ per kg/L/each worked out again; its supplier, item, source, invoice, once and
+     time kept; marked edited) | { ok: false, why }. A phone number or email is never kept in a note. */
+  function editPrice(rec, c){
+    c = c || {};
+    var price = typeof c.price === 'number' ? c.price : num(c.price);
+    if(!(price > 0)) return { ok: false, why: 'Type the price' };
+    var date = String(c.date == null ? '' : c.date).trim();
+    if(date && day(date) !== day(date)) return { ok: false, why: 'That date isn’t a date' };
+    var note = String(c.note == null ? '' : c.note).trim().slice(0, 200);
+    if(note && hasContact(note)) return { ok: false, why: 'A phone number or email can’t be kept in a note' };
+    var weighed = c.billing === 'weight', pack = null, a = c.pack ? c.pack.amount : null;
+    if(!weighed && a != null && String(a).trim() !== ''){
+      a = typeof a === 'number' ? a : num(a);
+      if(!(a > 0) || !/^(kg|L|each)$/.test(c.pack.unit)) return { ok: false, why: 'That pack size isn’t a size' };
+      pack = { amount: round(a, 4), unit: c.pack.unit };
+    }
+    return { ok: true, rec: Object.assign({}, rec || {}, { price: round(price, 4), billing: weighed ? 'weight' : 'pack', pack: pack,
+      perBase: perBase(price, pack, weighed ? 'weight' : 'pack'), date: date, note: note, edited: true }) };
+  }
+
   return { COLS: COLS, cents: cents, money: money, num: num, csvRows: csvRows, readCSV: readCSV, checkLine: checkLine, checkInvoice: checkInvoice,
     readPack: readPack, perBase: perBase, nameKey: nameKey, findMatch: findMatch, suggest: suggest, priceRecord: priceRecord, priceChange: priceChange, currentPrice: currentPrice, historyOf: historyOf,
     orderedVsInvoiced: orderedVsInvoiced, credits: credits, compareSuppliers: compareSuppliers, hasContact: hasContact,
-    looseKey: looseKey, readPriceList: readPriceList, listRecord: listRecord, samePrice: samePrice, setPack: setPack };
+    looseKey: looseKey, readPriceList: readPriceList, listRecord: listRecord, samePrice: samePrice, setPack: setPack, editPrice: editPrice };
 });
