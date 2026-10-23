@@ -111,7 +111,9 @@ function heardFix(text){
     .replace(/\b(?:pinets?|pinnets?|punets?|pennets?)\b/gi, 'punnets')
     .replace(/\b(?:micro|michael|michaels|michael's)\s*(?:fresh ?water)\b/gi, "Michael's Fresh")
     .replace(/\bmicro fresh\b/gi, "Michael's Fresh")
-    .replace(/\b(make (?:it|that|them|those)) for(?=\s*[.!?]*\s*$|\s+(?:\d|kilos?|kgs?|kg|boxes|box|bunch(?:es)?|packets?|punnets?|trays?|tins?|cans?|bags?|bottles?|tubs?|plates?)\b)/gi, '$1 four');
+    .replace(/\b(make (?:it|that|them|those)) for(?=\s*[.!?]*\s*$|\s+(?:\d|kilos?|kgs?|kg|boxes|box|bunch(?:es)?|packets?|punnets?|trays?|tins?|cans?|bags?|bottles?|tubs?|plates?)\b)/gi, '$1 four')
+    // v3.11.27 (his log, 23 Oct #384: "can you add savior Rd biscuits"): Google's ways of writing Savoiardi
+    .replace(/\b(?:savior|saviour|savoir|savoy|savio)\s*(?:rd|road|ardi|ardy|ardee|yardi|yardy)\b|\bsavoyardi\b/gi, 'Savoiardi');
 }
 function stem(w){
   if(IRREG[w]) return IRREG[w];   // v3.11.17: before the short-word rule, for "veg"
@@ -927,7 +929,8 @@ var PRODUCT_ALIASES = {
   az06: ['cream'],
   az07: ['milk'],
   az08: ['butter'],
-  az15: ['savoiardi', 'sav fingers', 'lady fingers', 'ladyfingers', 'sponge fingers', 'biscotti', 'biscotti fingers'],
+  az15: ['savoiardi', 'sav fingers', 'lady fingers', 'ladyfingers', 'sponge fingers', 'biscotti', 'biscotti fingers',
+    'savoiardi biscuits', 'savoiardi biscuit', 'savoiardi fingers'],   // v3.11.27 (his log #384: "savior Rd biscuits")
   az17: ['caramel', 'top n fill', 'top and fill', 'nestle caramel', 'top in fill'],
   p3: ['squid', 'loligo', 'lolly squid', 'calamari', 'lolligo', 'loli squid', 'loligo squid'],
   p39: ['calamarata'],
@@ -5800,7 +5803,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.26',
+  version: 'v3.11.27',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
