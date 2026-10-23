@@ -610,6 +610,63 @@ a.btn-block{display:block;}
 .fd-add{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px;}
 .fd-add-name{font-weight:600;font-size:14px;}
 .rd-banner{background:#F6EBDC;color:#6E4810;border-radius:12px;padding:10px 13px;font-size:12.5px;line-height:1.45;margin-bottom:12px;}
+/* v3.11.30: invoices brought in (his pick 2B: calmer; The Pass's own ticks) */
+.iv-two{display:flex;gap:8px;margin-top:10px;}
+.iv-two .btn{flex:1;}
+.iv-kept{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 2px;border-bottom:1px solid #F2F0E6;cursor:pointer;}
+.iv-kept:last-child{border-bottom:none;}
+.iv-k1{font-weight:700;font-size:14.5px;}
+.iv-k2{font-size:11.5px;color:var(--muted);margin-top:2px;}
+.iv-k3{font-weight:800;white-space:nowrap;}
+.cb-sum{font-size:13px;margin-top:8px;color:var(--ink-soft);}
+.cb-amb{color:#8A5A16;font-weight:700;}
+.cb-bar{display:flex;justify-content:space-between;align-items:center;margin:2px 2px 8px;font-size:12px;color:var(--muted);}
+.cb-link{background:none;border:none;font:inherit;font-size:12.5px;font-weight:700;color:var(--ink);text-decoration:underline;padding:4px;cursor:pointer;}
+.cb-line{display:flex;gap:12px;align-items:flex-start;padding:13px 0;border-bottom:1px solid #F2F0E6;}
+.cb-line:last-child{border-bottom:none;}
+.cb-tick{flex:0 0 24px;width:24px;height:24px;border-radius:50%;border:1.6px solid var(--line);background:none;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;color:#fff;margin-top:1px;padding:0;cursor:pointer;}
+.cb-tick.on{background:var(--ink);border-color:var(--ink);}
+.iv-body{flex:1;min-width:0;}
+.cb-top{display:flex;justify-content:space-between;gap:8px;align-items:baseline;}
+.cb-top[data-goto]{cursor:pointer;}
+.cb-name{font-size:15px;font-weight:700;overflow-wrap:anywhere;}
+.cb-unk{font-size:12.5px;letter-spacing:.2px;}
+.cb-amt{font-size:14.5px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;}
+.cb-sub{font-size:12px;color:var(--muted);margin-top:2px;}
+.cb-sub.cb-red{color:var(--stamp);}
+.cb-pr{font-size:10px;letter-spacing:.4px;color:#A9A596;margin-top:3px;overflow-wrap:anywhere;}
+.cb-chg{font-size:12px;color:#8A5A16;font-weight:600;margin-top:8px;}
+.cb-chg.done{color:var(--muted);font-weight:500;}
+.cb-flag{font-size:12px;color:var(--stamp);margin-top:6px;line-height:1.4;}
+.cb-seg{display:flex;gap:6px;margin-top:6px;}
+.cb-seg button{flex:1;font:inherit;font-size:12px;font-weight:700;padding:8px 6px;border-radius:999px;border:1.5px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer;}
+.cb-seg button.on{background:var(--ink);border-color:var(--ink);color:#fff;}
+.cb-matchbtn{margin-top:8px;font:inherit;font-size:12px;font-weight:700;padding:7px 14px;border-radius:999px;border:1.5px solid #C98A2C;background:#FBF4E6;color:#6E4810;cursor:pointer;}
+.cb-off .cb-name,.cb-off .cb-amt{color:var(--muted);}
+.iv-ovi{font-size:12.5px;padding:8px 0;border-bottom:1px solid #F5F3EA;}
+.iv-ovi:last-child{border-bottom:none;}
+.iv-ovi-ok{font-size:12px;color:var(--muted);margin:10px 2px 0;}
+.iv-credits{font-size:12.5px;color:var(--stamp);font-weight:600;margin:10px 2px 0;}
+.iv-wait{font-size:11.5px;color:#8A5A16;text-align:center;margin-top:8px;}
+.iv-printed{font-size:20px !important;letter-spacing:.3px;overflow-wrap:anywhere;}
+.cb-opt{display:flex;gap:12px;align-items:flex-start;padding:11px 0;border-bottom:1px solid #F2F0E6;cursor:pointer;}
+.cb-radio{flex:0 0 20px;width:20px;height:20px;border-radius:50%;border:1.6px solid var(--line);margin-top:1px;box-sizing:border-box;}
+.cb-radio.on{border:6px solid var(--ink);}
+.iv-newform{padding:6px 0 8px 32px;}
+.iv-sel{width:100%;margin-top:6px;font:inherit;font-size:13px;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);}
+.iv-unit{font:inherit;font-size:13px;border:none;background:none;color:var(--muted);}
+.iv-packrow{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 0;font-size:13.5px;}
+.iv-pk{font-size:11.5px;color:var(--muted);font-weight:400;}
+.iv-hist{display:grid;grid-template-columns:1.2fr 1fr .9fr .9fr;gap:6px;padding:9px 0;border-bottom:1px solid #F5F3EA;font-size:13px;}
+.iv-hist:last-child{border-bottom:none;}
+.iv-hh{font-size:10.5px;font-weight:800;letter-spacing:.7px;text-transform:uppercase;color:var(--muted);}
+.iv-hist .up{color:#8A5A16;font-weight:700;}
+.iv-hist .down{color:#2F5F39;font-weight:700;}
+.cb-prow{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:12px 2px;border-bottom:1px solid #F2F0E6;cursor:pointer;}
+.cb-prow:last-child{border-bottom:none;}
+.cb-pv{text-align:right;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;}
+.cb-ch{display:block;font-size:11px;font-weight:600;color:var(--muted);}
+.cb-ch.up{color:#8A5A16;}
 </style>
 
 </head>
@@ -703,7 +760,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.29';
+const APP_VERSION = 'v3.11.30';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -714,6 +771,7 @@ let state = {
   codeDrafts: {},
   functions: [], tiers: [], fnLoaded: false, fnDraft: null,
   fnDocText: '', fnDocRead: null, fnDocPicks: null, fnFromDoc: false,   // v3.11.28: a new function from management's doc (never saved)
+  invText: '', invRead: null, invPicks: null, invMatchAt: -1, invMatchPick: null,   // v3.11.30: an invoice being brought in (never saved until Keep)
   devices: [], codes: [], authEnforced: false, authLoaded: false,
   recipes: [], recipeSections: [], recipeSync: null, recipesLoaded: false,
   recipeSearch: '', recipeFilter: null, importPreview: null, importRaw: '',
@@ -2743,6 +2801,7 @@ function goto(view){
   if(view.name !== state.view.name && (view.name === 'recipeImport' || state.view.name === 'recipeImport')){ state.importPreview = null; state.importRaw = ''; }
   if(!(view.name === 'fnEdit' && view.fid === 'new')){ state.fnDraft = null; state.fnFromDoc = false; }
   if(view.name !== 'fnDoc'){ state.fnDocText = ''; state.fnDocRead = null; state.fnDocPicks = null; }   // v3.11.28
+  if(INV_FLOW.indexOf(view.name) < 0){ state.invText = ''; state.invRead = null; state.invPicks = null; state.invMatchAt = -1; state.invMatchPick = null; }   // v3.11.30
   state.view = view; try{ history.pushState({view}, ''); }catch(e){} animate(render);
 }
 function findSupplier(id){ return state.suppliers.find(s=>s.id===id); }
@@ -2785,7 +2844,7 @@ function buildSendLink(supplier, message, subject){
 
 /* Screens where the user is typing. A background poll must never redraw these
    or half-entered forms vanish — which is what wiped function names and pax. */
-const EDIT_VIEWS = ['fnEdit','fnTiers','fnDoc','recipeEdit','addSupplier','addProduct','editProduct','recipeImport','access','prepItems','voiceTeach','welcome','move'];
+const EDIT_VIEWS = ['fnEdit','fnTiers','fnDoc','invPaste','invCheck','invMatch','recipeEdit','addSupplier','addProduct','editProduct','recipeImport','access','prepItems','voiceTeach','welcome','move'];
 function isEditing(){ return EDIT_VIEWS.indexOf(state.view.name) > -1; }
 function bgRender(){ if(isEditing()) return; render(); }
 
@@ -2828,6 +2887,12 @@ function render(){
   else if(v.name === "fnEdit") html += renderFunctionEdit(v.fid);
   else if(v.name === "fnTiers") html += renderTiers();
   else if(v.name === "fnDoc") html += renderFunctionDoc();
+  else if(v.name === "invPaste") html += renderInvPaste();
+  else if(v.name === "invCheck") html += renderInvCheck();
+  else if(v.name === "invMatch") html += renderInvMatch();
+  else if(v.name === "invHist") html += renderInvHist(v.fid);
+  else if(v.name === "invPrices") html += renderInvPrices();
+  else if(v.name === "invKept") html += renderInvKept(v.fid);
   else if(v.name === "prepAdd") html += renderPrepAdd();
   else if(v.name === "prepItems") html += renderPrepItems();
   else if(v.name === "recipes") html += renderRecipes();
@@ -3166,6 +3231,7 @@ function renderInvoices(){
     <div class="crumb"><button data-goto="home">&larr; Home</button> / Invoices</div>
     <div class="staff-legend" style="display:block;">Week beginning ${new Date(weekKey+'T00:00:00').toLocaleDateString('en-AU',{weekday:'long',day:'numeric',month:'short'})} &middot; resets Tuesday midnight</div>
     ${banner}
+    ${invBringHTML()}
     ${supplierRows}
     ${orphanRows}
     <div class="grand-total-card">Weekly spend: $${totalWeek.toFixed(2)}</div>
@@ -3173,6 +3239,225 @@ function renderInvoices(){
     ${hasAny ? `<div class="add-row"><button class="btn btn-danger" id="inv-clear">Clear this week</button></div>` : ''}
     <div class="sync-line">Chef key saved on this phone. <button data-chef-reset="1">Change it</button></div>
   `;
+}
+
+/* ===== v3.11.30: invoices brought in (his order's step 3; invoice-plan.md §10 step 4; his picks, 23 Oct) =====
+   Paste the invoice (a Claude chat's CSV in the plan's layout; the Pluto app's scan from its next update), then
+   check it (2B): every line ticked as delivered (untick what didn't come: credits to chase; "Tick all"), each
+   printed name matched once to his product (or a new, separate item: two semolinas stay two; or "not a
+   product"), each changed price decided ("Approve once" or "Update price"; every change shown, his call),
+   ordered vs invoiced, then Keep: the words and numbers kept on this phone (never the picture), its prices
+   in each product's history, its total added to the week. The rules are invoice-engine.js. The keys start
+   "order-chit-", so Move my data carries them. Recipe costing will read the current prices later. */
+const INV_FLOW = ['invPaste','invCheck','invMatch','invHist'];
+const INV_KEPT_KEY = 'order-chit-inv-kept', INV_MATCHES_KEY = 'order-chit-inv-matches', INV_SUPPLIERS_KEY = 'order-chit-inv-suppliers',
+  INV_PRICES_KEY = 'order-chit-prices', PRICE_ITEMS_KEY = 'order-chit-price-items';
+const INV_PROMPT = 'Copy this supplier invoice into CSV, exactly in this layout. Columns: row,supplier,invoice_no,date,page,description,unit,qty_printed,unit_price_ex_gst,net_ex_gst,gst,total,note. One "invoice" row with the printed totals (page = number of pages), then one "line" row per invoice line, in order. Copy words and numbers exactly as printed, including spelling mistakes; join a description that wraps onto two lines. Put a quantity in qty_printed only if it is printed, never from handwriting (handwriting may go in note). Numbers without $ or commas; dates as YYYY-MM-DD. If you can\'t read a number, leave it empty and write "unreadable" in note; never guess. Leave out phone numbers, names, addresses, customer numbers, bank details, balances and credits. No comments, no totals of your own, no comparisons: only the CSV.';
+function invLoad(key, empty){ const v = readStoredJSON(key); return v == null ? empty : v; }
+function invSave(key, v){ try{ localStorage.setItem(key, JSON.stringify(v)); return true; }catch(e){ showToast('The phone’s storage is full: not kept.'); return false; } }
+function invProducts(supplierId){
+  const s = findSupplier(supplierId);
+  return ((s && s.products) || []).map(p => ({ id: p.id, name: p.name, unit: p.unit }))
+    .concat(invLoad(PRICE_ITEMS_KEY, []).filter(x => x.supplierId === supplierId).map(x => ({ id: x.id, name: x.name, unit: x.unit || 'each', priceOnly: true })));
+}
+function invProductName(pid){
+  for(const s of state.suppliers){ const p = (s.products || []).find(x => x.id === pid); if(p) return p.name; }
+  const it = invLoad(PRICE_ITEMS_KEY, []).find(x => x.id === pid);
+  return it ? it.name : 'A removed product';
+}
+function invSupplierFor(printed){
+  const k = InvoiceEngine.nameKey(printed), m = invLoad(INV_SUPPLIERS_KEY, {});
+  if(m[k] && findSupplier(m[k])) return m[k];
+  const s = state.suppliers.find(x => InvoiceEngine.nameKey(x.name) === k);
+  return s ? s.id : '';
+}
+function invWeekStart(dateKey){
+  const d = new Date(String(dateKey) + 'T12:00:00');
+  if(isNaN(d)) return getCurrentWeekStart();
+  return localDateKey(new Date(d.getFullYear(), d.getMonth(), d.getDate() - (d.getDay() - 3 + 7) % 7));
+}
+function invDayLabel(dateKey){ const d = new Date(String(dateKey) + 'T12:00:00'); return isNaN(d) ? String(dateKey || '') : d.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'}); }
+function invMoney(v){ return v == null || isNaN(v) ? '–' : '$' + Number(v).toFixed(2); }
+function invNiceName(desc){
+  return String(desc || '').replace(/\(.*?\)/g, ' ').replace(/\b\d+(\.\d+)?\s*(kgs?|g|gr|gm|l|lt|ltr|ml)\b/gi, ' ').replace(/\bx\s*\d+\b/gi, ' ')
+    .replace(/\s+/g, ' ').trim().toLowerCase().replace(/(^|\s)[a-z]/g, c => c.toUpperCase());
+}
+function invBringHTML(){
+  if(typeof InvoiceEngine === 'undefined') return '';
+  const kept = invLoad(INV_KEPT_KEY, []).slice(0, 5);
+  const rows = kept.map(k => `<div class="iv-kept" data-goto="invKept" data-fid="${escapeHtml(k.id)}"><div><div class="iv-k1">${escapeHtml((findSupplier(k.supplierId) || {}).name || k.printedSupplier || 'Supplier')} · ${escapeHtml(k.number || '')}</div><div class="iv-k2">${escapeHtml(invDayLabel(k.date))} · ${k.lines.length} line${k.lines.length === 1 ? '' : 's'}${k.credits ? ' · credits ' + invMoney(k.credits) : ''}</div></div><div class="iv-k3">${invMoney(k.total)} &rsaquo;</div></div>`).join('');
+  return `
+    <div class="form-card">
+      <div class="fd-title">Bring in an invoice</div>
+      <div class="iv-two"><button class="btn" data-goto="invPaste">Paste an invoice</button><button class="btn btn-doc" data-goto="invPrices">Prices</button></div>
+      <div class="rd-note">Scan comes with the next Pluto app update. Only the words and numbers are kept, on this phone.</div>
+    </div>
+    ${rows ? `<div class="section-label">Kept lately</div><div class="card tight">${rows}</div>` : ''}`;
+}
+function renderInvPaste(){
+  const crumb = `<div class="crumb"><button data-goto="invoices">&larr; Invoices</button></div>`;
+  if(typeof InvoiceEngine === 'undefined') return crumb + `<div class="empty">The invoice rules didn’t load. Reload The Pass.</div>`;
+  return crumb + `
+    <div class="form-card">
+      <div class="fd-title">Bring in an invoice</div>
+      <ol class="rd-steps"><li>Give a Claude chat the invoice's photos and its prompt (<button class="cb-link" id="inv-prompt">copy the prompt</button>).</li><li>Copy the CSV it gives back.</li><li>Paste it here.</li></ol>
+      <textarea id="inv-text" class="rd-paste" rows="10" placeholder="Paste the invoice here">${escapeHtml(state.invText || '')}</textarea>
+      <div class="rd-note">Nothing is kept until you tap Keep. A phone number or email is never kept.</div>
+    </div>
+    <div class="oi-actions"><button class="btn btn-ghost" data-goto="invoices">Cancel</button><button class="btn" id="inv-read">Read it</button></div>`;
+}
+/* the read with his fixes, the checks, each line's match and price change */
+function invState(){
+  const r = state.invRead, p = state.invPicks;
+  if(!r || !p || typeof InvoiceEngine === 'undefined') return null;
+  const chk = InvoiceEngine.checkInvoice({ invoice: r.invoice, lines: r.lines });
+  const matches = invLoad(INV_MATCHES_KEY, []), prices = invLoad(INV_PRICES_KEY, []);
+  const date = (r.invoice && r.invoice.date) || (r.lines[0] && r.lines[0].date) || '';
+  const number = (r.invoice && r.invoice.number) || (r.lines[0] && r.lines[0].number) || '';
+  const rows = chk.lines.map((x, i) => {
+    const m = p.supplierId ? InvoiceEngine.findMatch(matches, p.supplierId, x.line.description) : null;
+    let rec = null, change = null;
+    if(m && !m.skip && x.check.qty != null){ rec = InvoiceEngine.priceRecord(p.supplierId, m, x.line, date, 'invoice ' + number); change = InvoiceEngine.priceChange(prices, rec); }
+    return { x: x, i: i, m: m, rec: rec, change: change, needsChoice: !!(change && (change.dir === 'up' || change.dir === 'down')) };
+  });
+  return { r: r, p: p, chk: chk, rows: rows, date: date, number: number, prices: prices,
+    unmatched: rows.filter(z => !z.m).length, toDecide: rows.filter(z => z.needsChoice && !p.choice[z.i]).length };
+}
+function invLineHTML(z, st){
+  const p = st.p, l = z.x.line, c = z.x.check, m = z.m, ch = z.change, on = p.received[z.i] !== false, real = m && !m.skip;
+  const name = real ? escapeHtml(invProductName(m.productId)) : `<span class="cb-unk">${escapeHtml(l.description)}</span>`;
+  const weighed = c.weighed || (m && m.billing === 'weight');
+  const sub = c.qty != null ? (weighed ? c.qty + ' kg × ' + invMoney(l.price) : c.qty + ' × ' + invMoney(l.price)) + (l.gst ? ' + GST' : '') : invMoney(l.price);
+  let extra = '';
+  if(!c.ok) extra += `<div class="cb-flag">${escapeHtml(c.flags.join(' '))}${c.fix ? ` <button class="cb-link" data-inv-fix="${z.i}">Use ${invMoney(c.fix.total)}</button>` : ''}</div>`;
+  if(m && m.skip) extra += `<div class="cb-sub">Not a product: no price kept</div>`;
+  if(!m) extra += `<button class="cb-matchbtn" data-inv-match="${z.i}">Match this once</button>`;
+  else if(ch && ch.dir === 'new') extra += `<div class="cb-chg done">First price</div>`;
+  else if(ch && ch.dir === 'same') extra += `<div class="cb-chg done">Price unchanged</div>`;
+  else if(z.needsChoice){
+    const per = ch.by === 'base' ? '/' + (m.billing === 'weight' ? 'kg' : (m.pack ? m.pack.unit : '')) : '', pick = p.choice[z.i];
+    extra += `<div class="cb-chg">${ch.dir === 'up' ? 'Up' : 'Down'} ${invMoney(Math.abs(ch.diff))}${per} (${Math.abs(ch.pct)}%) since ${escapeHtml(invDayLabel(ch.last.date))}</div>
+      <div class="cb-seg"><button class="${pick === 'once' ? 'on' : ''}" data-inv-choice="${z.i}" data-v="once">Approve once</button><button class="${pick === 'current' ? 'on' : ''}" data-inv-choice="${z.i}" data-v="current">Update price</button></div>`;
+  }
+  return `<div class="cb-line${on ? '' : ' cb-off'}"><button class="cb-tick${on ? ' on' : ''}" data-inv-tick="${z.i}" aria-label="Delivered">${on ? '&#10003;' : ''}</button><div class="iv-body">
+    <div class="cb-top"${real ? ` data-goto="invHist" data-fid="${escapeHtml(m.productId)}"` : ''}><span class="cb-name">${name}</span><span class="cb-amt">${invMoney(c.fix ? c.fix.total : l.total)}</span></div>
+    <div class="cb-sub${on ? '' : ' cb-red'}">${on ? sub : 'Not delivered · credit to chase'}</div>${real ? `<div class="cb-pr">${escapeHtml(l.description)}</div>` : ''}${extra}</div></div>`;
+}
+function renderInvCheck(){
+  const st = invState(), back = `<div class="crumb"><button data-inv-back="1">&larr; Back to the paste</button></div>`;
+  if(!st) return `<div class="crumb"><button data-goto="invoices">&larr; Invoices</button></div><div class="empty">Nothing read yet.</div>`;
+  const r = st.r, p = st.p, chk = st.chk;
+  if(!r.lines.length) return back + `<div class="move-why">No invoice lines found. ${escapeHtml(r.problems.join(' '))} Is it the CSV from the prompt?</div><div class="oi-actions"><button class="btn" data-inv-back="1">Paste again</button></div>`;
+  const printed = (r.invoice && r.invoice.supplier) || r.lines[0].supplier || '';
+  const sup = findSupplier(p.supplierId);
+  const need = (sup ? 0 : 1) + st.unmatched + st.toDecide;
+  const ticked = p.received.filter(v => v !== false).length;
+  const adds = chk.adds.total === true ? `Adds up to <b>${invMoney(chk.sums.total)}</b>` : `<span class="cb-amb">${escapeHtml(chk.flags.filter(f => !/ to check\.$/.test(f))[0] || 'Check the totals.')}</span>`;
+  const supPick = sup ? '' : `<div class="section-label">Which of your suppliers is “${escapeHtml(printed || 'this')}”?</div><div class="chip-row iv-sups">${state.suppliers.map(s => `<button class="chip cat-chip" data-inv-sup="${escapeHtml(s.id)}">${escapeHtml(s.name)}</button>`).join('')}</div>`;
+  let ovi = '';
+  if(sup){
+    const NAME = id => escapeHtml(invProductName(id));
+    const list = InvoiceEngine.orderedVsInvoiced({ orders: readOrderHistory(), supplierId: p.supplierId, date: st.date, products: invProducts(p.supplierId), groupOf: () => '',
+      lines: st.rows.filter(z => !(z.m && z.m.skip)).map(z => ({ line: z.x.line, check: z.x.check, match: z.m })) })
+      .filter(o => o.kind !== 'same' && o.kind !== 'not matched').map(o => {
+        const u = o.unit && o.unit !== 'each' ? ' ' + escapeHtml(o.unit) : '';
+        if(o.kind === 'more' || o.kind === 'less') return `${NAME(o.productId)}: ordered ${o.ordered}${u}, invoiced ${o.invoiced}${u}${o.packNote ? ' (' + escapeHtml(o.packNote) + ')' : ''}`;
+        if(o.kind === 'not invoiced') return `${NAME(o.productId)}: ordered ${o.ordered}${u}, not on the invoice`;
+        if(o.kind === 'extra') return `${NAME(o.productId)}: on the invoice, not ordered`;
+        if(o.kind === 'different product') return `${NAME(o.productId)} sent instead of ${NAME(o.instead)}`;
+        return `${NAME(o.productId)}: can’t compare (${escapeHtml(o.why || '')})`;
+      });
+    ovi = list.length ? `<div class="section-label">Ordered vs invoiced</div><div class="card tight">${list.map(t => `<div class="iv-ovi">${t}</div>`).join('')}</div>` : `<div class="iv-ovi-ok">Matches what you ordered.</div>`;
+  }
+  const cr = InvoiceEngine.credits(chk.lines, p.received);
+  const wait = !sup ? 'Pick the supplier first.' : [st.unmatched ? `match ${st.unmatched} line${st.unmatched === 1 ? '' : 's'}` : '', st.toDecide ? `decide ${st.toDecide} price${st.toDecide === 1 ? '' : 's'}` : ''].filter(Boolean).join(' and ');
+  return back + `
+    ${r.problems.length ? `<div class="move-why">${escapeHtml(r.problems.join(' '))}</div>` : ''}
+    <div class="recipe-head"><div class="recipe-eyebrow">${escapeHtml(invDayLabel(st.date))}${st.number ? ' · invoice ' + escapeHtml(st.number) : ''}${r.invoice && r.invoice.pages ? ' · ' + r.invoice.pages + ' page' + (r.invoice.pages === 1 ? '' : 's') : ''}</div><h2 class="recipe-title">${escapeHtml(sup ? sup.name : printed || 'Invoice')}</h2>
+      <div class="cb-sum">${adds}${need ? ` · <span class="cb-amb">${need} thing${need === 1 ? '' : 's'} need${need === 1 ? 's' : ''} you</span>` : ''}</div></div>
+    ${supPick}
+    <div class="cb-bar"><span>${ticked} of ${r.lines.length} delivered</span><button class="cb-link" id="inv-tickall">Tick all</button></div>
+    <div class="card tight">${st.rows.map(z => invLineHTML(z, st)).join('')}</div>
+    ${ovi}
+    ${cr.lines.length ? `<div class="iv-credits">Credits to chase: ${cr.lines.map(x => escapeHtml(invProductNameFor(st, x.index)) + ' ' + invMoney(x.total)).join(', ')}</div>` : ''}
+    <div class="oi-actions"><button class="btn btn-ghost" data-goto="invoices">Cancel</button><button class="btn" id="inv-keep" ${need ? 'disabled' : ''}>Keep invoice</button></div>
+    ${need ? `<div class="iv-wait">${escapeHtml(wait.charAt(0).toUpperCase() + wait.slice(1))}${/first\.$/.test(wait) ? '' : ' first.'}</div>` : ''}`;
+}
+function invProductNameFor(st, i){ const z = st.rows[i]; return z && z.m && !z.m.skip ? invProductName(z.m.productId) : z ? z.x.line.description : ''; }
+function renderInvMatch(){
+  const st = invState(), i = state.invMatchAt, z = st && st.rows[i];
+  if(!z) return `<div class="crumb"><button data-goto="invCheck">&larr; Back to the invoice</button></div><div class="empty">That line isn’t there any more.</div>`;
+  const l = z.x.line, sid = st.p.supplierId, sup = findSupplier(sid) || {};
+  const prods = invProducts(sid), sug = InvoiceEngine.suggest(l.description, prods, 5);
+  const pick = state.invMatchPick || (state.invMatchPick = { mode: sug.length ? 'product' : 'new', pid: sug.length ? sug[0].id : '', onList: true, billing: z.x.check.weighed ? 'weight' : 'pack' });
+  const pack = InvoiceEngine.readPack(l.description);
+  const opt = (on, attrs, title, sub) => `<div class="cb-opt" ${attrs}><span class="cb-radio${on ? ' on' : ''}"></span><div><div class="cb-name">${title}</div>${sub ? `<div class="cb-sub">${sub}</div>` : ''}</div></div>`;
+  const others = prods.filter(x => !sug.some(s => s.id === x.id));
+  const per = pick.billing === 'weight' ? 'kg (weighed)' : (pack ? pack.amount + ' ' + pack.unit : 'pack');
+  return `
+    <div class="crumb"><button data-goto="invCheck">&larr; Back to the invoice</button></div>
+    <div class="recipe-head"><div class="recipe-eyebrow">${escapeHtml(sup.name || 'The supplier')} prints</div><h2 class="recipe-title iv-printed">${escapeHtml(l.description)}</h2></div>
+    <div class="section-label">Which of your products is it?</div>
+    <div class="card tight">
+      ${sug.map(s => opt(pick.mode === 'product' && pick.pid === s.id, `data-inv-pick="${escapeHtml(s.id)}"`, escapeHtml(s.name), escapeHtml(sup.name || ''))).join('')}
+      ${others.length ? `<div class="cb-opt"><span class="cb-radio${pick.mode === 'product' && others.some(o => o.id === pick.pid) ? ' on' : ''}"></span><div style="flex:1"><div class="cb-name">Another of yours</div><select id="inv-other" class="iv-sel"><option value="">Pick one…</option>${others.map(o => `<option value="${escapeHtml(o.id)}" ${pick.pid === o.id ? 'selected' : ''}>${escapeHtml(o.name)}</option>`).join('')}</select></div></div>` : ''}
+      ${opt(pick.mode === 'new', 'data-inv-pick="__new"', 'A new, separate item', '')}
+      ${pick.mode === 'new' ? `<div class="iv-newform"><label>Name</label><input id="inv-newname" value="${escapeHtml(pick.name != null ? pick.name : invNiceName(l.description))}"><label>On the order list for ${escapeHtml(sup.name || 'this supplier')}</label><div class="chip-row"><button class="chip cat-chip ${pick.onList ? 'chip-on' : ''}" data-inv-onlist="1">Yes</button><button class="chip cat-chip ${pick.onList ? '' : 'chip-on'}" data-inv-onlist="0">No, prices only</button></div></div>` : ''}
+      ${opt(pick.mode === 'skip', 'data-inv-pick="__skip"', 'Not a product', 'e.g. a delivery fee: no price kept')}
+    </div>
+    ${pick.mode === 'skip' ? '' : `<div class="section-label">Pack</div>
+    <div class="card tight">
+      <div class="iv-packrow"><span>Pack size ${pack ? '<span class="iv-pk">(read from the name)</span>' : '<span class="iv-pk">(not printed: type it, or leave it)</span>'}</span><span class="fni-amt"><input class="fni-num" id="inv-pack" value="${pack ? pack.amount : ''}" inputmode="decimal"><select id="inv-packunit" class="iv-unit">${['kg','L','each'].map(u => `<option ${(pack ? pack.unit : 'kg') === u ? 'selected' : ''}>${u}</option>`).join('')}</select></span></div>
+      <div class="chip-row"><button class="chip cat-chip ${pick.billing === 'pack' ? 'chip-on' : ''}" data-inv-billing="pack">Priced per pack</button><button class="chip cat-chip ${pick.billing === 'weight' ? 'chip-on' : ''}" data-inv-billing="weight">Priced per kg (weighed)</button></div>
+      <div class="rd-why">${pick.billing === 'weight' ? invMoney(l.price) + ' a kg' : pack ? invMoney(l.price) + ' a pack = ' + invMoney(l.price / pack.amount) + '/' + pack.unit : invMoney(l.price) + ' a pack'}</div>
+    </div>`}
+    <div class="oi-actions"><button class="btn btn-ghost" data-goto="invCheck">Cancel</button><button class="btn" id="inv-domatch">Match</button></div>`;
+}
+function renderInvHist(pid){
+  const back = state.invRead ? `<button data-goto="invCheck">&larr; Back to the invoice</button>` : `<button data-goto="invPrices">&larr; Prices</button>`;
+  if(typeof InvoiceEngine === 'undefined') return `<div class="crumb">${back}</div><div class="empty">The invoice rules didn’t load. Reload The Pass.</div>`;
+  const prices = invLoad(INV_PRICES_KEY, []), h = InvoiceEngine.historyOf(prices, pid, 5);
+  const sups = {}; h.forEach(x => { sups[x.rec.supplier] = 1; });
+  const many = Object.keys(sups).length > 1, latest = h[0] && h[0].rec;
+  const cur = latest ? InvoiceEngine.currentPrice(prices, latest.supplier, pid) : null;
+  const unit = r => r.billing === 'weight' ? 'kg' : r.pack ? r.pack.unit : '';
+  const rows = h.map(x => `<div class="iv-hist"><span>${escapeHtml(invDayLabel(x.rec.date))}${many ? `<br><span class="iv-pk">${escapeHtml((findSupplier(x.rec.supplier) || {}).name || '')}</span>` : ''}</span><span>${invMoney(x.rec.price)}</span><span>${x.rec.perBase != null ? invMoney(x.rec.perBase) : '–'}</span><span class="${x.dir === 'up' ? 'up' : x.dir === 'down' ? 'down' : ''}">${x.dir === 'up' ? '▲ ' + x.pct + '%' : x.dir === 'down' ? '▼ ' + Math.abs(x.pct) + '%' : x.dir === 'same' ? 'same' : 'first'}${x.rec.once ? '<br><span class="iv-pk">once</span>' : ''}</span></div>`).join('');
+  return `
+    <div class="crumb">${back}</div>
+    <div class="recipe-head"><div class="recipe-eyebrow">Price history${latest && !many ? ' · ' + escapeHtml((findSupplier(latest.supplier) || {}).name || '') : ''}</div><h2 class="recipe-title">${escapeHtml(invProductName(pid))}</h2>
+      ${cur ? `<div class="pill-row">${cur.pack ? `<span class="pill">${cur.pack.amount} ${escapeHtml(cur.pack.unit)} pack</span>` : ''}<span class="pill">now ${invMoney(cur.perBase != null ? cur.perBase : cur.price)}${cur.perBase != null ? '/' + escapeHtml(unit(cur)) : ''}</span></div>` : ''}</div>
+    ${rows ? `<div class="card tight"><div class="iv-hist iv-hh"><span>Delivered</span><span>Price</span><span>Per ${escapeHtml(latest ? unit(latest) || 'unit' : 'unit')}</span><span>Change</span></div>${rows}</div>
+    <div class="rd-note">The last ${h.length} deliver${h.length === 1 ? 'y' : 'ies'}, from ${escapeHtml(h.map(x => x.rec.source).filter(Boolean).join(', '))}. Kept on this phone only.</div>` : `<div class="empty">No prices kept for it yet.</div>`}`;
+}
+function renderInvPrices(){
+  const crumb = `<div class="crumb"><button data-goto="invoices">&larr; Invoices</button></div>`;
+  if(typeof InvoiceEngine === 'undefined') return crumb + `<div class="empty">The invoice rules didn’t load. Reload The Pass.</div>`;
+  const prices = invLoad(INV_PRICES_KEY, []), by = {};
+  prices.forEach(r => { (by[r.supplier] = by[r.supplier] || {})[r.productId] = 1; });
+  const blocks = Object.keys(by).map(sid => {
+    const rows = Object.keys(by[sid]).map(pid => {
+      const cur = InvoiceEngine.currentPrice(prices, sid, pid) || InvoiceEngine.historyOf(prices.filter(r => r.supplier === sid), pid, 1)[0].rec;
+      const last = InvoiceEngine.historyOf(prices.filter(r => r.supplier === sid), pid, 1)[0];
+      const u = cur.billing === 'weight' ? 'per kg' : cur.pack ? cur.pack.amount + ' ' + cur.pack.unit + (cur.perBase != null ? ' · ' + invMoney(cur.perBase) + '/' + cur.pack.unit : '') : 'per pack';
+      // the newest delivery was approved once: the current price stays, and the row says what was paid
+      const once = last.rec !== cur && last.rec.once;
+      const tag = once ? 'once' : last.dir === 'up' ? '▲ ' + last.pct + '%' : last.dir === 'down' ? '▼ ' + Math.abs(last.pct) + '%' : last.dir;
+      return { name: invProductName(pid), html: `<div class="cb-prow" data-goto="invHist" data-fid="${escapeHtml(pid)}"><div><div class="cb-name">${escapeHtml(invProductName(pid))}</div><div class="cb-sub">${escapeHtml(u)} · ${escapeHtml(invDayLabel(cur.date))}${once ? ` · last delivery ${invMoney(last.rec.price)}, approved once` : ''}</div></div><div class="cb-pv">${invMoney(cur.price)}<span class="cb-ch ${!once && last.dir === 'up' ? 'up' : ''}">${tag}</span></div></div>` };
+    }).sort((a, b) => a.name.localeCompare(b.name));
+    return `<div class="section-label">${escapeHtml((findSupplier(sid) || {}).name || retiredName(sid) || 'A removed supplier')}</div><div class="card tight">${rows.map(x => x.html).join('')}</div>`;
+  }).join('');
+  return crumb + `<h2 class="screen-title">Prices</h2><p class="screen-sub">The current price of everything you’ve matched, from your invoices. Tap one for its history.</p>${blocks || '<div class="empty">No prices yet: bring in an invoice.</div>'}`;
+}
+function renderInvKept(id){
+  const k = invLoad(INV_KEPT_KEY, []).find(x => x.id === id), crumb = `<div class="crumb"><button data-goto="invoices">&larr; Invoices</button></div>`;
+  if(!k) return crumb + `<div class="empty">That invoice isn’t kept any more.</div>`;
+  const lines = k.lines.map(l => `<div class="cb-line${l.received ? '' : ' cb-off'}"><span class="cb-tick${l.received ? ' on' : ''}">${l.received ? '&#10003;' : ''}</span><div class="iv-body"><div class="cb-top"${l.productId ? ` data-goto="invHist" data-fid="${escapeHtml(l.productId)}"` : ''}><span class="cb-name">${escapeHtml(l.productId ? invProductName(l.productId) : l.description)}</span><span class="cb-amt">${invMoney(l.total)}</span></div><div class="cb-sub${l.received ? '' : ' cb-red'}">${l.received ? (l.qty != null ? l.qty + ' × ' + invMoney(l.price) : invMoney(l.price)) + (l.choice === 'once' ? ' · price approved once' : '') : 'Not delivered · credit to chase'}</div>${l.productId ? `<div class="cb-pr">${escapeHtml(l.description)}</div>` : ''}</div></div>`).join('');
+  return crumb + `
+    <div class="recipe-head"><div class="recipe-eyebrow">${escapeHtml(invDayLabel(k.date))}${k.number ? ' · invoice ' + escapeHtml(k.number) : ''}</div><h2 class="recipe-title">${escapeHtml((findSupplier(k.supplierId) || {}).name || k.printedSupplier || 'Invoice')}</h2>
+      <div class="cb-sum">${invMoney(k.total)}${k.credits ? ` · <span class="cb-amb">credits to chase ${invMoney(k.credits)}</span>` : ''}</div></div>
+    <div class="card tight">${lines}</div>
+    <div class="add-row"><button class="btn btn-danger" data-inv-delkept="${escapeHtml(k.id)}">Delete this kept invoice</button></div>
+    <div class="sync-line">Deleting takes its prices out of the history. Its weekly total stays: remove it there if you need to.</div>`;
 }
 
 function invoiceDate(e){
@@ -5240,6 +5525,118 @@ function attachHandlers(){
     el.addEventListener('click', ()=> goto({name:'fnView', fid: el.dataset.openFn}));
   });
 
+  // v3.11.30: invoices brought in (his picks, 23 Oct)
+  const ivText = document.getElementById('inv-text');
+  if(ivText) ivText.addEventListener('input', ()=>{ state.invText = ivText.value; });
+  const ivPrompt = document.getElementById('inv-prompt');
+  if(ivPrompt) ivPrompt.addEventListener('click', ()=>{ try{ navigator.clipboard.writeText(INV_PROMPT).then(()=>showToast('Prompt copied'), ()=>showToast('Couldn’t copy: it’s in invoice-plan.md')); }catch(e){ showToast('Couldn’t copy'); } });
+  const ivRead = document.getElementById('inv-read');
+  if(ivRead) ivRead.addEventListener('click', ()=>{
+    const text = ivText ? ivText.value : '';
+    if(!text.trim()){ showToast('Paste the invoice first'); return; }
+    const r = InvoiceEngine.readCSV(text);
+    const printed = (r.invoice && r.invoice.supplier) || (r.lines[0] && r.lines[0].supplier) || '';
+    state.invRead = r; state.invText = '';
+    state.invPicks = { supplierId: invSupplierFor(printed), received: r.lines.map(() => true), choice: {} };
+    goto({name:'invCheck'}); window.scrollTo(0,0);
+  });
+  document.querySelectorAll('[data-inv-back]').forEach(b => b.addEventListener('click', ()=>{ state.invRead = null; state.invPicks = null; goto({name:'invPaste'}); }));
+  document.querySelectorAll('[data-inv-sup]').forEach(b => b.addEventListener('click', ()=>{
+    const r = state.invRead, printed = (r.invoice && r.invoice.supplier) || (r.lines[0] && r.lines[0].supplier) || '';
+    state.invPicks.supplierId = b.dataset.invSup;
+    if(printed){ const m = invLoad(INV_SUPPLIERS_KEY, {}); m[InvoiceEngine.nameKey(printed)] = b.dataset.invSup; invSave(INV_SUPPLIERS_KEY, m); }
+    render();
+  }));
+  document.querySelectorAll('[data-inv-tick]').forEach(b => b.addEventListener('click', ()=>{ const i = +b.dataset.invTick; state.invPicks.received[i] = state.invPicks.received[i] === false; render(); }));
+  const ivAll = document.getElementById('inv-tickall');
+  if(ivAll) ivAll.addEventListener('click', ()=>{ state.invPicks.received = state.invPicks.received.map(() => true); render(); });
+  document.querySelectorAll('[data-inv-choice]').forEach(b => b.addEventListener('click', ()=>{ state.invPicks.choice[b.dataset.invChoice] = b.dataset.v; render(); }));
+  document.querySelectorAll('[data-inv-fix]').forEach(b => b.addEventListener('click', ()=>{
+    const i = +b.dataset.invFix, l = state.invRead.lines[i], c = InvoiceEngine.checkLine(l);
+    if(c.fix){ l.total = c.fix.total; l.fixed = true; render(); }
+  }));
+  document.querySelectorAll('[data-inv-match]').forEach(b => b.addEventListener('click', ()=>{ state.invMatchAt = +b.dataset.invMatch; state.invMatchPick = null; goto({name:'invMatch'}); window.scrollTo(0,0); }));
+  function ivKeepForm(){
+    const pk = state.invMatchPick; if(!pk) return;
+    const nm = document.getElementById('inv-newname'); if(nm) pk.name = nm.value;
+    const o = document.getElementById('inv-other'); if(o && o.value && pk.mode === 'product' && pk.otherPicked) pk.pid = o.value;
+  }
+  document.querySelectorAll('[data-inv-pick]').forEach(b => b.addEventListener('click', ()=>{
+    ivKeepForm(); const v = b.dataset.invPick, pk = state.invMatchPick;
+    if(v === '__new') pk.mode = 'new'; else if(v === '__skip') pk.mode = 'skip'; else { pk.mode = 'product'; pk.pid = v; pk.otherPicked = false; }
+    render();
+  }));
+  const ivOther = document.getElementById('inv-other');
+  if(ivOther) ivOther.addEventListener('change', ()=>{ ivKeepForm(); const pk = state.invMatchPick; if(ivOther.value){ pk.mode = 'product'; pk.pid = ivOther.value; pk.otherPicked = true; } render(); });
+  document.querySelectorAll('[data-inv-onlist]').forEach(b => b.addEventListener('click', ()=>{ ivKeepForm(); state.invMatchPick.onList = b.dataset.invOnlist === '1'; render(); }));
+  document.querySelectorAll('[data-inv-billing]').forEach(b => b.addEventListener('click', ()=>{ ivKeepForm(); state.invMatchPick.billing = b.dataset.invBilling; render(); }));
+  const ivDo = document.getElementById('inv-domatch');
+  if(ivDo) ivDo.addEventListener('click', ()=>{
+    ivKeepForm();
+    const st = invState(), i = state.invMatchAt, z = st && st.rows[i], pk = state.invMatchPick;
+    if(!z || !pk) return;
+    const sid = st.p.supplierId, l = z.x.line, matches = invLoad(INV_MATCHES_KEY, []);
+    const key = InvoiceEngine.nameKey(l.description);
+    let m = { supplier: sid, key: key };
+    if(pk.mode === 'skip') m.skip = true;
+    else {
+      const amt = parseFloat((document.getElementById('inv-pack') || {}).value), unit = (document.getElementById('inv-packunit') || {}).value || 'kg';
+      m.pack = amt > 0 ? { amount: Math.round(amt * 10000) / 10000, unit: unit } : null;
+      m.billing = pk.billing === 'weight' ? 'weight' : 'pack';
+      if(pk.mode === 'new'){
+        const name = String(pk.name != null ? pk.name : invNiceName(l.description)).trim();
+        if(!name){ showToast('Give it a name'); return; }
+        const id = uid(), unitWord = m.billing === 'weight' ? 'kg' : (String(l.unit || '').toLowerCase() || 'each');
+        if(pk.onList){ const s = findSupplier(sid); if(!s){ showToast('That supplier isn’t there any more'); return; } s.products.push({ id: id, name: name, unit: unitWord, qty: 0, inc: 1, cat: '' }); saveData(); }
+        else { const items = invLoad(PRICE_ITEMS_KEY, []); items.push({ id: id, name: name, supplierId: sid, unit: unitWord }); if(!invSave(PRICE_ITEMS_KEY, items)) return; }
+        m.productId = id;
+      } else {
+        if(!pk.pid){ showToast('Pick a product'); return; }
+        m.productId = pk.pid;
+      }
+    }
+    const kept = matches.filter(x => !(x.supplier === sid && InvoiceEngine.nameKey(x.key) === key));
+    kept.push(m);
+    if(!invSave(INV_MATCHES_KEY, kept)) return;
+    state.invMatchAt = -1; state.invMatchPick = null;
+    goto({name:'invCheck'}); showToast(m.skip ? 'Marked as not a product' : 'Matched: remembered for next time');
+  });
+  const ivKeep = document.getElementById('inv-keep');
+  if(ivKeep) ivKeep.addEventListener('click', ()=>{
+    const st = invState(); if(!st) return;
+    const sid = st.p.supplierId, r = st.r, kept = invLoad(INV_KEPT_KEY, []);
+    if(st.unmatched || st.toDecide || !findSupplier(sid)) return;
+    if(!st.chk.ok && !confirm('This invoice doesn’t check out (' + st.chk.flags.join(' ') + ')\n\nKeep it anyway?')) return;
+    const dup = kept.find(k => k.supplierId === sid && st.number && k.number === st.number);
+    if(dup && !confirm('Invoice ' + st.number + ' was already kept on ' + invDayLabel(new Date(dup.keptAt).toISOString().slice(0, 10)) + '. Keep it again?')) return;
+    const id = 'i' + uid(), now = Date.now(), prices = invLoad(INV_PRICES_KEY, []);
+    const lines = st.rows.map(z => {
+      const l = z.x.line, c = z.x.check, real = z.m && !z.m.skip;
+      if(real && z.rec){ const rec = Object.assign({}, z.rec, { invoiceId: id, at: now }); if(z.needsChoice && st.p.choice[z.i] === 'once') rec.once = true; prices.push(rec); }
+      return { description: l.description, unit: l.unit, qty: c.qty, price: l.price, net: l.net, gst: l.gst, total: c.fix ? c.fix.total : l.total, fixed: !!l.fixed,
+        productId: real ? z.m.productId : '', received: st.p.received[z.i] !== false, choice: st.p.choice[z.i] || '' };
+    });
+    const credits = InvoiceEngine.credits(st.chk.lines, st.p.received).total;
+    const total = r.invoice && r.invoice.total != null ? r.invoice.total : st.chk.sums.total;
+    kept.unshift({ id: id, supplierId: sid, printedSupplier: (r.invoice && r.invoice.supplier) || '', number: st.number, date: st.date, pages: r.invoice ? r.invoice.pages : null,
+      net: r.invoice ? r.invoice.net : st.chk.sums.net, gst: r.invoice ? r.invoice.gst : st.chk.sums.gst, total: total, credits: credits, keptAt: now, lines: lines });
+    if(!invSave(INV_PRICES_KEY, prices.slice(-5000)) || !invSave(INV_KEPT_KEY, kept.slice(0, 400))) return;
+    const wk = invWeekStart(st.date);
+    if(!state.invoices[wk]) state.invoices[wk] = {};
+    if(!state.invoices[wk][sid]) state.invoices[wk][sid] = [];
+    state.invoices[wk][sid].push({ amount: Math.round(total * 100) / 100, date: invDayLabel(st.date) + (st.number ? ' · invoice ' + st.number : ''), timestamp: new Date().toISOString() });
+    saveInvoices();
+    goto({name:'invoices'}); window.scrollTo(0,0);
+    showToast('Invoice kept' + (credits ? ': credits to chase ' + invMoney(credits) : ''));
+  });
+  document.querySelectorAll('[data-inv-delkept]').forEach(b => b.addEventListener('click', ()=>{
+    if(!confirm('Delete this kept invoice and its prices from the history?')) return;
+    const id = b.dataset.invDelkept;
+    invSave(INV_KEPT_KEY, invLoad(INV_KEPT_KEY, []).filter(k => k.id !== id));
+    invSave(INV_PRICES_KEY, invLoad(INV_PRICES_KEY, []).filter(r => r.invoiceId !== id));
+    goto({name:'invoices'}); showToast('Deleted');
+  }));
+
   // v3.11.28: a new function from management's doc. Background syncs can redraw the paste box,
   // so what's pasted lives in state until it's read, then it's dropped.
   const fdText = document.getElementById('fndoc-text');
@@ -6109,12 +6506,14 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.29"></script>
+<script src="move-data.js?v=3.11.30"></script>
 <!-- v3.11.28: the function doc reader. A separate file too: if it fails, only "From management's doc" says so. -->
-<script src="function-reader.js?v=3.11.29"></script>
+<script src="function-reader.js?v=3.11.30"></script>
+<!-- v3.11.30: the invoice rules. A separate file too: if it fails, only bringing in an invoice says so. -->
+<script src="invoice-engine.js?v=3.11.30"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.29"></script>
-<script src="voice-brain.js?v=3.11.29"></script>
-<script src="voice.js?v=3.11.29"></script>
+<script src="roster-engine.js?v=3.11.30"></script>
+<script src="voice-brain.js?v=3.11.30"></script>
+<script src="voice.js?v=3.11.30"></script>
 </body>
 </html>
