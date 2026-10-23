@@ -410,8 +410,22 @@
     return !!a && !!b && a.supplier === b.supplier && a.productId === b.productId && (a.date || '') === (b.date || '') && cents(a.price) === cents(b.price);
   }
 
+  /* v3.11.33 (his ask, 24 Oct): a pack size he types for one supplier's item whose pack wasn't known. That supplier's
+     price records for the item (priced per pack, no pack yet) gain it and their $ per kg, L or each; so do its matches,
+     so later invoices from that supplier work it out too. A weighed price, one with a pack already, another supplier's
+     and another item's are left as they are. -> { prices, matches, changed } (new arrays; changed = price records) */
+  function setPack(prices, matches, supplier, productId, pack){
+    var changed = 0, ok = !!pack && pack.amount > 0 && /^(kg|L|each)$/.test(pack.unit), p = ok ? { amount: round(pack.amount, 4), unit: pack.unit } : null;
+    function open(x){ return ok && x && x.supplier === supplier && x.productId === productId && x.billing !== 'weight' && !x.skip && !(x.pack && x.pack.amount > 0); }
+    return {
+      prices: (prices || []).map(function(r){ if(!open(r)) return r; changed++; return Object.assign({}, r, { pack: { amount: p.amount, unit: p.unit }, perBase: perBase(r.price, p, 'pack') }); }),
+      matches: (matches || []).map(function(m){ return open(m) ? Object.assign({}, m, { pack: { amount: p.amount, unit: p.unit } }) : m; }),
+      changed: changed   // counted while the prices above were mapped (properties are worked out in order)
+    };
+  }
+
   return { COLS: COLS, cents: cents, money: money, num: num, csvRows: csvRows, readCSV: readCSV, checkLine: checkLine, checkInvoice: checkInvoice,
     readPack: readPack, perBase: perBase, nameKey: nameKey, findMatch: findMatch, suggest: suggest, priceRecord: priceRecord, priceChange: priceChange, currentPrice: currentPrice, historyOf: historyOf,
     orderedVsInvoiced: orderedVsInvoiced, credits: credits, compareSuppliers: compareSuppliers, hasContact: hasContact,
-    looseKey: looseKey, readPriceList: readPriceList, listRecord: listRecord, samePrice: samePrice };
+    looseKey: looseKey, readPriceList: readPriceList, listRecord: listRecord, samePrice: samePrice, setPack: setPack };
 });

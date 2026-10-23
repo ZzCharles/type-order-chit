@@ -675,6 +675,7 @@ a.btn-block{display:block;}
 .pl-q{font-size:13.5px;font-weight:700;margin-top:8px;}
 .pl-acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;align-items:center;}
 .pl-acts .cb-matchbtn{margin-top:0;}
+.pl-other{margin-top:3px;}
 </style>
 
 </head>
@@ -768,7 +769,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.32';
+const APP_VERSION = 'v3.11.33';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -3448,11 +3449,18 @@ function renderInvMatch(){
 function renderInvHist(pid){
   const back = state.invRead ? `<button data-goto="invCheck">&larr; Back to the invoice</button>` : `<button data-goto="invPrices">&larr; Prices</button>`;
   if(typeof InvoiceEngine === 'undefined') return `<div class="crumb">${back}</div><div class="empty">The invoice rules didn’t load. Reload The Pass.</div>`;
-  const prices = invLoad(INV_PRICES_KEY, []), h = InvoiceEngine.historyOf(prices, pid, 5);
+  const prices = invLoad(INV_PRICES_KEY, []), h = InvoiceEngine.historyOf(prices, pid, 10);   // v3.11.33: 10 (was 5): more suppliers per item now
   const sups = {}; h.forEach(x => { sups[x.rec.supplier] = 1; });
   const many = Object.keys(sups).length > 1, latest = h[0] && h[0].rec;
   const cur = latest ? InvoiceEngine.currentPrice(prices, latest.supplier, pid) : null;
   const unit = r => r.billing === 'weight' ? 'kg' : r.pack ? r.pack.unit : '';
+  // v3.11.33 (his ask): each supplier whose price for it has no pack size yet: typed once, from the label
+  const packless = [];
+  prices.forEach(r => { if(r.productId === pid && r.billing !== 'weight' && !(r.pack && r.pack.amount > 0) && packless.indexOf(r.supplier) < 0) packless.push(r.supplier); });
+  const pu = (() => { for(const s of state.suppliers){ const x = (s.products || []).find(y => y.id === pid); if(x) return String(x.unit || ''); } return ''; })();
+  const defUnit = /^(l|lt|ltr|litres?)$/i.test(pu) ? 'L' : 'kg';
+  const packHTML = packless.length ? `<div class="section-label">Pack size not known</div><div class="card tight">${packless.map(sid => `<div class="iv-packrow"><span>${escapeHtml(invSupName(sid))}</span><span class="fni-amt"><input class="fni-num" data-pack-amt="${escapeHtml(sid)}" inputmode="decimal" placeholder="size"><select class="iv-unit" data-pack-unit="${escapeHtml(sid)}">${['kg','L','each'].map(u => `<option ${u === defUnit ? 'selected' : ''}>${u}</option>`).join('')}</select><button class="cb-link" data-pack-set="${escapeHtml(sid)}">Set</button></span></div>`).join('')}</div>
+    <div class="rd-note">Type it once, from the label: its prices then show a price per kg, L or each.</div>` : '';
   const rows = h.map(x => `<div class="iv-hist"><span>${escapeHtml(invDayLabel(x.rec.date) || 'undated')}${many ? `<br><span class="iv-pk">${escapeHtml(invSupName(x.rec.supplier))}</span>` : ''}</span><span>${invMoney(x.rec.price)}</span><span>${x.rec.perBase != null ? invMoney(x.rec.perBase) : '–'}</span><span class="${x.dir === 'up' ? 'up' : x.dir === 'down' ? 'down' : ''}">${x.dir === 'up' ? '▲ ' + x.pct + '%' : x.dir === 'down' ? '▼ ' + Math.abs(x.pct) + '%' : x.dir === 'same' ? 'same' : 'first'}${x.rec.once ? '<br><span class="iv-pk">once</span>' : ''}</span></div>`).join('');
   return `
     <div class="crumb">${back}</div>
@@ -3460,26 +3468,39 @@ function renderInvHist(pid){
       ${cur ? `<div class="pill-row">${cur.pack ? `<span class="pill">${cur.pack.amount} ${escapeHtml(cur.pack.unit)} pack</span>` : ''}<span class="pill">now ${invMoney(cur.perBase != null ? cur.perBase : cur.price)}${cur.perBase != null ? '/' + escapeHtml(unit(cur)) : ''}</span></div>` : ''}</div>
     ${rows ? `<div class="card tight"><div class="iv-hist iv-hh"><span>Date</span><span>Price</span><span>Per ${escapeHtml(latest ? unit(latest) || 'unit' : 'unit')}</span><span>Change</span></div>${rows}</div>
     ${h.filter(x => x.rec.note || x.rec.code).map(x => `<div class="pl-note">${escapeHtml(invDayLabel(x.rec.date) || 'Undated')}${many ? ' · ' + escapeHtml(invSupName(x.rec.supplier)) : ''}: ${escapeHtml([x.rec.code ? 'code ' + x.rec.code : '', x.rec.note || ''].filter(Boolean).join('. '))}</div>`).join('')}
-    <div class="rd-note">The last ${h.length} price${h.length === 1 ? '' : 's'}, from ${escapeHtml(h.map(x => x.rec.source).filter((s, i, a) => s && a.indexOf(s) === i).join(', '))}. Kept on this phone only.</div>` : `<div class="empty">No prices kept for it yet.</div>`}`;
+    <div class="rd-note">The last ${h.length} price${h.length === 1 ? '' : 's'}, from ${escapeHtml(h.map(x => x.rec.source).filter((s, i, a) => s && a.indexOf(s) === i).join(', '))}. Kept on this phone only.</div>` : `<div class="empty">No prices kept for it yet.</div>`}${packHTML}`;
 }
 function renderInvPrices(){
   const crumb = `<div class="crumb"><button data-goto="invoices">&larr; Invoices</button></div>`;
   if(typeof InvoiceEngine === 'undefined') return crumb + `<div class="empty">The invoice rules didn’t load. Reload The Pass.</div>`;
   const prices = invLoad(INV_PRICES_KEY, []), by = {};
-  prices.forEach(r => { (by[r.supplier] = by[r.supplier] || {})[r.productId] = 1; });
-  // v3.11.32: his suppliers first, then the prices-only ones
-  const blocks = Object.keys(by).sort((a, b) => (findSupplier(a) ? 0 : 1) - (findSupplier(b) ? 0 : 1)).map(sid => {
-    const rows = Object.keys(by[sid]).map(pid => {
-      const cur = InvoiceEngine.currentPrice(prices, sid, pid) || InvoiceEngine.historyOf(prices.filter(r => r.supplier === sid), pid, 1)[0].rec;
-      const last = InvoiceEngine.historyOf(prices.filter(r => r.supplier === sid), pid, 1)[0];
-      const u = cur.billing === 'weight' ? 'per kg' : cur.pack ? cur.pack.amount + ' ' + cur.pack.unit + (cur.perBase != null ? ' · ' + invMoney(cur.perBase) + '/' + cur.pack.unit : '') : 'per pack';
-      // the newest delivery was approved once: the current price stays, and the row says what was paid
-      const once = last.rec !== cur && last.rec.once;
-      const tag = once ? 'once' : last.dir === 'up' ? '▲ ' + last.pct + '%' : last.dir === 'down' ? '▼ ' + Math.abs(last.pct) + '%' : last.dir;
-      return { name: invProductName(pid), html: `<div class="cb-prow" data-goto="invHist" data-fid="${escapeHtml(pid)}"><div><div class="cb-name">${escapeHtml(invProductName(pid))}</div><div class="cb-sub">${escapeHtml(u)} · ${escapeHtml(invDayLabel(cur.date) || 'undated')}${once ? ` · last delivery ${invMoney(last.rec.price)}, approved once` : ''}</div>${cur.note ? `<div class="pl-note">${escapeHtml(cur.note)}</div>` : ''}</div><div class="cb-pv">${invMoney(cur.price)}<span class="cb-ch ${!once && last.dir === 'up' ? 'up' : ''}">${tag}</span></div></div>` };
-    }).sort((a, b) => a.name.localeCompare(b.name));
-    return `<div class="section-label">${escapeHtml(invSupName(sid))}${findSupplier(sid) ? '' : ' · prices only'}</div><div class="card tight">${rows.map(x => x.html).join('')}</div>`;
-  }).join('');
+  prices.forEach(r => { (by[r.productId] = by[r.productId] || {})[r.supplier] = 1; });
+  /* v3.11.33 (his ask, 24 Oct: "marry the same items together … so I know which supplier offered which price"): one row
+     per item, under the supplier it's ordered from: that supplier's current price first, then a line for each other
+     supplier's, newest first (an item only others have priced leads with the newest). */
+  const priceItems = invLoad(PRICE_ITEMS_KEY, []);
+  const home = pid => { for(const s of state.suppliers) if((s.products || []).some(p => p.id === pid)) return s.id; const x = priceItems.find(i => i.id === pid); return x ? x.supplierId : ''; };
+  const at = (sid, pid) => {
+    const mine = prices.filter(r => r.supplier === sid), last = InvoiceEngine.historyOf(mine, pid, 1)[0];
+    const cur = InvoiceEngine.currentPrice(prices, sid, pid) || last.rec;
+    const per = cur.billing === 'weight' ? 'per kg' : cur.pack ? cur.pack.amount + ' ' + cur.pack.unit + (cur.perBase != null ? ' · ' + invMoney(cur.perBase) + '/' + cur.pack.unit : '') : 'pack not known';
+    // the newest delivery was approved once: the current price stays, and the row says what was paid
+    const once = last.rec !== cur && last.rec.once;
+    return { sid: sid, cur: cur, last: last, per: per, once: once, day: invDayLabel(cur.date) || 'undated',
+      tag: once ? 'once' : last.dir === 'up' ? '▲ ' + last.pct + '%' : last.dir === 'down' ? '▼ ' + Math.abs(last.pct) + '%' : last.dir };
+  };
+  const groups = {};
+  Object.keys(by).forEach(pid => {
+    const h = home(pid), list = Object.keys(by[pid]).map(sid => at(sid, pid))
+      .sort((a, b) => (a.sid === h ? -1 : b.sid === h ? 1 : 0) || (a.cur.date < b.cur.date ? 1 : a.cur.date > b.cur.date ? -1 : 0));
+    const m = list[0], name = invProductName(pid);
+    const html = `<div class="cb-prow" data-goto="invHist" data-fid="${escapeHtml(pid)}"><div><div class="cb-name">${escapeHtml(name)}</div><div class="cb-sub">${escapeHtml(invSupName(m.sid))} · ${escapeHtml(m.per)} · ${escapeHtml(m.day)}${m.once ? ` · last delivery ${invMoney(m.last.rec.price)}, approved once` : ''}</div>${m.cur.note ? `<div class="pl-note">${escapeHtml(m.cur.note)}</div>` : ''}${list.slice(1).map(o => `<div class="cb-sub pl-other">${escapeHtml(invSupName(o.sid))} ${invMoney(o.cur.price)} · ${escapeHtml(o.per)} · ${escapeHtml(o.day)}</div>`).join('')}</div><div class="cb-pv">${invMoney(m.cur.price)}<span class="cb-ch ${!m.once && m.last.dir === 'up' ? 'up' : ''}">${m.tag}</span></div></div>`;
+    const g = h || m.sid;
+    (groups[g] = groups[g] || []).push({ name: name, html: html });
+  });
+  // his suppliers in their own order, then any other (a removed or prices-only one)
+  const order = state.suppliers.map(s => s.id).filter(id => groups[id]).concat(Object.keys(groups).filter(id => !findSupplier(id)));
+  const blocks = order.map(sid => `<div class="section-label">${escapeHtml(invSupName(sid))}${findSupplier(sid) ? '' : ' · prices only'}</div><div class="card tight">${groups[sid].sort((a, b) => a.name.localeCompare(b.name)).map(x => x.html).join('')}</div>`).join('');
   return crumb + `<h2 class="screen-title">Prices</h2><p class="screen-sub">The current price of everything you’ve matched, from your invoices and price lists. Tap one for its history.</p>
     <div class="add-row"><button class="btn btn-ghost" data-goto="plPaste">Bring in a price list</button></div>
     ${plNewHTML()}
@@ -3505,6 +3526,8 @@ function invSupName(sid){
   return p ? p.name : retiredName(sid) || 'A removed supplier';
 }
 function plNewSet(){ try{ return new Set(invLoad(NEW_ITEMS_KEY, []).map(m => m.id)); }catch(e){ return new Set(); } }
+/* v3.11.33: an item he has edited (renamed, moved) is no longer NEW */
+function plUnmark(pid){ try{ const m = invLoad(NEW_ITEMS_KEY, []); if(m.some(x => x.id === pid)) invSave(NEW_ITEMS_KEY, m.filter(x => x.id !== pid)); }catch(e){} }
 /* the NEW marks whose item is still on an order list */
 function plNewMarks(){
   return invLoad(NEW_ITEMS_KEY, []).map(m => {
@@ -5054,6 +5077,8 @@ function renderEditProduct(supplierId, pid){
       <div class="chip-row">
         ${['kg','pkt','each','box','punnet','bunch','L'].map(u=>`<button type="button" class="chip" data-unit-chip="${u}">${u}</button>`).join('')}
       </div>
+      <label>Supplier</label>
+      <div class="chip-row">${state.suppliers.map(x => `<button type="button" class="chip cat-chip${x.id === supplierId ? ' chip-on' : ''}" data-ep-sup="${escapeHtml(x.id)}">${escapeHtml(x.name)}</button>`).join('')}</div>
       <label>Increment per tap</label>
       <input id="ep-inc" value="${formatQty(p.inc||1)}" inputmode="decimal">
       ${categoryChipsHTML(p.cat || '')}
@@ -5239,6 +5264,7 @@ function attachHandlers(){
       render();
     });
   }
+  document.querySelectorAll('[data-ep-sup]').forEach(el => el.addEventListener('click', ()=>{ document.querySelectorAll('[data-ep-sup]').forEach(x => x.classList.toggle('chip-on', x === el)); }));   // v3.11.33
   document.querySelectorAll('[data-unit-chip]').forEach(el=>{
     el.addEventListener('click', ()=>{
       const t = document.getElementById('np-unit') || document.getElementById('ep-unit');
@@ -5262,9 +5288,13 @@ function attachHandlers(){
       if(!isNaN(inc) && inc > 0) p.inc = Math.round(inc*100)/100;
       const catField = document.getElementById('p-cat');
       p.cat = catField ? catField.value : (p.cat || '');
+      // v3.11.33: moved to another supplier: the same item (its id), so its prices, matches and the staff app's list follow
+      const toBtn = document.querySelector('[data-ep-sup].chip-on'), to = (toBtn && findSupplier(toBtn.dataset.epSup)) || s;
+      if(to !== s){ s.products = s.products.filter(x => x !== p); to.products.push(p); }
+      plUnmark(p.id);   // looked at: no longer NEW
       saveData();
-      goto({name:'supplier', id: s.id});
-      showToast('Product updated');
+      goto({name:'supplier', id: to.id});
+      showToast(to !== s ? 'Moved to ' + to.name + (p.qty > 0 ? ', with its ' + formatQty(p.qty) + ' ' + p.unit + ' on the order' : '') : 'Product updated');
     });
   }
   document.querySelectorAll('[data-staff-day]').forEach(el=>{
@@ -5854,6 +5884,17 @@ function attachHandlers(){
   document.querySelectorAll('[data-pl-skip]').forEach(b => b.addEventListener('click', ()=>{ state.plPicks.item[b.dataset.plSkip] = 'skip'; render(); }));
   document.querySelectorAll('[data-pl-under]').forEach(b => b.addEventListener('click', ()=>{ state.plPicks.under[b.dataset.plUnder] = b.dataset.sid; state.plPicks.item[b.dataset.plUnder] = 'new'; render(); }));
   document.querySelectorAll('[data-pl-other]').forEach(s => s.addEventListener('change', ()=>{ if(s.value){ state.plPicks.item[s.dataset.plOther] = s.value; render(); } }));
+  // v3.11.33: a pack size typed on a price's history (that supplier's prices and matches for the item)
+  document.querySelectorAll('[data-pack-set]').forEach(b => b.addEventListener('click', ()=>{
+    const sid = b.dataset.packSet, pid = state.view.fid, q = window.CSS && CSS.escape ? CSS.escape(sid) : sid;
+    const amt = parseFloat(String((document.querySelector('[data-pack-amt="' + q + '"]') || {}).value || '').replace(',', '.'));
+    const unit = (document.querySelector('[data-pack-unit="' + q + '"]') || {}).value || 'kg';
+    if(!(amt > 0)){ showToast('Type the pack size first'); return; }
+    const r = InvoiceEngine.setPack(invLoad(INV_PRICES_KEY, []), invLoad(INV_MATCHES_KEY, []), sid, pid, { amount: amt, unit: unit });
+    if(!r.changed){ showToast('Nothing to change'); return; }
+    if(!invSave(INV_PRICES_KEY, r.prices) || !invSave(INV_MATCHES_KEY, r.matches)) return;
+    render(); showToast('Pack set: ' + (Math.round(amt * 10000) / 10000) + ' ' + unit);
+  }));
   const plClear = document.getElementById('pl-clearnew');
   if(plClear) plClear.addEventListener('click', ()=>{ invSave(NEW_ITEMS_KEY, []); render(); showToast('NEW marks cleared'); });
   const plKeep = document.getElementById('pl-keep');
@@ -6775,16 +6816,16 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.32"></script>
+<script src="move-data.js?v=3.11.33"></script>
 <!-- v3.11.28: the function doc reader. A separate file too: if it fails, only "From management's doc" says so. -->
-<script src="function-reader.js?v=3.11.32"></script>
+<script src="function-reader.js?v=3.11.33"></script>
 <!-- v3.11.30: the invoice rules. A separate file too: if it fails, only bringing in an invoice says so. -->
-<script src="invoice-engine.js?v=3.11.32"></script>
+<script src="invoice-engine.js?v=3.11.33"></script>
 <!-- v3.11.31: the supplier readers for a scanned invoice (Aziz's so far). -->
-<script src="invoice-readers.js?v=3.11.32"></script>
+<script src="invoice-readers.js?v=3.11.33"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.32"></script>
-<script src="voice-brain.js?v=3.11.32"></script>
-<script src="voice.js?v=3.11.32"></script>
+<script src="roster-engine.js?v=3.11.33"></script>
+<script src="voice-brain.js?v=3.11.33"></script>
+<script src="voice.js?v=3.11.33"></script>
 </body>
 </html>
