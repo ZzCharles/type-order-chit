@@ -344,7 +344,74 @@
     });
   }
 
+  /* ---------- price lists (v3.11.32, 24 Oct: his price sheet; invoice-plan.md §11) ----------
+     His sheet's layout: one row per price (an invoice line, an order sheet's price, an app listing), its columns found
+     by their names in the first row: supplier, source, date ("undated" or empty: no date, so the oldest), item,
+     billed_unit, unit_price_ex_gst (ex GST), qty_billed, net_total_ex_gst, gst (empty = unknown, never 0),
+     pack_size_kg_or_l (empty = unknown), price_per_kg_or_l, supplier_code, notes; and, on a sheet Claude has checked
+     with him: pass_supplier (his supplier's name, or "prices only" for one not in The Pass), pass_item (his item's
+     name, or a new item's), new_under (the supplier a new item goes to) and like (same / similar / different /
+     not comparable / check). A weighed price (billed per kg) is per kg; any other is per pack. */
+  var LIST_COLS = { supplier: 1, source: 1, date: 1, item: 1, billed_unit: 1, unit_price_ex_gst: 1, qty_billed: 1, net_total_ex_gst: 1, gst: 1,
+    pack_size_kg_or_l: 1, price_per_kg_or_l: 1, supplier_code: 1, notes: 1, pass_supplier: 1, pass_item: 1, new_under: 1, like: 1 };
+  var LIKES = { same: 'same', similar: 'similar', different: 'different', 'not comparable': 'not comparable', check: 'check' };
+  /* names compared loosely: "Michaels Fresh" = "Michael's Fresh", "Dick Stone" = "Dick stone" */
+  function looseKey(s){ return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ''); }
+  /* -> { ok, why, rows: [{ n (the sheet's line), supplier, source, date, item, unit, price, qty, net, gst, pack, weighed, perBase,
+     code, note, passSupplier, passItem, newUnder, like }], problems } */
+  function readPriceList(text){
+    var rows = csvRows(text), out = { ok: false, why: '', rows: [], problems: [] };
+    if(!rows.length){ out.why = 'Nothing pasted.'; return out; }
+    var at = {};
+    rows[0].forEach(function(h, j){ h = String(h).trim().toLowerCase(); if(LIST_COLS[h] && at[h] == null) at[h] = j; });
+    if(at.supplier == null || at.item == null || at.unit_price_ex_gst == null){
+      out.why = 'This isn’t a price list in the sheet’s layout (its first row names the columns: supplier, item, unit_price_ex_gst …).';
+      return out;
+    }
+    var contact = false;
+    rows.slice(1).forEach(function(r, i){
+      var n = i + 2, bad = [];
+      function g(k){ return at[k] == null || r[at[k]] == null ? '' : String(r[at[k]]).trim(); }
+      function v(k){ var x = num(g(k)); if(x !== x){ bad.push(k); return null; } return x; }
+      var o = { n: n, supplier: g('supplier'), source: g('source'), item: g('item'), note: g('notes'), code: g('supplier_code') };
+      ['supplier', 'source', 'item', 'note'].forEach(function(k){ if(hasContact(o[k])){ o[k] = ''; contact = true; } });
+      if(!o.supplier || !o.item){ out.problems.push('Line ' + n + ': no supplier or item, left out.'); return; }
+      var d = g('date').replace(/[ T]00:00(:00)?$/, '');
+      if(/^undated$/i.test(d)) d = '';
+      if(d && day(d) !== day(d)){ out.problems.push('Line ' + n + ' (' + o.item + '): the date isn’t YYYY-MM-DD, left out.'); return; }
+      o.date = d;
+      o.unit = g('billed_unit');
+      o.price = v('unit_price_ex_gst'); o.qty = v('qty_billed'); o.net = v('net_total_ex_gst'); o.gst = v('gst');
+      var size = v('pack_size_kg_or_l'), per = v('price_per_kg_or_l');
+      if(o.price == null){ out.problems.push('Line ' + n + ' (' + o.item + '): no price, left out.'); return; }
+      if(bad.length) out.problems.push('Line ' + n + ' (' + o.item + '): can’t read ' + bad.join(', ') + '.');
+      o.weighed = o.unit.toLowerCase() === 'kg';
+      var read = readPack(o.item);
+      o.pack = !o.weighed && size > 0 ? { amount: round(size, 4), unit: read ? read.unit : 'kg' } : null;
+      o.perBase = perBase(o.price, o.pack, o.weighed ? 'weight' : 'pack');
+      if(per != null && o.perBase != null && Math.abs(per - o.perBase) > Math.max(0.01, o.perBase * 0.005))
+        out.problems.push('Line ' + n + ' (' + o.item + '): the sheet says ' + money(cents(per)) + ' a kg or L, but the price ÷ the pack is ' + money(cents(o.perBase)) + '. Using ' + money(cents(o.perBase)) + '.');
+      o.passSupplier = g('pass_supplier'); o.passItem = g('pass_item'); o.newUnder = g('new_under');
+      o.like = LIKES[g('like').toLowerCase()] || '';
+      out.rows.push(o);
+    });
+    if(contact) out.problems.push('A phone number or email was left out (never kept).');
+    out.ok = out.rows.length > 0;
+    if(!out.ok) out.why = 'No prices found under the first row.';
+    return out;
+  }
+  /* a price-list row -> a price record (the same shape as an invoice's, with the sheet's note, code and GST; via 'list') */
+  function listRecord(row, supplierId, productId){
+    return { supplier: supplierId, productId: productId, pack: row.pack || null, billing: row.weighed ? 'weight' : 'pack', price: row.price, perBase: row.perBase,
+      date: row.date || '', source: row.source || 'price list', note: row.note || '', code: row.code || '', gst: row.gst == null ? null : row.gst, via: 'list' };
+  }
+  /* the same price kept before (an invoice scanned and the sheet's copy of it): same supplier, product, date and price */
+  function samePrice(a, b){
+    return !!a && !!b && a.supplier === b.supplier && a.productId === b.productId && (a.date || '') === (b.date || '') && cents(a.price) === cents(b.price);
+  }
+
   return { COLS: COLS, cents: cents, money: money, num: num, csvRows: csvRows, readCSV: readCSV, checkLine: checkLine, checkInvoice: checkInvoice,
     readPack: readPack, perBase: perBase, nameKey: nameKey, findMatch: findMatch, suggest: suggest, priceRecord: priceRecord, priceChange: priceChange, currentPrice: currentPrice, historyOf: historyOf,
-    orderedVsInvoiced: orderedVsInvoiced, credits: credits, compareSuppliers: compareSuppliers, hasContact: hasContact };
+    orderedVsInvoiced: orderedVsInvoiced, credits: credits, compareSuppliers: compareSuppliers, hasContact: hasContact,
+    looseKey: looseKey, readPriceList: readPriceList, listRecord: listRecord, samePrice: samePrice };
 });

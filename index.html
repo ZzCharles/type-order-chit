@@ -667,6 +667,14 @@ a.btn-block{display:block;}
 .cb-pv{text-align:right;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;}
 .cb-ch{display:block;font-size:11px;font-weight:600;color:var(--muted);}
 .cb-ch.up{color:#8A5A16;}
+/* v3.11.32: a price list brought in (his pick: only what needs him open; the rest folded); NEW items */
+.pl-new{display:inline-block;font-size:9.5px;font-weight:800;letter-spacing:.7px;background:#E5EFE3;color:#2F5F39;border-radius:999px;padding:2px 7px;margin-left:6px;vertical-align:2px;}
+.pl-note{font-size:11.5px;color:#8A5A16;margin-top:4px;line-height:1.4;}
+.pl-like{color:#8A5A16;}
+.pl-fold{display:flex;justify-content:space-between;align-items:baseline;margin-top:16px;}
+.pl-q{font-size:13.5px;font-weight:700;margin-top:8px;}
+.pl-acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;align-items:center;}
+.pl-acts .cb-matchbtn{margin-top:0;}
 </style>
 
 </head>
@@ -760,7 +768,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.31';
+const APP_VERSION = 'v3.11.32';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -2803,6 +2811,7 @@ function goto(view){
   if(!(view.name === 'fnEdit' && view.fid === 'new')){ state.fnDraft = null; state.fnFromDoc = false; }
   if(view.name !== 'fnDoc'){ state.fnDocText = ''; state.fnDocRead = null; state.fnDocPicks = null; }   // v3.11.28
   if(INV_FLOW.indexOf(view.name) < 0){ state.invText = ''; state.invRead = null; state.invPicks = null; state.invMatchAt = -1; state.invMatchPick = null; state.invVia = ''; }   // v3.11.30
+  if(view.name !== 'plPaste' && view.name !== 'plCheck'){ state.plText = ''; state.plRead = null; state.plPicks = null; state.plOpen = {}; }   // v3.11.32
   state.view = view; try{ history.pushState({view}, ''); }catch(e){} animate(render);
 }
 function findSupplier(id){ return state.suppliers.find(s=>s.id===id); }
@@ -2845,7 +2854,7 @@ function buildSendLink(supplier, message, subject){
 
 /* Screens where the user is typing. A background poll must never redraw these
    or half-entered forms vanish — which is what wiped function names and pax. */
-const EDIT_VIEWS = ['fnEdit','fnTiers','fnDoc','invPaste','invCheck','invMatch','recipeEdit','addSupplier','addProduct','editProduct','recipeImport','access','prepItems','voiceTeach','welcome','move'];
+const EDIT_VIEWS = ['fnEdit','fnTiers','fnDoc','invPaste','invCheck','invMatch','plPaste','plCheck','recipeEdit','addSupplier','addProduct','editProduct','recipeImport','access','prepItems','voiceTeach','welcome','move'];
 function isEditing(){ return EDIT_VIEWS.indexOf(state.view.name) > -1; }
 function bgRender(){ if(isEditing()) return; render(); }
 
@@ -2894,6 +2903,8 @@ function render(){
   else if(v.name === "invHist") html += renderInvHist(v.fid);
   else if(v.name === "invPrices") html += renderInvPrices();
   else if(v.name === "invKept") html += renderInvKept(v.fid);
+  else if(v.name === "plPaste") html += renderPlPaste();
+  else if(v.name === "plCheck") html += renderPlCheck();
   else if(v.name === "prepAdd") html += renderPrepAdd();
   else if(v.name === "prepItems") html += renderPrepItems();
   else if(v.name === "recipes") html += renderRecipes();
@@ -3442,20 +3453,22 @@ function renderInvHist(pid){
   const many = Object.keys(sups).length > 1, latest = h[0] && h[0].rec;
   const cur = latest ? InvoiceEngine.currentPrice(prices, latest.supplier, pid) : null;
   const unit = r => r.billing === 'weight' ? 'kg' : r.pack ? r.pack.unit : '';
-  const rows = h.map(x => `<div class="iv-hist"><span>${escapeHtml(invDayLabel(x.rec.date))}${many ? `<br><span class="iv-pk">${escapeHtml((findSupplier(x.rec.supplier) || {}).name || '')}</span>` : ''}</span><span>${invMoney(x.rec.price)}</span><span>${x.rec.perBase != null ? invMoney(x.rec.perBase) : '–'}</span><span class="${x.dir === 'up' ? 'up' : x.dir === 'down' ? 'down' : ''}">${x.dir === 'up' ? '▲ ' + x.pct + '%' : x.dir === 'down' ? '▼ ' + Math.abs(x.pct) + '%' : x.dir === 'same' ? 'same' : 'first'}${x.rec.once ? '<br><span class="iv-pk">once</span>' : ''}</span></div>`).join('');
+  const rows = h.map(x => `<div class="iv-hist"><span>${escapeHtml(invDayLabel(x.rec.date) || 'undated')}${many ? `<br><span class="iv-pk">${escapeHtml(invSupName(x.rec.supplier))}</span>` : ''}</span><span>${invMoney(x.rec.price)}</span><span>${x.rec.perBase != null ? invMoney(x.rec.perBase) : '–'}</span><span class="${x.dir === 'up' ? 'up' : x.dir === 'down' ? 'down' : ''}">${x.dir === 'up' ? '▲ ' + x.pct + '%' : x.dir === 'down' ? '▼ ' + Math.abs(x.pct) + '%' : x.dir === 'same' ? 'same' : 'first'}${x.rec.once ? '<br><span class="iv-pk">once</span>' : ''}</span></div>`).join('');
   return `
     <div class="crumb">${back}</div>
-    <div class="recipe-head"><div class="recipe-eyebrow">Price history${latest && !many ? ' · ' + escapeHtml((findSupplier(latest.supplier) || {}).name || '') : ''}</div><h2 class="recipe-title">${escapeHtml(invProductName(pid))}</h2>
+    <div class="recipe-head"><div class="recipe-eyebrow">Price history${latest && !many ? ' · ' + escapeHtml(invSupName(latest.supplier)) : ''}</div><h2 class="recipe-title">${escapeHtml(invProductName(pid))}</h2>
       ${cur ? `<div class="pill-row">${cur.pack ? `<span class="pill">${cur.pack.amount} ${escapeHtml(cur.pack.unit)} pack</span>` : ''}<span class="pill">now ${invMoney(cur.perBase != null ? cur.perBase : cur.price)}${cur.perBase != null ? '/' + escapeHtml(unit(cur)) : ''}</span></div>` : ''}</div>
-    ${rows ? `<div class="card tight"><div class="iv-hist iv-hh"><span>Delivered</span><span>Price</span><span>Per ${escapeHtml(latest ? unit(latest) || 'unit' : 'unit')}</span><span>Change</span></div>${rows}</div>
-    <div class="rd-note">The last ${h.length} deliver${h.length === 1 ? 'y' : 'ies'}, from ${escapeHtml(h.map(x => x.rec.source).filter(Boolean).join(', '))}. Kept on this phone only.</div>` : `<div class="empty">No prices kept for it yet.</div>`}`;
+    ${rows ? `<div class="card tight"><div class="iv-hist iv-hh"><span>Date</span><span>Price</span><span>Per ${escapeHtml(latest ? unit(latest) || 'unit' : 'unit')}</span><span>Change</span></div>${rows}</div>
+    ${h.filter(x => x.rec.note || x.rec.code).map(x => `<div class="pl-note">${escapeHtml(invDayLabel(x.rec.date) || 'Undated')}${many ? ' · ' + escapeHtml(invSupName(x.rec.supplier)) : ''}: ${escapeHtml([x.rec.code ? 'code ' + x.rec.code : '', x.rec.note || ''].filter(Boolean).join('. '))}</div>`).join('')}
+    <div class="rd-note">The last ${h.length} price${h.length === 1 ? '' : 's'}, from ${escapeHtml(h.map(x => x.rec.source).filter((s, i, a) => s && a.indexOf(s) === i).join(', '))}. Kept on this phone only.</div>` : `<div class="empty">No prices kept for it yet.</div>`}`;
 }
 function renderInvPrices(){
   const crumb = `<div class="crumb"><button data-goto="invoices">&larr; Invoices</button></div>`;
   if(typeof InvoiceEngine === 'undefined') return crumb + `<div class="empty">The invoice rules didn’t load. Reload The Pass.</div>`;
   const prices = invLoad(INV_PRICES_KEY, []), by = {};
   prices.forEach(r => { (by[r.supplier] = by[r.supplier] || {})[r.productId] = 1; });
-  const blocks = Object.keys(by).map(sid => {
+  // v3.11.32: his suppliers first, then the prices-only ones
+  const blocks = Object.keys(by).sort((a, b) => (findSupplier(a) ? 0 : 1) - (findSupplier(b) ? 0 : 1)).map(sid => {
     const rows = Object.keys(by[sid]).map(pid => {
       const cur = InvoiceEngine.currentPrice(prices, sid, pid) || InvoiceEngine.historyOf(prices.filter(r => r.supplier === sid), pid, 1)[0].rec;
       const last = InvoiceEngine.historyOf(prices.filter(r => r.supplier === sid), pid, 1)[0];
@@ -3463,12 +3476,170 @@ function renderInvPrices(){
       // the newest delivery was approved once: the current price stays, and the row says what was paid
       const once = last.rec !== cur && last.rec.once;
       const tag = once ? 'once' : last.dir === 'up' ? '▲ ' + last.pct + '%' : last.dir === 'down' ? '▼ ' + Math.abs(last.pct) + '%' : last.dir;
-      return { name: invProductName(pid), html: `<div class="cb-prow" data-goto="invHist" data-fid="${escapeHtml(pid)}"><div><div class="cb-name">${escapeHtml(invProductName(pid))}</div><div class="cb-sub">${escapeHtml(u)} · ${escapeHtml(invDayLabel(cur.date))}${once ? ` · last delivery ${invMoney(last.rec.price)}, approved once` : ''}</div></div><div class="cb-pv">${invMoney(cur.price)}<span class="cb-ch ${!once && last.dir === 'up' ? 'up' : ''}">${tag}</span></div></div>` };
+      return { name: invProductName(pid), html: `<div class="cb-prow" data-goto="invHist" data-fid="${escapeHtml(pid)}"><div><div class="cb-name">${escapeHtml(invProductName(pid))}</div><div class="cb-sub">${escapeHtml(u)} · ${escapeHtml(invDayLabel(cur.date) || 'undated')}${once ? ` · last delivery ${invMoney(last.rec.price)}, approved once` : ''}</div>${cur.note ? `<div class="pl-note">${escapeHtml(cur.note)}</div>` : ''}</div><div class="cb-pv">${invMoney(cur.price)}<span class="cb-ch ${!once && last.dir === 'up' ? 'up' : ''}">${tag}</span></div></div>` };
     }).sort((a, b) => a.name.localeCompare(b.name));
-    return `<div class="section-label">${escapeHtml((findSupplier(sid) || {}).name || retiredName(sid) || 'A removed supplier')}</div><div class="card tight">${rows.map(x => x.html).join('')}</div>`;
+    return `<div class="section-label">${escapeHtml(invSupName(sid))}${findSupplier(sid) ? '' : ' · prices only'}</div><div class="card tight">${rows.map(x => x.html).join('')}</div>`;
   }).join('');
-  return crumb + `<h2 class="screen-title">Prices</h2><p class="screen-sub">The current price of everything you’ve matched, from your invoices. Tap one for its history.</p>${blocks || '<div class="empty">No prices yet: bring in an invoice.</div>'}`;
+  return crumb + `<h2 class="screen-title">Prices</h2><p class="screen-sub">The current price of everything you’ve matched, from your invoices and price lists. Tap one for its history.</p>
+    <div class="add-row"><button class="btn btn-ghost" data-goto="plPaste">Bring in a price list</button></div>
+    ${plNewHTML()}
+    ${blocks || '<div class="empty">No prices yet: bring in an invoice or a price list.</div>'}`;
 }
+
+/* ===== v3.11.32: a price list brought in (24 Oct 2026; invoice-plan.md §11; his picks) =====
+   A price list in his sheet's layout (a Claude chat's CSV of his invoices, an old order sheet, an app's listing:
+   one row per price) is pasted, read by InvoiceEngine.readPriceList, then checked: each row's supplier (one of
+   his, or a prices-only one: a supplier not in The Pass, kept only for comparing, never on the order list, the
+   staff app or an email), its item (the checked sheet's pass_item, else a match remembered from invoices and
+   lists, else his pick) and its like-for-like. His pick: only what needs him is open; the rest is folded. Keep
+   adds each price to its item's history (never replacing one; the same price kept before is left out; undated
+   = the oldest), remembers the matches, and puts a new item on its supplier's order list marked NEW (his pick:
+   the supplier the sheet names, else the sheet's new_under) until he clears the marks. It never touches orders,
+   the email or text, or the weekly totals. The NEW marks stay on this phone (order-chit-new-items), out of the
+   shared catalogue the staff app reads. */
+const PRICE_SUPPLIERS_KEY = 'order-chit-price-suppliers', NEW_ITEMS_KEY = 'order-chit-new-items';
+const PL_LIKE = { similar: 'probably the same', different: 'not like-for-like', 'not comparable': 'not comparable' };
+function invSupName(sid){
+  const s = findSupplier(sid); if(s) return s.name;
+  const p = invLoad(PRICE_SUPPLIERS_KEY, []).find(x => x.id === sid);
+  return p ? p.name : retiredName(sid) || 'A removed supplier';
+}
+function plNewSet(){ try{ return new Set(invLoad(NEW_ITEMS_KEY, []).map(m => m.id)); }catch(e){ return new Set(); } }
+/* the NEW marks whose item is still on an order list */
+function plNewMarks(){
+  return invLoad(NEW_ITEMS_KEY, []).map(m => {
+    for(const s of state.suppliers){ const p = (s.products || []).find(x => x.id === m.id); if(p) return { id: m.id, name: p.name, supplierId: s.id, supName: s.name }; }
+    return null;
+  }).filter(Boolean);
+}
+function plNewHTML(){
+  const marks = plNewMarks();
+  if(!marks.length) return '';
+  return `<div class="section-label">New from a price list (${marks.length})</div><div class="card tight">${marks.map(m => `<div class="cb-prow" data-goto="supplier" data-supplier="${escapeHtml(m.supplierId)}"><div><div class="cb-name">${escapeHtml(m.name)}<span class="pl-new">NEW</span></div><div class="cb-sub">On ${escapeHtml(m.supName)}’s order list</div></div><div class="cb-pv">&rsaquo;</div></div>`).join('')}</div>
+    <div class="rd-note">Added by a price list. Rename or move them as you go through them, then <button class="cb-link" id="pl-clearnew">clear the NEW marks</button>.</div>`;
+}
+function plItems(){
+  const out = [];
+  state.suppliers.forEach(s => (s.products || []).forEach(p => out.push({ id: p.id, name: p.name, supplierId: s.id })));
+  invLoad(PRICE_ITEMS_KEY, []).forEach(x => out.push({ id: x.id, name: x.name, supplierId: x.supplierId, priceOnly: true }));
+  return out;
+}
+function plReal(name){ const k = InvoiceEngine.looseKey(name); return k ? state.suppliers.find(s => InvoiceEngine.looseKey(s.name) === k) || null : null; }
+/* a row's supplier: { kind: 'real', id } | { kind: 'prices', id ('' until kept), name } | null (he's asked) */
+function plSupplierFor(row, picks){
+  const E = InvoiceEngine, k = E.looseKey(row.supplier), ps = invLoad(PRICE_SUPPLIERS_KEY, []);
+  const pricesOnly = () => { const p = ps.find(x => E.looseKey(x.name) === k); return { kind: 'prices', id: p ? p.id : '', name: p ? p.name : row.supplier.slice(0, 60) }; };
+  const pick = picks.sup[k];
+  if(pick === 'prices') return pricesOnly();
+  if(pick && findSupplier(pick)) return { kind: 'real', id: pick };
+  if(/^prices? only$/i.test(row.passSupplier)) return pricesOnly();
+  const said = row.passSupplier && plReal(row.passSupplier); if(said) return { kind: 'real', id: said.id };
+  const mem = invLoad(INV_SUPPLIERS_KEY, {})[E.nameKey(row.supplier)]; if(mem && findSupplier(mem)) return { kind: 'real', id: mem };
+  const same = plReal(row.supplier); if(same) return { kind: 'real', id: same.id };
+  if(ps.some(x => E.looseKey(x.name) === k)) return pricesOnly();
+  return null;
+}
+/* a row's item: { pid, like } | { newItem: { name, under }, like } | { skip } | { ask: 'item'|'check'|'under', pid?, newItem? } */
+function plNewFor(row, sup, picks){
+  const name = String(row.passItem || invNiceName(row.item)).trim().slice(0, 60), said = row.newUnder && plReal(row.newUnder);
+  const under = picks.under[row.n] || (said ? said.id : '') || (sup && sup.kind === 'real' ? sup.id : '');
+  return under && findSupplier(under) ? { newItem: { name: name, under: under }, like: row.like === 'check' ? '' : row.like } : { newItem: { name: name, under: '' }, ask: 'under' };
+}
+function plItemFor(row, sup, picks, items, matches){
+  const E = InvoiceEngine, d = picks.item[row.n];
+  if(d === 'skip') return { skip: true };
+  if(d === 'new') return plNewFor(row, sup, picks);
+  if(d && items.some(x => x.id === d)) return { pid: d, like: row.like === 'check' ? 'same' : row.like };
+  if(row.passItem){
+    const k = E.looseKey(row.passItem), hits = items.filter(x => E.looseKey(x.name) === k), hit = hits.find(x => x.supplierId === sup.id) || hits[0];
+    if(hit) return row.like === 'check' ? { pid: hit.id, ask: 'check' } : { pid: hit.id, like: row.like };
+    return plNewFor(row, sup, picks);
+  }
+  const m = sup.id ? E.findMatch(matches, sup.id, row.item) : null;
+  if(m && m.skip) return { skip: true };
+  if(m && items.some(x => x.id === m.productId)) return row.like === 'check' ? { pid: m.productId, ask: 'check' } : { pid: m.productId, like: row.like || m.like || '' };
+  return { ask: 'item' };
+}
+function plState(){
+  const r = state.plRead, picks = state.plPicks;
+  if(!r || !picks || typeof InvoiceEngine === 'undefined') return null;
+  const E = InvoiceEngine, items = plItems(), matches = invLoad(INV_MATCHES_KEY, []), prices = invLoad(INV_PRICES_KEY, []);
+  const rows = r.rows.map(row => {
+    const sup = plSupplierFor(row, picks), it = sup ? plItemFor(row, sup, picks, items, matches) : { ask: 'supplier' };
+    const dup = !!(sup && sup.id && it.pid && !it.ask && prices.some(p => E.samePrice(p, E.listRecord(row, sup.id, it.pid))));
+    return { row: row, sup: sup, it: it, dup: dup };
+  });
+  const keep = rows.filter(z => !z.it.ask && !z.it.skip && !z.dup), supAsks = {}, fresh = {};
+  rows.filter(z => z.it.ask === 'supplier').forEach(z => { const k = E.looseKey(z.row.supplier); (supAsks[k] = supAsks[k] || { k: k, name: z.row.supplier, n: 0 }).n++; });
+  keep.forEach(z => { if(z.it.newItem) fresh[z.it.newItem.under + '|' + E.looseKey(z.it.newItem.name)] = z.it.newItem; });
+  return { r: r, picks: picks, rows: rows, items: items, keep: keep, supAsks: Object.values(supAsks), rowAsks: rows.filter(z => z.it.ask && z.it.ask !== 'supplier'),
+    fresh: keep.filter(z => z.it.newItem), newItems: Object.values(fresh), noPack: keep.filter(z => !z.it.newItem && z.row.perBase == null),
+    ready: keep.filter(z => !z.it.newItem && z.row.perBase != null), dups: rows.filter(z => !z.it.ask && !z.it.skip && z.dup), skips: rows.filter(z => !z.it.ask && z.it.skip) };
+}
+function plPer(row){ return row.weighed ? 'per kg' : row.pack ? row.pack.amount + ' ' + row.pack.unit + ' · ' + invMoney(row.perBase) + '/' + row.pack.unit : 'pack not known'; }
+function plRowHTML(z, st, body){
+  const row = z.row, it = z.it, x = it.pid ? st.items.find(i => i.id === it.pid) : null, name = it.newItem ? it.newItem.name : x ? x.name : '', like = PL_LIKE[it.like];
+  const sup = z.sup ? (z.sup.kind === 'real' ? invSupName(z.sup.id) : z.sup.name + ' (prices only)') : row.supplier;
+  return `<div class="cb-line"><div class="iv-body">
+    <div class="cb-top"><span class="cb-name">${name ? escapeHtml(name) : `<span class="cb-unk">${escapeHtml(row.item)}</span>`}${it.newItem ? '<span class="pl-new">NEW</span>' : ''}</span><span class="cb-amt">${invMoney(row.price)}</span></div>
+    <div class="cb-sub">${escapeHtml(sup)} · ${escapeHtml(row.date ? invDayLabel(row.date) : 'undated')} · ${escapeHtml(plPer(row))}${like ? ` · <span class="pl-like">${escapeHtml(like)}</span>` : ''}</div>
+    ${name || row.code ? `<div class="cb-pr">${name ? escapeHtml(row.item) : ''}${row.code ? (name ? ' · ' : '') + 'code ' + escapeHtml(row.code) : ''}</div>` : ''}
+    ${row.note ? `<div class="pl-note">${escapeHtml(row.note)}</div>` : ''}${body || ''}</div></div>`;
+}
+function plAskHTML(z, st){
+  const row = z.row, it = z.it, n = row.n;
+  const other = `<select class="iv-sel" data-pl-other="${n}"><option value="">Another of yours…</option>${st.items.map(x => `<option value="${escapeHtml(x.id)}">${escapeHtml(x.name)} · ${escapeHtml(invSupName(x.supplierId))}</option>`).join('')}</select>`;
+  const skip = `<button class="chip cat-chip" data-pl-skip="${n}">Skip it</button>`, fresh = `<button class="chip cat-chip" data-pl-new="${n}">A new item</button>`;
+  let q, acts;
+  if(it.ask === 'check'){
+    const x = st.items.find(i => i.id === it.pid) || {};
+    q = `Is it your ${escapeHtml(x.name || 'item')}?`;
+    acts = `<button class="cb-matchbtn" data-pl-yes="${n}" data-pid="${escapeHtml(it.pid)}">Yes, this</button>${fresh}${skip}${other}`;
+  } else if(it.ask === 'under'){
+    q = `A new item: on whose order list?`;
+    acts = state.suppliers.map(s => `<button class="chip cat-chip" data-pl-under="${n}" data-sid="${escapeHtml(s.id)}">${escapeHtml(s.name)}</button>`).join('') + skip;
+  } else {
+    q = 'Which of your items is it?';
+    acts = InvoiceEngine.suggest(row.item, st.items, 3).map(s => `<button class="chip cat-chip" data-pl-yes="${n}" data-pid="${escapeHtml(s.id)}">${escapeHtml(s.name)}</button>`).join('') + fresh + skip + other;
+  }
+  return plRowHTML(z, st, `<div class="pl-q">${q}</div><div class="pl-acts">${acts}</div>`);
+}
+function renderPlPaste(){
+  const crumb = `<div class="crumb"><button data-goto="invPrices">&larr; Prices</button></div>`;
+  if(typeof InvoiceEngine === 'undefined') return crumb + `<div class="empty">The invoice rules didn’t load. Reload The Pass.</div>`;
+  return crumb + `
+    <div class="form-card">
+      <div class="fd-title">Bring in a price list</div>
+      <ol class="rd-steps"><li>A price list in the sheet’s layout: its first row names the columns (supplier, source, date, item, billed_unit, unit_price_ex_gst … notes), then one row per price.</li><li>Copy all of it.</li><li>Paste it here.</li></ol>
+      <textarea id="pl-text" class="rd-paste" rows="10" placeholder="Paste the price list here">${escapeHtml(state.plText || '')}</textarea>
+      <div class="rd-note">Nothing is kept until you tap Keep. The prices stay on this phone. A phone number or email is never kept.</div>
+    </div>
+    <div class="oi-actions"><button class="btn btn-ghost" data-goto="invPrices">Cancel</button><button class="btn" id="pl-read">Read it</button></div>`;
+}
+function renderPlCheck(){
+  const st = plState(), back = `<div class="crumb"><button data-pl-back="1">&larr; Back to the paste</button></div>`;
+  if(!st) return `<div class="crumb"><button data-goto="invPrices">&larr; Prices</button></div><div class="empty">Nothing read yet.</div>`;
+  const r = st.r, open = state.plOpen || {}, need = st.supAsks.length + st.rowAsks.length, ready = st.keep.length;
+  if(!r.ok) return back + `<div class="move-why">${escapeHtml([r.why].concat(r.problems).join(' '))}</div><div class="oi-actions"><button class="btn" data-pl-back="1">Paste again</button></div>`;
+  const fold = (key, label, count, list, note, body) => list.length ? `<div class="pl-fold"><div class="section-label">${label} (${count})</div><button class="cb-link" data-pl-open="${key}">${open[key] ? 'Hide' : 'Show'}</button></div>
+    ${note ? `<div class="rd-note">${note}</div>` : ''}${open[key] ? `<div class="card tight">${list.map(z => plRowHTML(z, st, body ? body(z) : '')).join('')}</div>` : ''}` : '';
+  const sups = st.supAsks.map(a => `<div class="card tight"><div class="cb-line"><div class="iv-body"><div class="cb-name">${escapeHtml(a.name)}</div><div class="cb-sub">${a.n} price${a.n === 1 ? '' : 's'}</div>
+    <div class="pl-q">Which of your suppliers is it?</div><div class="pl-acts">${state.suppliers.map(s => `<button class="chip cat-chip" data-pl-sup="${a.k}" data-sid="${escapeHtml(s.id)}">${escapeHtml(s.name)}</button>`).join('')}<button class="chip cat-chip" data-pl-sup="${a.k}" data-sid="prices">Prices only: not in The Pass</button></div></div></div></div>`).join('');
+  return back + `
+    <div class="recipe-head"><div class="recipe-eyebrow">Price list</div><h2 class="recipe-title">Bring in a price list</h2>
+      <div class="cb-sum">${r.rows.length} price${r.rows.length === 1 ? '' : 's'} read · ${ready} ready${need ? ` · <span class="cb-amb">${need} need${need === 1 ? 's' : ''} you</span>` : ''}</div></div>
+    ${r.problems.length ? `<div class="move-why">${escapeHtml(r.problems.join(' '))}</div>` : ''}
+    ${need ? `<div class="section-label">Needs you (${need})</div>${sups}${st.rowAsks.length ? `<div class="card tight">${st.rowAsks.map(z => plAskHTML(z, st)).join('')}</div>` : ''}` : ''}
+    ${fold('fresh', 'New items', st.newItems.length, st.fresh, `${st.newItems.length === 1 ? 'It goes' : 'They go'} on the order list, marked NEW until you clear the marks.`, z => `<div class="cb-sub">New on ${escapeHtml(invSupName(z.it.newItem.under))}’s order list</div>`)}
+    ${fold('noPack', 'Pack not known', st.noPack.length, st.noPack, 'Kept, but no price per kg or L until the pack size is known.')}
+    ${fold('ready', 'Ready', st.ready.length, st.ready, '')}
+    ${fold('dups', 'Already kept', st.dups.length, st.dups, 'The same price is in the history already: left out.')}
+    ${fold('skips', 'Left out', st.skips.length, st.skips, '')}
+    <div class="oi-actions"><button class="btn btn-ghost" data-goto="invPrices">Cancel</button><button class="btn" id="pl-keep" ${need || !ready ? 'disabled' : ''}>Keep ${ready} price${ready === 1 ? '' : 's'}</button></div>
+    ${need ? `<div class="iv-wait">Answer the ${need === 1 ? 'one' : need} above first.</div>` : ''}
+    <div class="rd-note">Kept on this phone only. Orders, emails, texts and the weekly totals don’t change.</div>`;
+}
+function plUnitWord(u){ const w = (String(u || '').toLowerCase().match(/[a-z]+/) || [''])[0]; return !w || w === 'unit' || w === 'each' ? 'each' : w; }
 function renderInvKept(id){
   const k = invLoad(INV_KEPT_KEY, []).find(x => x.id === id), crumb = `<div class="crumb"><button data-goto="invoices">&larr; Invoices</button></div>`;
   if(!k) return crumb + `<div class="empty">That invoice isn’t kept any more.</div>`;
@@ -4754,10 +4925,11 @@ function renderNotifications(){
 function renderSupplier(id){
   const s = findSupplier(id);
   if(!s) return `<div class="empty">Supplier not found.</div>`;
+  const fresh = plNewSet();   // v3.11.32: items a price list added, marked NEW
   let lines = s.products.map(p => `
     <div class="product-line">
       <div class="product-info">
-        <div class="product-name">${escapeHtml(p.name)}</div>
+        <div class="product-name">${escapeHtml(p.name)}${fresh.has(p.id) ? '<span class="pl-new">NEW</span>' : ''}</div>
         <div class="product-unit">${escapeHtml(p.unit)}${(p.inc && p.inc!==1) ? ' &middot; +'+formatQty(p.inc)+'/tap' : ''}</div>
       </div>
       <div class="stepper">
@@ -5664,6 +5836,76 @@ function attachHandlers(){
     goto({name:'invoices'}); showToast('Deleted');
   }));
 
+  // v3.11.32: a price list brought in (his picks, 24 Oct)
+  const plText = document.getElementById('pl-text');
+  if(plText) plText.addEventListener('input', ()=>{ state.plText = plText.value; });
+  const plRead = document.getElementById('pl-read');
+  if(plRead) plRead.addEventListener('click', ()=>{
+    const text = plText ? plText.value : '';
+    if(!text.trim()){ showToast('Paste the price list first'); return; }
+    state.plText = text; state.plRead = InvoiceEngine.readPriceList(text); state.plPicks = { sup: {}, item: {}, under: {} }; state.plOpen = {};
+    goto({name:'plCheck'}); window.scrollTo(0,0);
+  });
+  document.querySelectorAll('[data-pl-back]').forEach(b => b.addEventListener('click', ()=>{ state.plRead = null; state.plPicks = null; goto({name:'plPaste'}); }));
+  document.querySelectorAll('[data-pl-open]').forEach(b => b.addEventListener('click', ()=>{ state.plOpen = state.plOpen || {}; state.plOpen[b.dataset.plOpen] = !state.plOpen[b.dataset.plOpen]; render(); }));
+  document.querySelectorAll('[data-pl-sup]').forEach(b => b.addEventListener('click', ()=>{ state.plPicks.sup[b.dataset.plSup] = b.dataset.sid; render(); }));
+  document.querySelectorAll('[data-pl-yes]').forEach(b => b.addEventListener('click', ()=>{ state.plPicks.item[b.dataset.plYes] = b.dataset.pid; render(); }));
+  document.querySelectorAll('[data-pl-new]').forEach(b => b.addEventListener('click', ()=>{ state.plPicks.item[b.dataset.plNew] = 'new'; render(); }));
+  document.querySelectorAll('[data-pl-skip]').forEach(b => b.addEventListener('click', ()=>{ state.plPicks.item[b.dataset.plSkip] = 'skip'; render(); }));
+  document.querySelectorAll('[data-pl-under]').forEach(b => b.addEventListener('click', ()=>{ state.plPicks.under[b.dataset.plUnder] = b.dataset.sid; state.plPicks.item[b.dataset.plUnder] = 'new'; render(); }));
+  document.querySelectorAll('[data-pl-other]').forEach(s => s.addEventListener('change', ()=>{ if(s.value){ state.plPicks.item[s.dataset.plOther] = s.value; render(); } }));
+  const plClear = document.getElementById('pl-clearnew');
+  if(plClear) plClear.addEventListener('click', ()=>{ invSave(NEW_ITEMS_KEY, []); render(); showToast('NEW marks cleared'); });
+  const plKeep = document.getElementById('pl-keep');
+  if(plKeep) plKeep.addEventListener('click', ()=>{
+    const st = plState(); if(!st || st.supAsks.length || st.rowAsks.length || !st.keep.length) return;
+    const E = InvoiceEngine, now = Date.now();
+    // 1. the prices-only suppliers it names (kept for comparing; never on the order list)
+    const ps = invLoad(PRICE_SUPPLIERS_KEY, []), psId = {};
+    st.keep.forEach(z => {
+      if(z.sup.kind !== 'prices' || z.sup.id) return;
+      const k = E.looseKey(z.sup.name); if(psId[k]) return;
+      const had = ps.find(x => E.looseKey(x.name) === k);
+      psId[k] = had ? had.id : 'ps' + uid();
+      if(!had) ps.push({ id: psId[k], name: z.sup.name });
+    });
+    // 2. the new items, one per supplier and name, on that supplier's order list (the Add Product way), marked NEW
+    const newIds = {}, marks = invLoad(NEW_ITEMS_KEY, []);
+    st.fresh.forEach(z => {
+      const ni = z.it.newItem, k = ni.under + '|' + E.looseKey(ni.name), s = findSupplier(ni.under);
+      if(newIds[k] || !s) return;
+      const id = uid(); newIds[k] = id;
+      s.products.push({ id: id, name: ni.name, unit: z.row.weighed ? 'kg' : plUnitWord(z.row.unit), qty: 0, inc: 1, cat: '' });
+      marks.push({ id: id, supplierId: s.id, from: 'price list', at: now });
+    });
+    const ids = Object.values(newIds);
+    if(ids.length){
+      saveData();
+      const back = readStoredJSON(STORAGE_KEY) || [], there = {};
+      back.forEach(s => (s.products || []).forEach(p => { there[p.id] = 1; }));
+      if(ids.some(id => !there[id])){ showToast('Not kept: the order list changed in another window. Read it again.'); return; }
+    }
+    // 3. each price into its item's history (the same price kept before is left out), and its match remembered
+    const matches = invLoad(INV_MATCHES_KEY, []), prices = invLoad(INV_PRICES_KEY, []), supMem = invLoad(INV_SUPPLIERS_KEY, {});
+    let kept = 0, same = 0;
+    st.keep.forEach(z => {
+      const sid = z.sup.id || psId[E.looseKey(z.sup.name)], pid = z.it.pid || newIds[z.it.newItem.under + '|' + E.looseKey(z.it.newItem.name)];
+      if(!sid || !pid) return;
+      const rec = Object.assign(E.listRecord(z.row, sid, pid), { at: now });
+      if(prices.some(p => E.samePrice(p, rec))){ same++; return; }
+      prices.push(rec); kept++;
+      const key = E.nameKey(z.row.item), m = { supplier: sid, key: key, productId: pid, pack: z.row.pack, billing: z.row.weighed ? 'weight' : 'pack' };
+      if(z.it.like) m.like = z.it.like;
+      if(z.row.code) m.code = z.row.code;
+      for(let i = matches.length - 1; i >= 0; i--) if(matches[i].supplier === sid && E.nameKey(matches[i].key) === key) matches.splice(i, 1);
+      matches.push(m);
+      if(z.sup.kind === 'real') supMem[E.nameKey(z.row.supplier)] = sid;
+    });
+    if(!invSave(PRICE_SUPPLIERS_KEY, ps) || !invSave(INV_MATCHES_KEY, matches) || !invSave(INV_PRICES_KEY, prices.slice(-5000)) || !invSave(NEW_ITEMS_KEY, marks) || !invSave(INV_SUPPLIERS_KEY, supMem)) return;
+    goto({name:'invPrices'}); window.scrollTo(0,0);
+    showToast('Kept ' + kept + ' price' + (kept === 1 ? '' : 's') + (ids.length ? ' · ' + ids.length + ' new item' + (ids.length === 1 ? '' : 's') + ' marked NEW' : '') + (same ? ' · ' + same + ' already kept' : ''));
+  });
+
   // v3.11.28: a new function from management's doc. Background syncs can redraw the paste box,
   // so what's pasted lives in state until it's read, then it's dropped.
   const fdText = document.getElementById('fndoc-text');
@@ -6533,16 +6775,16 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.31"></script>
+<script src="move-data.js?v=3.11.32"></script>
 <!-- v3.11.28: the function doc reader. A separate file too: if it fails, only "From management's doc" says so. -->
-<script src="function-reader.js?v=3.11.31"></script>
+<script src="function-reader.js?v=3.11.32"></script>
 <!-- v3.11.30: the invoice rules. A separate file too: if it fails, only bringing in an invoice says so. -->
-<script src="invoice-engine.js?v=3.11.31"></script>
+<script src="invoice-engine.js?v=3.11.32"></script>
 <!-- v3.11.31: the supplier readers for a scanned invoice (Aziz's so far). -->
-<script src="invoice-readers.js?v=3.11.31"></script>
+<script src="invoice-readers.js?v=3.11.32"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.31"></script>
-<script src="voice-brain.js?v=3.11.31"></script>
-<script src="voice.js?v=3.11.31"></script>
+<script src="roster-engine.js?v=3.11.32"></script>
+<script src="voice-brain.js?v=3.11.32"></script>
+<script src="voice.js?v=3.11.32"></script>
 </body>
 </html>
