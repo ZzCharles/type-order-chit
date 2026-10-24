@@ -5065,9 +5065,15 @@ function createRoom(host){
   var FN_ADDONS = {
     mezze: { field: 'mezze', re: FN_MEZZE_W, unit: /^(mezze|mezzes|meze|mezza|mezzas|mezzo|mezzos|boards?|messy)$/, name: 'mezze boards', max: 50,
       say: function(n){ return n === 1 ? '1 mezze board' : n + ' mezze boards'; } },
-    tiramisu: { field: 'tiramisu', re: FN_TIRA_W, unit: /^(tiramisus?|tiramasus?|tira|terra|tierra|serves?|pieces?)$/, name: 'tiramisu', max: 500,
-      say: function(n){ return n + ' tiramisu'; } }
+    /* v3.11.36 (his ask, 24 Oct): the tiramisu add-on is in batches ("no need to portion it"; a batch is about 45
+       portions). A count that looks low for the head count is said in the read-back, so his yes keeps it knowingly
+       (a complimentary one is often less); over 10 is surely portions said by habit, so it asks for batches. */
+    tiramisu: { field: 'tiramisu', re: FN_TIRA_W, unit: /^(tiramisus?|tiramasus?|tira|terra|tierra|batch|batches|serves?|pieces?)$/, name: 'tiramisu', max: 10, ask: 'batches of tiramisu',
+      say: function(n){ return n === 1 ? '1 batch of tiramisu' : n + ' batches of tiramisu'; },
+      low: function(n, pax){ return n > 0 && pax > 0 && n * FN_TIRA_PORTIONS < pax ? (n === 1 ? '1 batch' : n + ' batches') + ' for ' + pax + ' people? That sounds less than usual (a batch is about ' + FN_TIRA_PORTIONS + ' portions).' : ''; },
+      tooMany: function(n){ return n + ' batches of tiramisu? That’s a lot: a batch is about ' + FN_TIRA_PORTIONS + ' portions. Say the batches, like “add 2 batches of tiramisu”, or change it on the Functions screen.'; } }
   };
+  var FN_TIRA_PORTIONS = 45;
   /* "the tiramisu add-on" on a function that has a tiramisu dish too ($69's Grand Tiramisu) */
   function fnAddonName(ad, f){ return ad.field === 'tiramisu' && fnItems(f).some(function(i){ return /tiramisu/i.test(i.label); }) ? ad.name + ' add-on' : ad.name; }
   var FN_DIET_W = /\b(dietary|dietaries|diets?|allerg\w*|intoleran\w*|requirements)\b/;
@@ -5296,17 +5302,18 @@ function createRoom(host){
       } else {
         if(mn == null){
           // never a guess: how many (1 to 4 to tap; any number by voice)
-          return asking('fnAddonHow', mb ? cap(whose) + ' has ' + ad.say(mb) + '. How many in all?' : 'How many ' + ad.name + ' for ' + whose + '?',
+          return asking('fnAddonHow', mb ? cap(whose) + ' has ' + ad.say(mb) + '. How many in all?' : 'How many ' + (ad.ask || ad.name) + ' for ' + whose + '?',
             [1, 2, 3, 4].map(function(x){ return { label: String(x), value: String(x) }; }), { fid: f.id, op: 'set', what: w }, 'number');
         }
-        if(mn > ad.max) return cant('That\u2019s a lot of ' + ad.name + '. Change it on the Functions screen.', lg + ' too many');
+        if(mn > ad.max) return cant(ad.tooMany ? ad.tooMany(mn) : 'That\u2019s a lot of ' + ad.name + '. Change it on the Functions screen.', lg + ' too many');
         var mt = mop === 'add' ? mb + mn : mn;
         if(mt === mb) return ans('answer', { say: [cap(whose) + ' already has ' + (mb ? ad.say(mb) : 'no ' + nm) + '.'], log: lg + ' same' });
         var mrb = mt === 0 ? 'Remove the ' + nm + ' (' + mb + ') from ' + whose + '?'
           : !mb ? 'Add ' + ad.say(mt) + as + ' to ' + whose + '?'
           : mop === 'add' ? 'Add ' + ad.say(mn) + as + ' to ' + whose + '? That makes ' + mt + '.'
           : 'Change the ' + nm + ' for ' + whose + ' from ' + mb + ' to ' + mt + '?';
-        ask = confirming('fnDetail', [mrb], 'Confirm change?', { fid: f.id, field: ad.field, value: mt, expect: mb, whose: whose }, lg + ' ask ' + mt);
+        var low = ad.low ? ad.low(mt, +f.pax || 0) : '';   // v3.11.36: "1 batch for 60 people? That sounds less than usual \u2026"
+        ask = confirming('fnDetail', low ? [low, mrb] : [mrb], 'Confirm change?', { fid: f.id, field: ad.field, value: mt, expect: mb, whose: whose }, lg + ' ask ' + mt + (low ? ' low' : ''));
       }
     }
     else {
@@ -5803,7 +5810,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.35',
+  version: 'v3.11.36',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,

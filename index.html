@@ -775,7 +775,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.35';
+const APP_VERSION = 'v3.11.36';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -3853,7 +3853,7 @@ function renderFunction(id){
 
   // v3.11.25 (his picks, 23 Oct): "Add-ons" where "Mezze" was: the mezze boards, the tiramisu, and one-offs for this function only
   const addonRows = (f.mezze ? `<div class="fn-item"><span class="fn-qty">${f.mezze} &times;</span><span class="fn-label">Mezze board</span></div>` : '')
-    + (f.tiramisu ? `<div class="fn-item"><span class="fn-qty">${f.tiramisu} &times;</span><span class="fn-label">Tiramisu</span></div>` : '')
+    + (f.tiramisu ? `<div class="fn-item"><span class="fn-qty">${f.tiramisu} &times;</span><span class="fn-label">Tiramisu (${f.tiramisu === 1 ? 'batch' : 'batches'})</span></div>` : '')
     + fnExtras(f).map(x => `<div class="fn-item"><span class="fn-qty">${x.qty} &times;</span><span class="fn-label">${escapeHtml(x.label)} <span class="fn-once">this function only</span></span></div>`).join('');
   const addons = addonRows ? `
     <div class="section-label">Add-ons</div>
@@ -3939,7 +3939,7 @@ function renderFunctionDoc(){
       ${fdRow(f.tier.status, 'Menu tier', tier ? escapeHtml(tier.label) + (f.tier.said ? ` <span class="rd-from">“${escapeHtml(f.tier.said)}”</span>` : '') : '', f.tier.why)}
       ${fdRow(f.dietary.status, 'Dietary', escapeHtml((f.dietary.value || []).join(' · ')), f.dietary.why)}
       ${fdRow(f.notes.status, 'Notes', '', f.notes.value.length ? 'Untick any you don’t want in the notes.' : f.notes.why, notes ? `<div class="fd-notes">${notes}</div>` : '')}
-      ${fdRow(f.addons.status, 'Add-ons', '', f.addons.why, (tira ? num('fd-tira', tira, 'serves', 'Tiramisu') : '') + (mezze ? num('fd-mezze', mezze, 'boards', 'Mezze boards') : ''))}
+      ${fdRow(f.addons.status, 'Add-ons', '', f.addons.why, (tira ? num('fd-tira', tira, 'batches', 'Tiramisu') : '') + (mezze ? num('fd-mezze', mezze, 'boards', 'Mezze boards') : ''))}
       ${r.left.length ? fdRow('lock', 'Left out', `<span class="rd-small">A client’s ${r.left.map(k => LEFT[k] || k).join(' and ')}: never kept.</span>`, '') : ''}
       ${r.notRead.length ? fdRow('skip', 'Not read', `<span class="rd-small">${escapeHtml(r.notRead.join(', '))}</span>`, '') : ''}
     </div>
@@ -3955,6 +3955,12 @@ function fnExtras(f){
     .map(x => ({ id: String(x.id||''), label: String(x.label).trim(), qty: Math.max(1, parseInt(x.qty, 10) || 1) }));
 }
 /* v3.11.25: an add-on's row on the edit form: a switch, and its number when it's on (the mezze row's way) */
+/* v3.11.36 (his ask, 24 Oct): the tiramisu add-on is in batches, about 45 portions each. A count that looks low for
+   the head count is asked about on Save; his OK keeps it (a complimentary one is often less). */
+const TIRA_PORTIONS = 45;
+function tiraLowAsk(batches, pax){
+  return batches > 0 && pax > 0 && batches * TIRA_PORTIONS < pax ? batches + (batches === 1 ? ' batch' : ' batches') + ' for ' + pax + ' people? That sounds less than usual (a batch is about ' + TIRA_PORTIONS + ' portions). Keep ' + batches + '?' : '';
+}
 function addonSwitchHTML(key, label, qty, unit, aria){
   return `
       <div class="mezze-row addon-row">
@@ -4054,7 +4060,7 @@ function renderFunctionEdit(id){
     <div class="section-label">Add-ons</div>
     <div class="card tight">
       ${addonSwitchHTML('mezze', 'Mezze boards', f.mezze, 'boards', 'How many mezze boards')}
-      ${addonSwitchHTML('tira', 'Tiramisu', f.tiramisu, 'serves', 'How many tiramisu')}
+      ${addonSwitchHTML('tira', 'Tiramisu', f.tiramisu, 'batches', 'How many batches of tiramisu')}
       <div class="fn-once-head">Just for this function</div>
       <div id="extra-list">${extraRows || '<div class="fn-none">None yet.</div>'}</div>
     </div>
@@ -6272,6 +6278,8 @@ function attachHandlers(){
       f.extras = fnExtras(f);   // v3.11.25: a one-off with no name isn't kept
       if(!f.date){ showToast('Pick a date'); return; }
       if(!f.name){ showToast('Give it a name'); return; }
+      const low = tiraLowAsk(+f.tiramisu || 0, +f.pax || 0);   // v3.11.36
+      if(low && !confirm(low)) return;
       b.disabled = true; b.textContent = 'Saving…';
       if(b.dataset.fnSave === 'new'){
         f.id = 'f'+uid();
@@ -6917,16 +6925,16 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.35"></script>
+<script src="move-data.js?v=3.11.36"></script>
 <!-- v3.11.28: the function doc reader. A separate file too: if it fails, only "From management's doc" says so. -->
-<script src="function-reader.js?v=3.11.35"></script>
+<script src="function-reader.js?v=3.11.36"></script>
 <!-- v3.11.30: the invoice rules. A separate file too: if it fails, only bringing in an invoice says so. -->
-<script src="invoice-engine.js?v=3.11.35"></script>
+<script src="invoice-engine.js?v=3.11.36"></script>
 <!-- v3.11.31: the supplier readers for a scanned invoice (Aziz's so far). -->
-<script src="invoice-readers.js?v=3.11.35"></script>
+<script src="invoice-readers.js?v=3.11.36"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.35"></script>
-<script src="voice-brain.js?v=3.11.35"></script>
-<script src="voice.js?v=3.11.35"></script>
+<script src="roster-engine.js?v=3.11.36"></script>
+<script src="voice-brain.js?v=3.11.36"></script>
+<script src="voice.js?v=3.11.36"></script>
 </body>
 </html>
