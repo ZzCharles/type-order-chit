@@ -3351,6 +3351,7 @@ function createRoom(host){
     ['timesheet', 'time sheet', 'my hours'].forEach(put2);   // v3.9.6
     ['roster', 'rostered'].forEach(put2);                    // v3.9.11
     ['function', 'functions'].forEach(put2);                 // v3.11.22: his functions, read by voice
+    ['invoice', 'invoices', 'spend', 'spent', 'spending'].forEach(put2);   // v3.11.38: "how much did we spend this week"
     cues = cues.filter(function(c){ return strong.indexOf(c) < 0; });
     return { room: 'almo', label: 'Almo', contract: 1, help: 'your prep list, orders, timesheet and functions', busy: 'Checking the list\u2026',
       strong: strong, cues: cues,
@@ -3787,7 +3788,7 @@ function createRoom(host){
       }
       if(list.length === 1){ it.e = list[0]; continue; }
       if(kind === 'order' && list.every(function(e){ return clean(e.name) === clean(list[0].name); })){
-        return asking('item', 'From ' + joinOr(list.slice(0, 3).map(function(e){ return supSay(e.sname); })) + '?',
+        return asking('item', 'From ' + joinOr(list.slice(0, 3).map(function(e){ return supSay(e.sname) + prPick(e); })) + '?',   // v3.11.38: with each one's price
           list.slice(0, 3).map(function(e){ return { label: supSay(e.sname), value: e.id }; }), { cmd: cmd, item: i }, 'item');
       }
       if(kind === 'line' && list.every(function(e){ return clean(e.name) === clean(list[0].name); })){
@@ -5366,6 +5367,142 @@ function createRoom(host){
     return 'The dietary for ' + o.whose + ' is back how it was: ' + (o.before.length ? o.before.join(', ') : 'none') + '.';
   }
 
+  /* ---------- v3.11.38 (his asks, 24 Oct): prices by voice, read only ----------
+     "what's the price for polenta?" / "how much are we buying it for?": where he orders it first, then each other
+     supplier, the cheaper one said (never when a pack size isn't known); "who did we get it from last?": the newest
+     delivery (a kept invoice, or the price sheet's invoice lines); "has mozzarella gone up?": against the same
+     supplier's price before; "how much did we spend this week?": the Invoices screen's weekly totals. Everything from
+     The Pass's own storage through host.prices(); the rules are invoice-engine.js. Nothing changes, and a price never
+     goes in the log (counts only). "It" is the item just asked about (2 minutes). */
+  var PR_PRICE = /\b(price|prices|priced|cost|costs|costing|paying|pay for|charge|charges|charging)\b|\bhow much (?:do|did|are|were|have) we (?:pay|paying|paid|buy|buying|bought|get|getting|got)\b|\b(?:buying|buy|bought|getting|get) (?:it|them|that|those) for\b/;
+  var PR_HOWMUCH = /^(?:and |so |ok |okay )?how much (?:is|are|was|were) (?!(?:on|in|left|there)\b)/;
+  var PR_LAST = /\bwho (?:did|do|have) we (?:get|got|buy|bought|order|ordered|use|used)\b|\bwho (?:supplied|supplies|delivered|delivers|sent|sold)\b|\bwhere did we (?:get|buy|order)\b|\b(?:last|latest) (?:bought|ordered|delivered|got)\b|\bwho was (?:it|that) from\b/;
+  var PR_CHANGE = /\b(?:gone|go|went|going|come|came) (?:up|down)\b|\b(?:price|prices) (?:changed|change|went|gone|risen|rise|increased|dropped)\b|\bup in price\b|\b(?:more expensive|dearer|cheaper) (?:now|lately|than (?:before|last time))\b/;
+  var PR_SPEND = /\b(spend|spent|spending)\b|\binvoices? (?:this|last) week\b|\b(?:this|last) weeks? invoices?\b|\bweekly spend\b/;
+  var PR_ORDERISH = /\b(order|orders|ordered|list|prep|need|needed|left)\b/;
+  var PR_FOLLOW_MS = 2 * 60 * 1000, prFocus = null;   // { at, pids, name }
+  function prKind(text){
+    var c = clean(text);
+    if(PR_SPEND.test(c)) return 'spend';
+    if(PR_LAST.test(c)) return 'last';
+    if(PR_CHANGE.test(c)) return 'change';
+    if(PR_PRICE.test(c)) return 'price';
+    if(PR_HOWMUCH.test(c) && !PR_ORDERISH.test(c)) return 'price';
+    return null;
+  }
+  /* the item named: his products whose name (or a short form of it) is said, the longest found; one item may sit with
+     two suppliers (two products); "it" or "that": the item just asked about */
+  function prItem(text, cat){
+    var w = keyOf(text).split(' '), best = 0, hits = [];
+    cat.entries.forEach(function(e){
+      if(e.kind !== 'order') return;
+      e.keys.forEach(function(k){
+        var kw = k.k.split(' ');
+        if(!kw.length || kw.length < best) return;
+        for(var i = 0; i + kw.length <= w.length; i++){
+          var ok = true;
+          for(var j = 0; j < kw.length && ok; j++) if(w[i + j] !== kw[j]) ok = false;
+          if(ok){ if(kw.length > best){ best = kw.length; hits = []; } if(hits.indexOf(e) < 0) hits.push(e); return; }
+        }
+      });
+    });
+    hits = hits.filter(function(e){ return e.keys.some(function(k){ return k.k.split(' ').length === best; }); });
+    if(hits.length){
+      var names = {}; hits.forEach(function(e){ names[clean(e.name)] = 1; });
+      if(Object.keys(names).length > 1) return { many: hits };
+      return { pids: hits.map(function(e){ return e.pid; }), name: hits[0].name, homes: hits.map(function(e){ return e.sid; }) };
+    }
+    if(/\b(it|that|them|those|this)\b/.test(clean(text)) && prFocus && now() - prFocus.at <= PR_FOLLOW_MS) return prFocus;
+    return null;
+  }
+  function prMoney(v){ var n = Math.round(Math.abs(+v) * 100 + 1e-6) / 100; return '$' + n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+  var PR_UNIT = { kg: 'a kilo', L: 'a litre', each: 'each' };
+  function prWhen(date){
+    if(!date) return 'no date';
+    var p = date.split('-'), mon = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    return +p[2] + ' ' + mon[+p[1] - 1];
+  }
+  function prSupName(pd, sid){ return supSay(pd.names[sid] || pd.retired(sid) || 'a removed supplier'); }
+  function prOne(pd, r){   // "$144.90 a box, $12.08 a kilo" / "$28.90 a kilo" / "$6.50 (no pack size)"
+    var rec = r.rec;
+    if(rec.billing === 'weight') return prMoney(rec.price) + ' a kilo';
+    if(r.perBase != null) return prMoney(rec.price) + (rec.pack ? ' for ' + fmt(rec.pack.amount) + (rec.pack.unit === 'each' ? '' : rec.pack.unit === 'L' ? ' litres' : ' kilos') : '') + ', ' + prMoney(r.perBase) + ' ' + PR_UNIT[r.unit];
+    return prMoney(rec.price);
+  }
+  function prData(){ return host.prices ? host.prices() : null; }
+  async function prAnswer(kind, text){
+    var pd = prData();
+    if(!pd || !pd.engine) return cant('I can’t see the prices here.', 'price no data');
+    if(kind === 'spend') return prSpend(pd, text);
+    if(host.reload){ try{ host.reload(); }catch(e){} }
+    var cat = catalogue(host.data(), taught()), it = prItem(text, cat);
+    if(it && it.many) return cant('Which item? ' + cap(joinOr(it.many.slice(0, 3).map(function(e){ return itemSay(e.name); }))) + '?', 'price which');
+    if(!it) return cant(/\b(it|that|them|those|this)\b/.test(clean(text)) ? 'Which item? Say its name, like “what’s the price for mozzarella”.' : 'I couldn’t find that item in The Pass. Say it as it’s named on your list.', 'price no item');
+    prFocus = { at: now(), pids: it.pids, name: it.name, homes: it.homes };
+    var E = pd.engine, rows = [];
+    it.pids.forEach(function(pid){ E.suppliersFor(pd.prices, pid, pd.today).forEach(function(r){ r.pid = pid; rows.push(r); }); });
+    var nm = itemSay(it.name);
+    if(!rows.length) return ans('answer', { say: ['I don’t have a price for ' + nm + ' yet. Bring one in on The Pass’s Prices screen.'], log: 'price none' });
+    if(kind === 'last') return prLast(pd, rows, nm, it);
+    if(kind === 'change') return prChange(pd, rows, nm, it, text);
+    return prPrice(pd, rows, nm, it);
+  }
+  function prPrice(pd, rows, nm, it){
+    var home = rows.filter(function(r){ return it.homes.indexOf(r.supplier) > -1; })[0];
+    var others = rows.filter(function(r){ return r !== home; }).slice(0, 3), say = [];
+    if(home) say.push('We buy ' + nm + ' from ' + prSupName(pd, home.supplier) + ' at ' + prOne(pd, home) + ' (' + prWhen(home.date) + ')' + (home.perBase == null && home.rec.billing !== 'weight' ? ', but its pack size isn’t known.' : '.'));
+    else say.push('No price for ' + nm + ' from ' + supSay(pd.names[it.homes[0]] || 'its supplier') + ' yet.');
+    others.forEach(function(r){ say.push(prSupName(pd, r.supplier) + ': ' + prOne(pd, r) + ' (' + prWhen(r.date) + ').'); });
+    if(home){
+      var c = pd.engine.cheaperElsewhere(rows.filter(function(r){ return r.pid === home.pid || r.unit === home.unit; }), home.supplier);
+      var like = c ? (pd.matches.filter(function(m){ return m.supplier === c.row.supplier && m.productId === c.row.pid && m.like; })[0] || {}).like : '';
+      if(c && !c.unknown && like !== 'not comparable') say.push(prSupName(pd, c.row.supplier) + ' is ' + prMoney(c.less) + ' ' + PR_UNIT[c.row.unit] + ' cheaper' + (like === 'different' ? ', but it isn’t the same product.' : like === 'similar' ? ', probably the same product.' : '.'));
+    } else if(rows[0].perBase != null) say.push('Cheapest: ' + prSupName(pd, rows[0].supplier) + '.');
+    return ans('answer', { say: [say.join(' ')], log: 'price ' + rows.length + ' supplier' + (rows.length === 1 ? '' : 's') });
+  }
+  function prLast(pd, rows, nm, it){
+    var got = pd.prices.filter(function(r){ return it.pids.indexOf(r.productId) > -1 && (r.invoiceId || r.qty > 0 || /\binv(oice)?\b/i.test(r.source || '')) && r.date; })
+      .sort(function(a, b){ return a.date < b.date ? 1 : a.date > b.date ? -1 : (b.at || 0) - (a.at || 0); });
+    if(!got.length) return ans('answer', { say: ['I haven’t got a delivery of ' + nm + ' on record, only prices from price lists.'], log: 'price last none' });
+    var l = got[0], before = got.filter(function(r){ return r.supplier !== l.supplier; })[0];
+    return ans('answer', { say: ['Last from ' + prSupName(pd, l.supplier) + ' on ' + prWhen(l.date) + ', at ' + prMoney(l.price) + (l.billing === 'weight' ? ' a kilo' : '') + '.'
+      + (before ? ' Before that, ' + prSupName(pd, before.supplier) + ' on ' + prWhen(before.date) + '.' : '')], log: 'price last' });
+  }
+  function prChange(pd, rows, nm, it, text){
+    var c = clean(text), named = rows.filter(function(r){ var k = clean(supSay(pd.names[r.supplier] || '')); return k && (' ' + c + ' ').indexOf(' ' + k + ' ') > -1; })[0];
+    var row = named || rows.filter(function(r){ return it.homes.indexOf(r.supplier) > -1; })[0] || rows.slice().sort(function(a, b){ return a.date < b.date ? 1 : -1; })[0];
+    var h = pd.engine.historyOf(pd.prices.filter(function(r){ return r.supplier === row.supplier; }), row.pid, 2), s = prSupName(pd, row.supplier) + '’s ' + nm;
+    if(h.length < 2) return ans('answer', { say: [s + ' is ' + prMoney(h[0].rec.price) + (h[0].rec.billing === 'weight' ? ' a kilo' : '') + ' since ' + prWhen(h[0].rec.date) + '. That’s the only price I have from them.'], log: 'price change first' });
+    var x = h[0], p = h[1].rec;
+    var how = x.dir === 'up' ? 'is up ' + x.pct + '%' : x.dir === 'down' ? 'is down ' + Math.abs(x.pct) + '%' : 'hasn’t changed';
+    return ans('answer', { say: [s + ' ' + how + ': ' + prMoney(x.rec.price) + ' on ' + prWhen(x.rec.date) + (x.dir === 'same' ? ', the same as on ' + prWhen(p.date) + '.' : ', from ' + prMoney(p.price) + ' on ' + prWhen(p.date) + '.')], log: 'price change ' + x.dir });
+  }
+  /* "how much did we spend this week (with Aziz)?": the Invoices screen's totals, this week (from Wednesday) or last */
+  function prSpend(pd, text){
+    var c = clean(text), last = /\blast week\b/.test(c), wk = pd.week;
+    if(last && wk){ var d = new Date(wk + 'T12:00:00'); d.setDate(d.getDate() - 7); wk = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+    var week = (pd.invoices || {})[wk] || {}, list = Object.keys(week).map(function(sid){
+      var es = week[sid] || [], t = 0; es.forEach(function(e){ t += +e.amount || 0; });
+      return { sid: sid, name: prSupName(pd, sid), total: Math.round(t * 100) / 100, n: es.length };
+    }).filter(function(x){ return x.n > 0; }).sort(function(a, b){ return b.total - a.total; });
+    var when = last ? 'last week' : 'this week';
+    var one = list.filter(function(x){ var k = clean(x.name); return k && (' ' + c + ' ').indexOf(' ' + k + ' ') > -1; })[0];
+    if(one) return ans('answer', { say: [one.name + ' ' + when + ': ' + prMoney(one.total) + ' from ' + one.n + ' invoice' + (one.n === 1 ? '' : 's') + '.'], log: 'spend one' });
+    if(!list.length) return ans('answer', { say: ['No invoices on this phone for ' + when + ' yet.'], log: 'spend none' });
+    var all = 0; list.forEach(function(x){ all += x.total; });
+    var parts = list.slice(0, 4).map(function(x){ return x.name + ' ' + prMoney(x.total); });
+    if(list.length > 4) parts.push(list.length - 4 + ' more');
+    return ans('answer', { say: [cap(when) + (last ? '' : ' so far') + ': ' + joinAnd(parts) + '. ' + prMoney(all) + ' in all.'], log: 'spend ' + list.length });
+  }
+  /* "From Highland Poultry or Aziz?" says each one's price when it's known */
+  function prPick(e){
+    var pd = prData();
+    if(!pd || !pd.engine) return '';
+    var cur = pd.engine.currentPrice(pd.prices, e.sid, e.pid);
+    if(!cur) return '';
+    return ' (' + (cur.billing === 'weight' ? prMoney(cur.price) + ' a kilo' : cur.perBase != null && cur.pack ? prMoney(cur.perBase) + ' ' + PR_UNIT[cur.pack.unit] : prMoney(cur.price)) + ')';
+  }
+
   /* is this a question about the functions? -> 'ask' | 'write' | null. "who's working the function on
      Saturday" is the roster's. Right after a function answer, a bare day or week ("and next week?",
      "what about Sunday") asks the same again. */
@@ -5512,6 +5649,8 @@ function createRoom(host){
       if(fnr === 'follow') return await fnAnswer(req.text || '', fnRecent());
       if(fnr === 'dish') return await fnAnswer(req.text || '', { kind: 'portion', ids: fnRecent().ids });   // v3.11.26
       if(fnr === 'portion') return await fnChange(req.text || '');
+      var prk = prKind(req.text || '');   // v3.11.38: prices by voice (read only)
+      if(prk) return await prAnswer(prk, req.text || '');
       // v3.11.1 (his log, 13 Oct): "and Friday", "check Saturday as well" right after a roster answer
       var roF = roFollowDay(req.text || '', lastR);
       if(roF) return roF;
@@ -5810,7 +5949,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.37',
+  version: 'v3.11.38',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,

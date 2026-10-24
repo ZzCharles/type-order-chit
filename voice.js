@@ -79,6 +79,17 @@ var host = {
   },
   lastOrder: function(sid){ return getLastOrder(sid); },
   sentToday: function(sid){ return sentToday(sid); },
+  /* v3.11.38 (his asks, 24 Oct): prices by voice, read only. The kept prices and matches (Prices), the prices-only
+     suppliers' names, and the Invoices screen's weekly totals as this phone keeps them; the rules are invoice-engine.js. */
+  prices: function(){
+    var j = function(k, empty){ var v = readJSON(k); return v == null ? empty : v; };
+    var sup = {};
+    (state.suppliers || []).forEach(function(s){ sup[s.id] = s.name; });
+    j('order-chit-price-suppliers', []).forEach(function(s){ if(s && s.id && !sup[s.id]) sup[s.id] = s.name; });
+    return { engine: typeof InvoiceEngine !== 'undefined' ? InvoiceEngine : null, prices: j('order-chit-prices', []), matches: j('order-chit-inv-matches', []),
+      names: sup, retired: function(id){ return typeof retiredName === 'function' ? retiredName(id) : ''; },
+      invoices: j('order-chit-invoices', {}), week: typeof getCurrentWeekStart === 'function' ? getCurrentWeekStart() : '', today: addDaysKey(0) };
+  },
   addPrep: async function(lines){
     var before = (state.prepLines || []).length;
     var ok = await addPrepLines(lines);
