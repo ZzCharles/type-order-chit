@@ -781,7 +781,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.38';
+const APP_VERSION = 'v3.11.39';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -3300,6 +3300,14 @@ window.passScan = function(json){
   goto({name:'invCheck'}); window.scrollTo(0,0);
   showToast('Read ' + p.lines.length + ' line' + (p.lines.length === 1 ? '' : 's') + ' from ' + o.pages.length + ' page' + (o.pages.length === 1 ? '' : 's'));
 };
+/* v3.11.39: the scanner started, by the Scan button or by Pluto's "Scan an invoice" (voice.js host.open 'scan').
+   Pluto's starts it only where the button shows: the app's tab with 1.25, the chef key in, his real copy. */
+function invScanReady(){ return IN_APP_SCAN && !!getChefKey() && typeof InvoiceEngine !== 'undefined' && !copyRole(); }
+function invScanStart(){
+  if(!IN_APP_SCAN) return;
+  state.invScanId = 's' + Date.now();
+  try{ window.PlutoRoomHost.scanInvoice(state.invScanId); showToast('Opening the scanner…'); }catch(e){ state.invScanId = ''; showToast('Couldn’t open the scanner'); }
+}
 function invLoad(key, empty){ const v = readStoredJSON(key); return v == null ? empty : v; }
 function invSave(key, v){ try{ localStorage.setItem(key, JSON.stringify(v)); return true; }catch(e){ showToast('The phone’s storage is full: not kept.'); return false; } }
 function invProducts(supplierId){
@@ -5875,11 +5883,7 @@ function attachHandlers(){
   const ivText = document.getElementById('inv-text');
   if(ivText) ivText.addEventListener('input', ()=>{ state.invText = ivText.value; });
   const ivScan = document.getElementById('inv-scan');
-  if(ivScan) ivScan.addEventListener('click', ()=>{
-    if(!IN_APP_SCAN) return;
-    state.invScanId = 's' + Date.now();
-    try{ window.PlutoRoomHost.scanInvoice(state.invScanId); showToast('Opening the scanner…'); }catch(e){ state.invScanId = ''; showToast('Couldn’t open the scanner'); }
-  });
+  if(ivScan) ivScan.addEventListener('click', ()=>{ invScanStart(); });
   const ivPrompt = document.getElementById('inv-prompt');
   if(ivPrompt) ivPrompt.addEventListener('click', ()=>{ try{ navigator.clipboard.writeText(INV_PROMPT).then(()=>showToast('Prompt copied'), ()=>showToast('Couldn’t copy: it’s in invoice-plan.md')); }catch(e){ showToast('Couldn’t copy'); } });
   const ivRead = document.getElementById('inv-read');
@@ -6997,16 +7001,16 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.38"></script>
+<script src="move-data.js?v=3.11.39"></script>
 <!-- v3.11.28: the function doc reader. A separate file too: if it fails, only "From management's doc" says so. -->
-<script src="function-reader.js?v=3.11.38"></script>
+<script src="function-reader.js?v=3.11.39"></script>
 <!-- v3.11.30: the invoice rules. A separate file too: if it fails, only bringing in an invoice says so. -->
-<script src="invoice-engine.js?v=3.11.38"></script>
+<script src="invoice-engine.js?v=3.11.39"></script>
 <!-- v3.11.31: the supplier readers for a scanned invoice (Aziz's so far). -->
-<script src="invoice-readers.js?v=3.11.38"></script>
+<script src="invoice-readers.js?v=3.11.39"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.38"></script>
-<script src="voice-brain.js?v=3.11.38"></script>
-<script src="voice.js?v=3.11.38"></script>
+<script src="roster-engine.js?v=3.11.39"></script>
+<script src="voice-brain.js?v=3.11.39"></script>
+<script src="voice.js?v=3.11.39"></script>
 </body>
 </html>

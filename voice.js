@@ -332,6 +332,9 @@ var host = {
     else if(v.view === 'recipe' && v.rid) goto({ name: 'recipe', rid: v.rid });   // v3.11.6
     else if(v.view === 'recipes') goto({ name: 'recipes' });
     else if(v.view === 'functions') goto({ name: 'functions' });   // v3.11.23: Pluto's Functions screen, "Open The Pass"
+    else if(v.view === 'invoices') goto({ name: 'invoices' });     // v3.11.39: Pluto's Invoices screen, "Open The Pass"
+    // v3.11.39: Pluto's "Scan an invoice": the Invoices screen, then the scanner as its Scan button starts it (only where that button shows)
+    else if(v.view === 'scan'){ goto({ name: 'invoices' }); if(typeof invScanReady === 'function' && invScanReady()) invScanStart(); }
     else if(v.view === 'rosterBuild'){ rosterWeek = v.week === 'next' ? 'next' : 'this'; rosterShowAll = false; goto({ name: 'rosterBuild' }); }   // v3.10.0
   },
   get: readJSON,
@@ -432,6 +435,45 @@ async function roomFunctions(){
   return { v: 1, status: 'answer', say: [], keep: false, log: 'functions: ' + list.length + (got.stale ? ' (the kept copy)' : ''),
     data: { ok: true, at: got.at || 0, stale: !!got.stale, functions: list } };
 }
+/* v3.11.39 (his ask, 24 Oct: "a homepage tile within the app for invoices … list of suppliers and their invoices
+   this week total"; his mock-up picks: a This week tab and a History tab): a request { want: "invoices" } is answered
+   with data, never words, read from this phone's storage only (nothing fetched or written): this week's totals per
+   supplier as the Invoices screen adds them (from Wednesday), and the newest 100 invoices scanned or pasted in, with
+   their lines (his item's name where matched, the printed words, qty, price, total, delivered or not). Read only; not
+   in the heard log (no sentence); the log line holds counts only. */
+var ROOM_INV_KEPT = 100, ROOM_INV_LINES = 80;
+function roomInvoices(){
+  var num = function(x){ return x == null || x === '' || isNaN(x) ? null : Math.round(Number(x) * 1e4) / 1e4; };
+  var cut = function(x, n){ return String(x == null ? '' : x).slice(0, n); };
+  var supName = function(sid){
+    var s = typeof findSupplier === 'function' ? findSupplier(sid) : null;
+    return (s && s.name) || (typeof retiredName === 'function' && retiredName(sid)) || '';
+  };
+  var week = getCurrentWeekStart(), all = readJSON('order-chit-invoices') || {}, wk = all[week] || {}, weekly = [], seen = {};
+  var add = function(sid){
+    var e = Array.isArray(wk[sid]) ? wk[sid] : [];
+    seen[sid] = true;
+    if(!e.length) return;
+    var total = e.reduce(function(t, x){ return t + (Number(x && x.amount) || 0); }, 0);
+    weekly.push({ name: cut(supName(sid) || 'Removed supplier', 60), count: e.length, total: Math.round(total * 100) / 100 });
+  };
+  (state.suppliers || []).forEach(function(s){ add(s.id); });
+  Object.keys(wk).forEach(function(sid){ if(!seen[sid]) add(sid); });   // a supplier since removed: its invoices still count, as on the screen
+  var kept = readJSON('order-chit-inv-kept');
+  kept = Array.isArray(kept) ? kept.filter(function(k){ return k && k.id; }) : [];
+  var list = kept.slice(0, ROOM_INV_KEPT).map(function(k){
+    return { id: cut(k.id, 40), date: /^\d{4}-\d{2}-\d{2}$/.test(k.date || '') ? k.date : '', supplier: cut(supName(k.supplierId) || k.printedSupplier || 'Supplier', 60),
+      number: cut(k.number, 30), total: num(k.total), credits: num(k.credits) || 0, via: k.via === 'scan' ? 'scan' : 'paste',
+      lines: (Array.isArray(k.lines) ? k.lines : []).slice(0, ROOM_INV_LINES).map(function(l){
+        var name = l && l.productId && typeof invProductName === 'function' ? invProductName(l.productId) : '';
+        return { pid: l && l.productId ? cut(l.productId, 40) : '', name: cut(name === 'A removed product' ? '' : name, 60), desc: cut(l && l.description, 80),
+          qty: num(l && l.qty), unit: cut(l && l.unit, 12), price: num(l && l.price), total: num(l && l.total), received: !(l && l.received === false) };
+      }) };
+  });
+  var weekTotal = Math.round(weekly.reduce(function(t, s){ return t + s.total; }, 0) * 100) / 100;
+  return { v: 1, status: 'answer', say: [], keep: false, log: 'invoices: ' + weekly.length + ' suppliers this week, ' + list.length + ' of ' + kept.length + ' kept',
+    data: { ok: true, at: Date.now(), week: week, weekly: weekly, weekTotal: weekTotal, kept: list, keptCount: kept.length } };
+}
 var ROOM_CALLS = {
   hello: function(){ return room.hello(); },
   menu: function(){ return room.menu(); },
@@ -439,6 +481,7 @@ var ROOM_CALLS = {
     r = r || {};
     if(r.want === 'my-shifts') return roomHeld() || roomMyShifts();    // v3.11.18
     if(r.want === 'functions') return roomHeld() || await roomFunctions();   // v3.11.23
+    if(r.want === 'invoices') return roomHeld() || roomInvoices();            // v3.11.39
     var a = roomHeld() || await room.handle(Object.assign({}, r, { mode: 'pluto' }));
     if(r.text) logIt({ at: Date.now(), heard: String(r.text), alts: (r.alts || []).map(String), via: 'pluto' }, a || {});
     return a;
