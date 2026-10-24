@@ -781,7 +781,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.39';
+const APP_VERSION = 'v3.11.40';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -3323,7 +3323,8 @@ function invProductName(pid){
 function invSupplierFor(printed){
   const k = InvoiceEngine.nameKey(printed), m = invLoad(INV_SUPPLIERS_KEY, {});
   if(m[k] && findSupplier(m[k])) return m[k];
-  const s = state.suppliers.find(x => InvoiceEngine.nameKey(x.name) === k);
+  // v3.11.40: or his supplier's name with only spaces and marks apart ("Michaels Fresh" printed, "Michael's Fresh" his)
+  const s = state.suppliers.find(x => InvoiceEngine.nameKey(x.name) === k) || (InvoiceEngine.looseKey(printed) ? state.suppliers.find(x => InvoiceEngine.looseKey(x.name) === InvoiceEngine.looseKey(printed)) : null);
   return s ? s.id : '';
 }
 function invWeekStart(dateKey){
@@ -3348,7 +3349,7 @@ function invBringHTML(){
       <div class="fd-title">Bring in an invoice</div>
       ${IN_APP_SCAN ? `<div class="iv-two"><button class="btn" id="inv-scan">Scan</button><button class="btn btn-doc" data-goto="invPaste">Paste</button></div><div class="add-row"><button class="cb-link" data-goto="invPrices">Prices</button></div>`
         : `<div class="iv-two"><button class="btn" data-goto="invPaste">Paste an invoice</button><button class="btn btn-doc" data-goto="invPrices">Prices</button></div>`}
-      <div class="rd-note">${IN_APP_SCAN ? 'Scan reads Aziz’s invoices so far; the picture is deleted once read.' : 'Scan works in the Pluto app (1.25 or newer).'} Only the words and numbers are kept, on this phone.</div>
+      <div class="rd-note">${IN_APP_SCAN ? 'Scan reads Aziz’s and Michael’s Fresh’s invoices so far; the picture is deleted once read.' : 'Scan works in the Pluto app (1.25 or newer).'} Only the words and numbers are kept, on this phone.</div>
     </div>
     ${rows ? `<div class="section-label">Kept lately</div><div class="card tight">${rows}</div>` : ''}`;
 }
@@ -3389,7 +3390,8 @@ function invLineHTML(z, st){
   let extra = '';
   if(!c.ok) extra += `<div class="cb-flag">${escapeHtml(c.flags.join(' '))}${c.fix ? ` <button class="cb-link" data-inv-fix="${z.i}">Use ${invMoney(c.fix.total)}</button>` : ''}</div>`;
   if(m && m.skip) extra += `<div class="cb-sub">Not a product: no price kept</div>`;
-  if(!m) extra += `<button class="cb-matchbtn" data-inv-match="${z.i}">Match this once</button>`;
+  // v3.11.40 (his phone, 24 Oct): matching waits for the supplier: before it, there are no products of his to offer
+  if(!m) extra += findSupplier(p.supplierId) ? `<button class="cb-matchbtn" data-inv-match="${z.i}">Match this once</button>` : `<div class="cb-sub">Pick the supplier at the top first, then match this.</div>`;
   else if(ch && ch.dir === 'new') extra += `<div class="cb-chg done">First price</div>`;
   else if(ch && ch.dir === 'same') extra += `<div class="cb-chg done">Price unchanged</div>`;
   else if(z.needsChoice){
@@ -3446,8 +3448,10 @@ function renderInvMatch(){
   const st = invState(), i = state.invMatchAt, z = st && st.rows[i];
   if(!z) return `<div class="crumb"><button data-goto="invCheck">&larr; Back to the invoice</button></div><div class="empty">That line isn’t there any more.</div>`;
   const l = z.x.line, sid = st.p.supplierId, sup = findSupplier(sid) || {};
+  if(!sup.id) return `<div class="crumb"><button data-goto="invCheck">&larr; Back to the invoice</button></div><div class="empty">First pick which of your suppliers this invoice is from, at the top of the invoice. Then its products show here.</div>`;   // v3.11.40
   const prods = invProducts(sid), sug = InvoiceEngine.suggest(l.description, prods, 5);
-  const pick = state.invMatchPick || (state.invMatchPick = { mode: sug.length ? 'product' : 'new', pid: sug.length ? sug[0].id : '', onList: true, billing: z.x.check.weighed ? 'weight' : 'pack' });
+  // v3.11.40: a line sold by the kilo ("KG Red Onion") starts as priced per kg
+  const pick = state.invMatchPick || (state.invMatchPick = { mode: sug.length ? 'product' : 'new', pid: sug.length ? sug[0].id : '', onList: true, billing: z.x.check.weighed || /^KGS?$/i.test(String(l.unit || '')) ? 'weight' : 'pack' });
   const pack = InvoiceEngine.readPack(l.description);
   const opt = (on, attrs, title, sub) => `<div class="cb-opt" ${attrs}><span class="cb-radio${on ? ' on' : ''}"></span><div><div class="cb-name">${title}</div>${sub ? `<div class="cb-sub">${sub}</div>` : ''}</div></div>`;
   const others = prods.filter(x => !sug.some(s => s.id === x.id));
@@ -5932,6 +5936,7 @@ function attachHandlers(){
     const st = invState(), i = state.invMatchAt, z = st && st.rows[i], pk = state.invMatchPick;
     if(!z || !pk) return;
     const sid = st.p.supplierId, l = z.x.line, matches = invLoad(INV_MATCHES_KEY, []);
+    if(!findSupplier(sid)){ showToast('Pick the supplier first'); return; }   // v3.11.40: never a match kept under no supplier
     const key = InvoiceEngine.nameKey(l.description);
     let m = { supplier: sid, key: key };
     if(pk.mode === 'skip') m.skip = true;
@@ -7001,16 +7006,16 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.39"></script>
+<script src="move-data.js?v=3.11.40"></script>
 <!-- v3.11.28: the function doc reader. A separate file too: if it fails, only "From management's doc" says so. -->
-<script src="function-reader.js?v=3.11.39"></script>
+<script src="function-reader.js?v=3.11.40"></script>
 <!-- v3.11.30: the invoice rules. A separate file too: if it fails, only bringing in an invoice says so. -->
-<script src="invoice-engine.js?v=3.11.39"></script>
+<script src="invoice-engine.js?v=3.11.40"></script>
 <!-- v3.11.31: the supplier readers for a scanned invoice (Aziz's so far). -->
-<script src="invoice-readers.js?v=3.11.39"></script>
+<script src="invoice-readers.js?v=3.11.40"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.39"></script>
-<script src="voice-brain.js?v=3.11.39"></script>
-<script src="voice.js?v=3.11.39"></script>
+<script src="roster-engine.js?v=3.11.40"></script>
+<script src="voice-brain.js?v=3.11.40"></script>
+<script src="voice.js?v=3.11.40"></script>
 </body>
 </html>
