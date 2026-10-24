@@ -424,6 +424,39 @@
     };
   }
 
+  /* v3.11.37 (his pick, 24 Oct: "price + cheaper elsewhere"): one item's current price at each supplier, cheapest per
+     kg, L or each first; a price with no pack size (its $ per kg not known) after them. Each row: { supplier, rec,
+     perBase, unit ('kg'|'L'|'each'|''), date, age (days, null if undated), stale (undated, or past 60 days) }. */
+  function suppliersFor(prices, productId, today){
+    var t = day(today), seen = {}, rows = [];
+    (prices || []).forEach(function(r){ if(r && r.productId === productId) seen[r.supplier] = 1; });
+    Object.keys(seen).forEach(function(s){
+      var mine = prices.filter(function(r){ return r && r.supplier === s; });
+      var cur = currentPrice(mine, s, productId) || historyOf(mine, productId, 1)[0].rec;
+      var age = t === t && day(cur.date) === day(cur.date) ? Math.round((t - day(cur.date)) / DAY) : null;
+      rows.push({ supplier: s, rec: cur, perBase: cur.perBase != null ? cur.perBase : null, unit: cur.billing === 'weight' ? 'kg' : cur.pack ? cur.pack.unit : '',
+        date: cur.date || '', age: age, stale: age == null || age > 60 });
+    });
+    return rows.sort(function(a, b){
+      if((a.perBase == null) !== (b.perBase == null)) return a.perBase == null ? 1 : -1;
+      if(a.unit !== b.unit) return a.unit < b.unit ? -1 : 1;
+      return (a.perBase || 0) - (b.perBase || 0);
+    });
+  }
+  /* against one supplier's price for the item: the cheapest other supplier in the same unit, when it's at least 1% less
+     -> { mine, row, less } ; when his supplier's $ per kg isn't known (no pack size): { mine, row, unknown: true } with
+     the cheapest known one, never called cheaper; else null */
+  function cheaperElsewhere(rows, supplier){
+    var mine = null;
+    (rows || []).forEach(function(r){ if(r.supplier === supplier) mine = r; });
+    if(!mine) return null;
+    var others = rows.filter(function(r){ return r !== mine && r.perBase != null; });
+    if(mine.perBase == null) return others.length ? { mine: mine, row: others[0], unknown: true } : null;
+    var best = null;
+    others.forEach(function(r){ if(r.unit === mine.unit && r.perBase < mine.perBase * 0.99 && (!best || r.perBase < best.perBase)) best = r; });
+    return best ? { mine: mine, row: best, less: round(mine.perBase - best.perBase, 4) } : null;
+  }
+
   /* v3.11.35 (his ask, 24 Oct: a price pasted wrong, "soon enough it will be editable"): a kept price changed by hand.
      c = { price, billing: 'pack'|'weight', pack: { amount, unit } | null (empty = not known), date: 'YYYY-MM-DD' or '' (undated),
      note }. -> { ok, rec } (a new record: $ per kg/L/each worked out again; its supplier, item, source, invoice, once and
@@ -449,5 +482,5 @@
   return { COLS: COLS, cents: cents, money: money, num: num, csvRows: csvRows, readCSV: readCSV, checkLine: checkLine, checkInvoice: checkInvoice,
     readPack: readPack, perBase: perBase, nameKey: nameKey, findMatch: findMatch, suggest: suggest, priceRecord: priceRecord, priceChange: priceChange, currentPrice: currentPrice, historyOf: historyOf,
     orderedVsInvoiced: orderedVsInvoiced, credits: credits, compareSuppliers: compareSuppliers, hasContact: hasContact,
-    looseKey: looseKey, readPriceList: readPriceList, listRecord: listRecord, samePrice: samePrice, setPack: setPack, editPrice: editPrice };
+    looseKey: looseKey, readPriceList: readPriceList, listRecord: listRecord, samePrice: samePrice, setPack: setPack, editPrice: editPrice, suppliersFor: suppliersFor, cheaperElsewhere: cheaperElsewhere };
 });

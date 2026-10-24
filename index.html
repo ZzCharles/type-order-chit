@@ -682,6 +682,12 @@ a.btn-block{display:block;}
 .iv-hist[data-pr-edit]{cursor:pointer;}
 .iv-hist.pr-on{background:#F6EBDC;border-radius:8px;}
 .pr-card .form-actions .btn-danger{margin-right:auto;}
+/* v3.11.37: prices where he orders (his pick: price + cheaper elsewhere), and Compare suppliers */
+.product-else{font-size:11px;color:var(--muted);margin-top:2px;line-height:1.35;}
+.product-else.cheaper{color:#2F5F39;font-weight:600;}
+.cmp-row{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:9px 2px;border-top:1px solid #F2F0E6;font-size:13.5px;}
+.cmp-row > span:last-child{font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap;}
+.cmp-row.best > span:last-child{color:#2F5F39;}
 </style>
 
 </head>
@@ -775,7 +781,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.36';
+const APP_VERSION = 'v3.11.37';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -2913,6 +2919,7 @@ function render(){
   else if(v.name === "invPrices") html += renderInvPrices();
   else if(v.name === "invKept") html += renderInvKept(v.fid);
   else if(v.name === "plPaste") html += renderPlPaste();
+  else if(v.name === "invCompare") html += renderInvCompare();
   else if(v.name === "plCheck") html += renderPlCheck();
   else if(v.name === "prepAdd") html += renderPrepAdd();
   else if(v.name === "prepItems") html += renderPrepItems();
@@ -3317,7 +3324,9 @@ function invWeekStart(dateKey){
   return localDateKey(new Date(d.getFullYear(), d.getMonth(), d.getDate() - (d.getDay() - 3 + 7) % 7));
 }
 function invDayLabel(dateKey){ const d = new Date(String(dateKey) + 'T12:00:00'); return isNaN(d) ? String(dateKey || '') : d.toLocaleDateString('en-AU',{weekday:'short',day:'numeric',month:'short'}); }
-function invMoney(v){ return v == null || isNaN(v) ? '–' : '$' + Number(v).toFixed(2); }
+/* v3.11.37: half a cent rounds up ($144.90 ÷ 12 kg = $12.075 → $12.08; toFixed alone said $12.07, as 12.075 is kept
+   as 12.07499… in the phone's numbers) */
+function invMoney(v){ if(v == null || isNaN(v)) return '–'; const n = Number(v); return '$' + (n < 0 ? '-' : '') + (Math.round(Math.abs(n) * 100 + 1e-6) / 100).toFixed(2); }
 function invNiceName(desc){
   return String(desc || '').replace(/\(.*?\)/g, ' ').replace(/\b\d+(\.\d+)?\s*(kgs?|g|gr|gm|l|lt|ltr|ml)\b/gi, ' ').replace(/\bx\s*\d+\b/gi, ' ')
     .replace(/\s+/g, ' ').trim().toLowerCase().replace(/(^|\s)[a-z]/g, c => c.toUpperCase());
@@ -3529,7 +3538,7 @@ function renderInvPrices(){
   const order = state.suppliers.map(s => s.id).filter(id => groups[id]).concat(Object.keys(groups).filter(id => !findSupplier(id)));
   const blocks = order.map(sid => `<div class="section-label">${escapeHtml(invSupName(sid))}${findSupplier(sid) ? '' : ' · prices only'}</div><div class="card tight">${groups[sid].sort((a, b) => a.name.localeCompare(b.name)).map(x => x.html).join('')}</div>`).join('');
   return crumb + `<h2 class="screen-title">Prices</h2><p class="screen-sub">The current price of everything you’ve matched, from your invoices and price lists. Tap one for its history.</p>
-    <div class="add-row"><button class="btn btn-ghost" data-goto="plPaste">Bring in a price list</button></div>
+    <div class="iv-two"><button class="btn btn-ghost" data-goto="plPaste">Bring in a price list</button><button class="btn btn-ghost" data-goto="invCompare">Compare suppliers</button></div>
     ${plNewHTML()}
     ${blocks || '<div class="empty">No prices yet: bring in an invoice or a price list.</div>'}
     ${psListHTML()}`;
@@ -3565,6 +3574,67 @@ function invSupName(sid){
   return p ? p.name : retiredName(sid) || 'A removed supplier';
 }
 function plNewSet(){ try{ return new Set(invLoad(NEW_ITEMS_KEY, []).map(m => m.id)); }catch(e){ return new Set(); } }
+/* v3.11.37 (his pick, 24 Oct: "price + cheaper elsewhere"): prices where he orders. Under each item on a supplier's
+   order screen: this supplier's latest price and its date; when another supplier is cheaper per kg, L or each, who and
+   by how much, tagged undated / over 2 months old / probably the same / not like-for-like (from the price list's
+   match; "not comparable" says nothing). When this supplier's pack size isn't known, the cheapest known price is
+   shown but never called cheaper. Only here and on Compare: never Review Order, a text or an email. */
+function priceContext(){
+  if(typeof InvoiceEngine === 'undefined') return null;
+  const prices = invLoad(INV_PRICES_KEY, []);
+  return prices.length ? { prices: prices, matches: invLoad(INV_MATCHES_KEY, []), today: addDaysKey(0) } : null;
+}
+function priceLikeOf(pc, sid, pid){ return (pc.matches.find(m => m.supplier === sid && m.productId === pid && m.like) || {}).like || ''; }
+function priceTags(pc, r, pid){
+  const like = priceLikeOf(pc, r.supplier, pid), tags = [r.date ? invDayLabel(r.date) : 'undated'];
+  if(r.age != null && r.age > 60) tags.push('over 2 months old');
+  if(like === 'similar' || like === 'different') tags.push(PL_LIKE[like]);
+  return tags;
+}
+function priceLinesFor(sid, pid, pc){
+  const none = { price: '', other: '', cheaper: false };
+  if(!pc) return none;
+  const rows = InvoiceEngine.suppliersFor(pc.prices, pid, pc.today);
+  if(!rows.length) return none;
+  const per = r => invMoney(r.perBase) + '/' + r.unit, mine = rows.find(r => r.supplier === sid);
+  const price = mine ? (mine.rec.billing === 'weight' ? per(mine) : invMoney(mine.rec.price)) + ' · ' + (mine.date ? invDayLabel(mine.date) : 'undated') : '';
+  if(!mine){   // only other suppliers have priced it
+    const r = rows.find(x => x.perBase != null) || rows[0];
+    return { price: '', other: 'Elsewhere: ' + invSupName(r.supplier) + ' ' + (r.perBase != null ? per(r) : invMoney(r.rec.price)) + ' (' + priceTags(pc, r, pid).join(' · ') + ')', cheaper: false };
+  }
+  const c = InvoiceEngine.cheaperElsewhere(rows, sid);
+  if(!c || priceLikeOf(pc, c.row.supplier, pid) === 'not comparable') return { price: price, other: '', cheaper: false };
+  const tags = priceTags(pc, c.row, pid).join(' · ');
+  return c.unknown
+    ? { price: price, other: invSupName(c.row.supplier) + ' ' + per(c.row) + ' (' + tags + '). Set its pack size to compare.', cheaper: false }
+    : { price: price, other: invSupName(c.row.supplier) + ' ' + per(c.row) + ', ' + invMoney(c.less) + '/' + c.row.unit + ' less (' + tags + ')', cheaper: true };
+}
+function invHomeOf(pid){
+  for(const s of state.suppliers) if((s.products || []).some(p => p.id === pid)) return s.id;
+  const x = invLoad(PRICE_ITEMS_KEY, []).find(i => i.id === pid);
+  return x ? x.supplierId : '';
+}
+/* Compare suppliers (off Prices): every item priced by more than one supplier, the cheapest per kg, L or each first */
+function renderInvCompare(){
+  const crumb = `<div class="crumb"><button data-goto="invPrices">&larr; Prices</button></div>`;
+  const pc = priceContext();
+  if(typeof InvoiceEngine === 'undefined') return crumb + `<div class="empty">The invoice rules didn’t load. Reload The Pass.</div>`;
+  const by = {};
+  (pc ? pc.prices : []).forEach(r => { (by[r.productId] = by[r.productId] || {})[r.supplier] = 1; });
+  const items = Object.keys(by).filter(pid => Object.keys(by[pid]).length > 1).map(pid => {
+    const rows = InvoiceEngine.suppliersFor(pc.prices, pid, pc.today), h = invHomeOf(pid), name = invProductName(pid);
+    const oneUnit = rows.filter(r => r.perBase != null).every((r, i, a) => r.unit === a[0].unit);
+    const html = rows.map((r, i) => {
+      const tags = priceTags(pc, r, pid);
+      if(r.supplier === h) tags.push('you order here');
+      return `<div class="cmp-row${i === 0 && r.perBase != null && oneUnit ? ' best' : ''}"><span>${escapeHtml(invSupName(r.supplier))}<br><span class="iv-pk">${escapeHtml(tags.join(' · '))}</span></span><span>${escapeHtml(r.perBase != null ? invMoney(r.perBase) + '/' + r.unit : invMoney(r.rec.price) + ', pack not known')}</span></div>`;
+    }).join('');
+    return { name: name, html: `<div class="card tight"><div class="cb-prow" data-goto="invHist" data-fid="${escapeHtml(pid)}"><div class="cb-name">${escapeHtml(name)}</div><div class="cb-pv">&rsaquo;</div></div>${html}</div>` };
+  }).sort((a, b) => a.name.localeCompare(b.name));
+  return crumb + `<h2 class="screen-title">Compare suppliers</h2><p class="screen-sub">Every item with prices from more than one supplier, the cheapest per kg, L or each first. Tap one for its history.</p>
+    ${items.map(x => x.html).join('') || '<div class="empty">No item has prices from two suppliers yet.</div>'}
+    <div class="rd-note">Ex GST. “Probably the same” and “not like-for-like” come from the price list; an undated price may be out of date.</div>`;
+}
 /* v3.11.35: the edit card's values -> InvoiceEngine.editPrice's, and what they come to */
 function prVals(d){ return { price: d.price, billing: d.billing, pack: { amount: d.amt, unit: d.unit }, date: d.date, note: d.note }; }
 function prPerText(rec, d){
@@ -5000,11 +5070,13 @@ function renderSupplier(id){
   const s = findSupplier(id);
   if(!s) return `<div class="empty">Supplier not found.</div>`;
   const fresh = plNewSet();   // v3.11.32: items a price list added, marked NEW
-  let lines = s.products.map(p => `
+  const pc = priceContext();  // v3.11.37: prices where he orders
+  let lines = s.products.map(p => { const pl = priceLinesFor(s.id, p.id, pc); return `
     <div class="product-line">
       <div class="product-info">
         <div class="product-name">${escapeHtml(p.name)}${fresh.has(p.id) ? '<span class="pl-new">NEW</span>' : ''}</div>
-        <div class="product-unit">${escapeHtml(p.unit)}${(p.inc && p.inc!==1) ? ' &middot; +'+formatQty(p.inc)+'/tap' : ''}</div>
+        <div class="product-unit">${escapeHtml(p.unit)}${(p.inc && p.inc!==1) ? ' &middot; +'+formatQty(p.inc)+'/tap' : ''}${pl.price ? ' &middot; ' + escapeHtml(pl.price) : ''}</div>
+        ${pl.other ? `<div class="product-else${pl.cheaper ? ' cheaper' : ''}">${escapeHtml(pl.other)}</div>` : ''}
       </div>
       <div class="stepper">
         <button data-qty-dec="${p.id}">&minus;</button>
@@ -5014,7 +5086,7 @@ function renderSupplier(id){
       <button class="del-x" data-edit-product="${p.id}" data-supplier="${s.id}" title="edit item">&#9998;</button>
       <button class="del-x" data-del-product="${p.id}" title="remove item">&times;</button>
     </div>
-  `).join('');
+  `; }).join('');
   if(s.products.length===0) lines = `<div class="empty">No products yet for this supplier.</div>`;
   const hasQty = s.products.some(p=>p.qty>0);
   const sent = sentToday(s.id);
@@ -6925,16 +6997,16 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.36"></script>
+<script src="move-data.js?v=3.11.37"></script>
 <!-- v3.11.28: the function doc reader. A separate file too: if it fails, only "From management's doc" says so. -->
-<script src="function-reader.js?v=3.11.36"></script>
+<script src="function-reader.js?v=3.11.37"></script>
 <!-- v3.11.30: the invoice rules. A separate file too: if it fails, only bringing in an invoice says so. -->
-<script src="invoice-engine.js?v=3.11.36"></script>
+<script src="invoice-engine.js?v=3.11.37"></script>
 <!-- v3.11.31: the supplier readers for a scanned invoice (Aziz's so far). -->
-<script src="invoice-readers.js?v=3.11.36"></script>
+<script src="invoice-readers.js?v=3.11.37"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.36"></script>
-<script src="voice-brain.js?v=3.11.36"></script>
-<script src="voice.js?v=3.11.36"></script>
+<script src="roster-engine.js?v=3.11.37"></script>
+<script src="voice-brain.js?v=3.11.37"></script>
+<script src="voice.js?v=3.11.37"></script>
 </body>
 </html>
