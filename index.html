@@ -681,6 +681,10 @@ a.btn-block{display:block;}
 /* v3.11.35: a kept price changed or removed (his pick: tap a row, edit below) */
 .iv-hist[data-pr-edit]{cursor:pointer;}
 .iv-hist.pr-on{background:#F6EBDC;border-radius:8px;}
+/* v3.11.41: the supplier's own name for a price, under its row (not .iv-printed: that's the match screen's title) */
+.pr-printed{font-size:11.5px;color:var(--muted);padding:0 0 8px;margin-top:-4px;border-bottom:1px solid #F5F3EA;overflow-wrap:anywhere;}
+.pr-printed:last-child{border-bottom:none;}
+.iv-hist:has(+ .pr-printed){border-bottom:none;}
 .pr-card .form-actions .btn-danger{margin-right:auto;}
 /* v3.11.37: prices where he orders (his pick: price + cheaper elsewhere), and Compare suppliers */
 .product-else{font-size:11px;color:var(--muted);margin-top:2px;line-height:1.35;}
@@ -781,7 +785,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.40';
+const APP_VERSION = 'v3.11.41';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -3508,7 +3512,12 @@ function renderInvHist(pid){
       <div class="form-actions"><button class="btn btn-danger" id="pr-remove">Remove</button><button class="btn btn-ghost" id="pr-cancel">Cancel</button><button class="btn" id="pr-save">Save</button></div>
     </div>`;
   }
-  const rows = h.map(x => `<div class="iv-hist${x.rec === er ? ' pr-on' : ''}" data-pr-edit="${prices.indexOf(x.rec)}"><span>${escapeHtml(invDayLabel(x.rec.date) || 'undated')}${many ? `<br><span class="iv-pk">${escapeHtml(invSupName(x.rec.supplier))}</span>` : ''}</span><span>${invMoney(x.rec.price)}</span><span>${x.rec.perBase != null ? invMoney(x.rec.perBase) : '–'}</span><span class="${x.dir === 'up' ? 'up' : x.dir === 'down' ? 'down' : ''}">${x.dir === 'up' ? '▲ ' + x.pct + '%' : x.dir === 'down' ? '▼ ' + Math.abs(x.pct) + '%' : x.dir === 'same' ? 'same' : 'first'}${x.rec.once ? '<br><span class="iv-pk">once</span>' : ''}</span></div>`).join('');
+  /* v3.11.41 (his ask, 24 Oct): under each price, the name the supplier printed for it ("ABC MOZZARELLA ITALY"), when it
+     isn't simply his own name; a price kept before this release finds it in the kept invoice it came from */
+  const keptInv = invLoad(INV_KEPT_KEY, []), myName = invProductName(pid);
+  const printedOf = r => r.printed || (r.invoiceId ? ((keptInv.find(k => k.id === r.invoiceId) || {}).lines || []).filter(l => l.productId === r.productId).map(l => l.description)[0] || '' : '');
+  const printedHTML = r => { const p = String(printedOf(r) || '').trim(); return p && InvoiceEngine.looseKey(p) !== InvoiceEngine.looseKey(myName) ? `<div class="pr-printed">${r.via === 'list' ? 'On the price list' : 'On the invoice'}: ${escapeHtml(p)}</div>` : ''; };
+  const rows = h.map(x => `<div class="iv-hist${x.rec === er ? ' pr-on' : ''}" data-pr-edit="${prices.indexOf(x.rec)}"><span>${escapeHtml(invDayLabel(x.rec.date) || 'undated')}${many ? `<br><span class="iv-pk">${escapeHtml(invSupName(x.rec.supplier))}</span>` : ''}</span><span>${invMoney(x.rec.price)}</span><span>${x.rec.perBase != null ? invMoney(x.rec.perBase) : '–'}</span><span class="${x.dir === 'up' ? 'up' : x.dir === 'down' ? 'down' : ''}">${x.dir === 'up' ? '▲ ' + x.pct + '%' : x.dir === 'down' ? '▼ ' + Math.abs(x.pct) + '%' : x.dir === 'same' ? 'same' : 'first'}${x.rec.once ? '<br><span class="iv-pk">once</span>' : ''}</span></div>${printedHTML(x.rec)}`).join('');
   return `
     <div class="crumb">${back}</div>
     <div class="recipe-head"><div class="recipe-eyebrow">Price history${latest && !many ? ' · ' + escapeHtml(invSupName(latest.supplier)) : ''}</div><h2 class="recipe-title">${escapeHtml(invProductName(pid))}</h2>
@@ -7006,16 +7015,16 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.40"></script>
+<script src="move-data.js?v=3.11.41"></script>
 <!-- v3.11.28: the function doc reader. A separate file too: if it fails, only "From management's doc" says so. -->
-<script src="function-reader.js?v=3.11.40"></script>
+<script src="function-reader.js?v=3.11.41"></script>
 <!-- v3.11.30: the invoice rules. A separate file too: if it fails, only bringing in an invoice says so. -->
-<script src="invoice-engine.js?v=3.11.40"></script>
+<script src="invoice-engine.js?v=3.11.41"></script>
 <!-- v3.11.31: the supplier readers for a scanned invoice (Aziz's so far). -->
-<script src="invoice-readers.js?v=3.11.40"></script>
+<script src="invoice-readers.js?v=3.11.41"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.40"></script>
-<script src="voice-brain.js?v=3.11.40"></script>
-<script src="voice.js?v=3.11.40"></script>
+<script src="roster-engine.js?v=3.11.41"></script>
+<script src="voice-brain.js?v=3.11.41"></script>
+<script src="voice.js?v=3.11.41"></script>
 </body>
 </html>

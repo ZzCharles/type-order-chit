@@ -213,10 +213,13 @@
 
   /* ---------- prices (plan §3, §6.4) ---------- */
   /* a kept line -> a price record: price per pack ex GST and $ per base unit, with its date and source */
+  /* v3.11.41 (his ask, 24 Oct): with the name the supplier printed ("ABC MOZZARELLA ITALY"), shown in the item's price
+     history under his own name for it; his order list and messages never change */
   function priceRecord(supplier, match, line, date, source){
     var weighed = match && match.billing === 'weight';
     return { supplier: supplier, productId: match ? match.productId : '', pack: match ? match.pack || null : null, billing: weighed ? 'weight' : 'pack',
-      price: line.price, perBase: perBase(line.price, match && match.pack, weighed ? 'weight' : 'pack'), date: date || '', source: source || '' };
+      price: line.price, perBase: perBase(line.price, match && match.pack, weighed ? 'weight' : 'pack'), date: date || '', source: source || '',
+      printed: String(line.description || '').trim() };
   }
   /* against the last price for the same product from the same supplier: up / down / same, $ and %, how long ago.
      opts.highlight: the % from which a change stands out (his call; a start: 3) */
@@ -403,7 +406,8 @@
   /* a price-list row -> a price record (the same shape as an invoice's, with the sheet's note, code and GST; via 'list') */
   function listRecord(row, supplierId, productId){
     return { supplier: supplierId, productId: productId, pack: row.pack || null, billing: row.weighed ? 'weight' : 'pack', price: row.price, perBase: row.perBase,
-      date: row.date || '', source: row.source || 'price list', note: row.note || '', code: row.code || '', gst: row.gst == null ? null : row.gst, via: 'list' };
+      date: row.date || '', source: row.source || 'price list', note: row.note || '', code: row.code || '', gst: row.gst == null ? null : row.gst, via: 'list',
+      printed: String(row.item || '').trim() };   // v3.11.41: the sheet's own name for it
   }
   /* the same price kept before (an invoice scanned and the sheet's copy of it): same supplier, product, date and price */
   function samePrice(a, b){
