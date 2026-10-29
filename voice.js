@@ -152,12 +152,14 @@ var host = {
   /* v3.11.22 (his ask, 23 Oct): the functions, for Pluto's questions. Asked afresh from the shared
      server (2.5 s at most), else the copy kept on this phone at the last good read, which the
      brain says is from then. -> { ok, at, functions, stale } | { ok: false, why } */
-  functions: async function(){
+  /* v3.11.42: and the menu tiers ({ id, label }), kept with them; ms: how long to wait for the server (Pluto's
+     Functions screen waits longer than a voice answer: on mobile data 2.5 s was sometimes not enough) */
+  functions: async function(ms){
     var why = 'failed';
     if(typeof getChefKey === 'function' && !getChefKey()) why = 'key';
     else try{
       var ctl = typeof AbortController === 'function' ? new AbortController() : null;
-      var timer = setTimeout(function(){ if(ctl) ctl.abort(); }, 2500);
+      var timer = setTimeout(function(){ if(ctl) ctl.abort(); }, ms || 2500);
       var opt = { cache: 'no-store', headers: chefHeaders(), signal: ctl ? ctl.signal : undefined };
       var r = await Promise.all([fetch(API + '/api/functions', opt), fetch(API + '/api/tiers', opt).catch(function(){ return null; })]);
       clearTimeout(timer);
@@ -165,14 +167,48 @@ var host = {
         var fd = await r[0].json(), td = {};
         if(r[1] && r[1].ok){ try{ td = await r[1].json(); }catch(e){} }
         var tiers = Array.isArray(td.tiers) && td.tiers.length ? td.tiers : (state.tiers && state.tiers.length ? state.tiers : TIER_SEED);
-        var out = { ok: true, at: Date.now(), functions: functionsForVoice(Array.isArray(fd.functions) ? fd.functions : [], tiers) };
-        try{ localStorage.setItem(FN_KEPT_KEY, JSON.stringify({ at: out.at, functions: out.functions })); }catch(e){}
+        var out = { ok: true, at: Date.now(), functions: functionsForVoice(Array.isArray(fd.functions) ? fd.functions : [], tiers), tiers: tierList(tiers) };
+        try{ localStorage.setItem(FN_KEPT_KEY, JSON.stringify({ at: out.at, functions: out.functions, tiers: out.tiers })); }catch(e){}
         return out;
       }
       why = r[0].status === 401 ? 'key' : 'server';
     }catch(e){ why = 'offline'; }
     var k = readJSON(FN_KEPT_KEY);
-    return k && Array.isArray(k.functions) ? { ok: true, stale: true, at: k.at || 0, functions: k.functions, why: why } : { ok: false, why: why };
+    return k && Array.isArray(k.functions) ? { ok: true, stale: true, at: k.at || 0, functions: k.functions, tiers: Array.isArray(k.tiers) ? k.tiers : tierList(state.tiers), why: why } : { ok: false, why: why };
+  },
+  /* v3.11.42 (his ask and picks, 24 Oct: his functions changed in Pluto, "basically all", each part where it is; new
+     ones and deleting too). Each save reads the list afresh from the shared server, changes only that function (and
+     only that part), checks the part is still what Pluto showed him (else 'changed', with the function as it is now),
+     and sends the whole list back as the Functions screen saves it. His tap on Save in Pluto is the yes. Never from a
+     starter or backup copy, or without the chef key. -> { ok: true, fn } | { ok: false, why, fn? } */
+  saveFunction: async function(op, fid, part, value, expect){
+    if(typeof copyRole === 'function' && copyRole()) return { ok: false, why: 'copy' };
+    if(state.view && (state.view.name === 'fnEdit' || state.view.name === 'fnTiers')) return { ok: false, why: 'editing' };
+    if(typeof getChefKey === 'function' && !getChefKey()) return { ok: false, why: 'key' };
+    var got = await fnServer(), list = got.list;
+    if(!list) return { ok: false, why: got.why };
+    var tiers = got.tiers;
+    if(op === 'new'){
+      var b = FN_PARTS.basics.clean(value, tiers);
+      if(!b || !b.date || !b.name) return { ok: false, why: 'bad' };
+      var tier = tiers.find(function(t){ return t.id === b.tier; });
+      var nf = { id: 'f' + uid(), date: b.date, name: b.name, pax: b.pax, tier: b.tier, startTime: b.startTime, dietary: [], notes: '', mezze: 0, tiramisu: 0, extras: [], courses: tier ? coursesFromTier(tier) : [] };
+      list.push(nf);
+      return await fnServerSave(list, nf.id, tiers);
+    }
+    var f = list.find(function(x){ return x && x.id === fid; });
+    if(!f) return { ok: false, why: 'gone' };
+    if(op === 'delete'){
+      if(expect && (String(expect.name || '') !== String(f.name || '') || String(expect.date || '') !== String(f.date || ''))) return { ok: false, why: 'changed', fn: roomFn(f, tiers) };
+      return await fnServerSave(list.filter(function(x){ return x !== f; }), '', tiers);
+    }
+    var P = op === 'part' ? FN_PARTS[part] : null;
+    if(!P) return { ok: false, why: 'bad' };
+    var v = P.clean(value, tiers);
+    if(v == null || (P.need && !P.need(v))) return { ok: false, why: 'bad' };
+    if(expect !== undefined && JSON.stringify(P.read(f, v)) !== JSON.stringify(expect == null ? null : P.clean(expect, tiers))) return { ok: false, why: 'changed', fn: roomFn(f, tiers) };
+    P.apply(f, v, tiers);
+    return await fnServerSave(list, f.id, tiers);
   },
   /* v3.11.22 (his ask, 23 Oct): one dish of one function made a set total by voice, after his yes
      (or put back by undo: only if it's still what that change made it). The functions are read
@@ -421,9 +457,11 @@ function roomMyShifts(){
    the functions from today on, with only what Pluto's home shows (date, name, head count, start
    time, menu tier, dietary), from the shared server or the copy kept on this phone (marked stale,
    with its time). Read only; not in the heard log (no sentence); the log line holds a count only. */
+/* v3.11.42 (his ask, 24 Oct: shown in full and changed in Pluto): every detail of each function (dietary, notes,
+   add-ons, the courses and their dishes with their rules), and the menu tiers; the server waited for 6 s */
 async function roomFunctions(){
   var got = null;
-  try{ got = await host.functions(); }catch(e){ got = null; }
+  try{ got = await host.functions(6000); }catch(e){ got = null; }
   if(!got || !got.ok){
     var why = (got && got.why) || 'failed';
     return { v: 1, status: 'answer', say: [], keep: false, log: 'functions: ' + why, data: { ok: false, why: why } };
@@ -431,9 +469,9 @@ async function roomFunctions(){
   var today = serviceDateKey();
   var list = (got.functions || []).filter(function(f){ return f && /^\d{4}-\d{2}-\d{2}$/.test(f.date || '') && f.date >= today; })
     .sort(function(a, b){ return a.date < b.date ? -1 : a.date > b.date ? 1 : String(a.startTime || '').localeCompare(String(b.startTime || '')); })
-    .map(function(f){ return { id: f.id, date: f.date, name: f.name || '', pax: +f.pax || 0, startTime: f.startTime || '', tier: f.tierLabel || '', dietary: (f.dietary || []).slice() }; });
+    .map(roomFnShape);
   return { v: 1, status: 'answer', say: [], keep: false, log: 'functions: ' + list.length + (got.stale ? ' (the kept copy)' : ''),
-    data: { ok: true, at: got.at || 0, stale: !!got.stale, functions: list } };
+    data: { ok: true, at: got.at || 0, stale: !!got.stale, functions: list, tiers: (got.tiers || []).map(function(t){ return { id: String(t.id), label: String(t.label || t.id) }; }) } };
 }
 /* v3.11.39 (his ask, 24 Oct: "a homepage tile within the app for invoices … list of suppliers and their invoices
    this week total"; his mock-up picks: a This week tab and a History tab): a request { want: "invoices" } is answered
@@ -474,6 +512,120 @@ function roomInvoices(){
   return { v: 1, status: 'answer', say: [], keep: false, log: 'invoices: ' + weekly.length + ' suppliers this week, ' + list.length + ' of ' + kept.length + ' kept',
     data: { ok: true, at: Date.now(), week: week, weekly: weekly, weekTotal: weekTotal, kept: list, keptCount: kept.length } };
 }
+/* ---------- v3.11.42: his functions in Pluto (shown in full, and changed part by part) ---------- */
+function fnStr(x, n){ return String(x == null ? '' : x).trim().slice(0, n); }
+function fnInt(x, lo, hi){ return Math.max(lo, Math.min(hi, parseInt(x, 10) || 0)); }
+/* one function as Pluto's screens show it (from the voice's reading of it: the same numbers) */
+function roomFnShape(v){
+  return { id: v.id, date: v.date, name: v.name || '', pax: +v.pax || 0, startTime: v.startTime || '', tier: v.tierLabel || '', tierId: String(v.tier || ''),
+    dietary: (v.dietary || []).slice(), notes: v.notes || '', mezze: +v.mezze || 0, tiramisu: +v.tiramisu || 0,
+    extras: (v.extras || []).map(function(x){ return { id: x.id || '', label: x.label, qty: x.qty }; }),
+    courses: (v.courses || []).map(function(c){ return { id: c.id || '', name: c.name || '', time: c.time || '', items: (c.items || []).map(function(i){
+      return i.kind === 'set' ? { id: i.id || '', label: i.label, kind: 'set', qty: i.qty } : { id: i.id || '', label: i.label, kind: 'head', per: i.per }; }) }; }) };
+}
+function roomFn(f, tiers){ return roomFnShape(functionsForVoice([f], tiers)[0]); }
+/* the list and the tiers, afresh from the shared server (5 s at most) */
+async function fnServer(){
+  try{
+    var ctl = typeof AbortController === 'function' ? new AbortController() : null;
+    var timer = setTimeout(function(){ if(ctl) ctl.abort(); }, 5000);
+    var opt = { cache: 'no-store', headers: chefHeaders(), signal: ctl ? ctl.signal : undefined };
+    var r = await Promise.all([fetch(API + '/api/functions', opt), fetch(API + '/api/tiers', opt).catch(function(){ return null; })]);
+    clearTimeout(timer);
+    if(!r[0].ok) return { list: null, why: r[0].status === 401 ? 'key' : 'server' };
+    var d = await r[0].json(), td = {};
+    if(r[1] && r[1].ok){ try{ td = await r[1].json(); }catch(e){} }
+    var tiers = Array.isArray(td.tiers) && td.tiers.length ? td.tiers : (state.tiers && state.tiers.length ? state.tiers : TIER_SEED);
+    return Array.isArray(d.functions) ? { list: d.functions, tiers: tiers } : { list: null, why: 'server' };
+  }catch(e){ return { list: null, why: 'offline' }; }
+}
+/* the whole list back, as the Functions screen saves it; then this copy's own list and the kept copy */
+async function fnServerSave(list, fid, tiers){
+  list.forEach(function(f){ (f.courses || []).forEach(function(c){ c.items = (c.items || []).map(function(i){ return normaliseItem(i, c.name); }); }); });
+  list.sort(function(a, b){ return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+  try{
+    var res = await fetch(API + '/api/functions', { method: 'POST', headers: chefHeaders({ 'Content-Type': 'application/json' }), body: JSON.stringify({ functions: list }) });
+    if(!res.ok) return { ok: false, why: res.status === 401 ? 'key' : 'server' };
+  }catch(e){ return { ok: false, why: 'offline' }; }
+  state.functions = list;
+  if(tiers && tiers.length) state.tiers = tiers;
+  if(typeof normaliseFunctions === 'function') normaliseFunctions();
+  if(typeof keepFunctionsCopy === 'function') keepFunctionsCopy();
+  bgRender();
+  var f = fid ? list.find(function(x){ return x.id === fid; }) : null;
+  return { ok: true, fn: f ? roomFn(f, tiers) : null, at: Date.now() };
+}
+/* each part Pluto changes: clean (what's allowed), read (the part as the server holds it, to compare with what Pluto
+   showed him), apply. A course is one course (by its id; new without one; remove: true takes it out). A new menu tier
+   fills the dishes in again, as picking one on the Functions form does. */
+var FN_PARTS = {
+  basics: {
+    clean: function(v, tiers){
+      if(!v || typeof v !== 'object') return null;
+      var date = String(v.date || ''), tier = String(v.tier == null ? '' : v.tier);
+      if(date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+      if(tier && !(tiers || []).some(function(t){ return String(t.id) === tier; })) return null;
+      return { name: fnStr(v.name, 80), date: date, startTime: fnStr(v.startTime, 20), pax: fnInt(v.pax, 0, 5000), tier: tier };
+    },
+    read: function(f){ return { name: fnStr(f.name, 80), date: String(f.date || ''), startTime: fnStr(f.startTime, 20), pax: fnInt(f.pax, 0, 5000), tier: String(f.tier || '') }; },
+    apply: function(f, v, tiers){
+      var refill = v.tier && v.tier !== String(f.tier || '');
+      f.name = v.name; f.date = v.date; f.startTime = v.startTime; f.pax = v.pax; f.tier = v.tier;
+      var t = refill ? (tiers || []).find(function(x){ return String(x.id) === v.tier; }) : null;
+      if(t) f.courses = coursesFromTier(t);
+    },
+    need: function(v){ return !!(v.name && v.date); }
+  },
+  dietary: {
+    clean: function(v){ return Array.isArray(v) ? v.map(function(x){ return fnStr(x, 80); }).filter(Boolean).slice(0, 30) : null; },
+    read: function(f){ return (f.dietary || []).map(function(x){ return fnStr(x, 80); }).filter(Boolean).slice(0, 30); },
+    apply: function(f, v){ f.dietary = v; }
+  },
+  notes: {
+    clean: function(v){ return typeof v === 'string' ? fnStr(v, 2000) : null; },
+    read: function(f){ return fnStr(f.notes, 2000); },
+    apply: function(f, v){ f.notes = v; }
+  },
+  addons: {
+    clean: function(v){
+      if(!v || typeof v !== 'object') return null;
+      return { mezze: fnInt(v.mezze, 0, 99), tiramisu: fnInt(v.tiramisu, 0, 50),
+        extras: (Array.isArray(v.extras) ? v.extras : []).map(function(x){ return { id: fnStr(x && x.id, 20), label: fnStr(x && x.label, 60), qty: fnInt(x && x.qty, 1, 999) }; })
+          .filter(function(x){ return x.label; }).slice(0, 20) };
+    },
+    read: function(f){ return { mezze: fnInt(f.mezze, 0, 99), tiramisu: fnInt(f.tiramisu, 0, 50), extras: fnExtras(f).map(function(x){ return { id: fnStr(x.id, 20), label: fnStr(x.label, 60), qty: fnInt(x.qty, 1, 999) }; }).slice(0, 20) }; },
+    apply: function(f, v){ f.mezze = v.mezze; f.tiramisu = v.tiramisu; f.extras = v.extras.map(function(x){ return { id: x.id || 'x' + uid(), label: x.label, qty: x.qty }; }); }
+  },
+  course: {
+    clean: function(v){
+      if(!v || typeof v !== 'object') return null;
+      var c = { id: fnStr(v.id, 20), name: fnStr(v.name, 30), time: fnStr(v.time, 20), remove: v.remove === true,
+        items: (Array.isArray(v.items) ? v.items : []).map(function(i){
+          i = i || {};
+          return i.kind === 'set' ? { id: fnStr(i.id, 20), label: fnStr(i.label, 60), kind: 'set', qty: fnInt(i.qty, 0, 999) } : { id: fnStr(i.id, 20), label: fnStr(i.label, 60), kind: 'head', per: fnInt(i.per, 1, 100) };
+        }).filter(function(i){ return i.label; }).slice(0, 40) };
+      return c.name || c.remove ? c : null;
+    },
+    read: function(f, v){
+      var c = (f.courses || []).find(function(x){ return x && v.id && x.id === v.id; });
+      return c ? FN_PARTS.course.clean({ id: c.id, name: c.name, time: c.time, items: (c.items || []).map(function(i){ return normaliseItem(i, c.name); }) }) : null;
+    },
+    apply: function(f, v){
+      f.courses = Array.isArray(f.courses) ? f.courses : [];
+      var at = v.id ? f.courses.findIndex(function(x){ return x && x.id === v.id; }) : -1;
+      if(v.remove){ if(at > -1) f.courses.splice(at, 1); return; }
+      var c = { id: v.id || 'c' + uid(), name: v.name, time: v.time, items: v.items.map(function(i){ return Object.assign({}, i, { id: i.id || 'i' + uid(), course: v.name }); }) };
+      if(at > -1) f.courses[at] = c; else f.courses.push(c);
+    }
+  }
+};
+/* { want: "function-save", op: "part"|"new"|"delete", fid, part, value, expect } -> data: saveFunction's answer.
+   Not in the heard log (no sentence); the log line holds what was done, no names or numbers. */
+async function roomFunctionSave(r){
+  var op = r.op === 'new' || r.op === 'delete' ? r.op : 'part', res;
+  try{ res = await host.saveFunction(op, String(r.fid || ''), String(r.part || ''), r.value, r.expect); }catch(e){ res = { ok: false, why: 'failed' }; }
+  return { v: 1, status: 'answer', say: [], keep: false, log: 'function ' + (op === 'part' ? 'part ' + r.part : op) + ': ' + (res.ok ? 'saved' : res.why), data: res };
+}
 var ROOM_CALLS = {
   hello: function(){ return room.hello(); },
   menu: function(){ return room.menu(); },
@@ -482,6 +634,7 @@ var ROOM_CALLS = {
     if(r.want === 'my-shifts') return roomHeld() || roomMyShifts();    // v3.11.18
     if(r.want === 'functions') return roomHeld() || await roomFunctions();   // v3.11.23
     if(r.want === 'invoices') return roomHeld() || roomInvoices();            // v3.11.39
+    if(r.want === 'function-save') return roomHeld() || await roomFunctionSave(r);   // v3.11.42
     var a = roomHeld() || await room.handle(Object.assign({}, r, { mode: 'pluto' }));
     if(r.text) logIt({ at: Date.now(), heard: String(r.text), alts: (r.alts || []).map(String), via: 'pluto' }, a || {});
     return a;

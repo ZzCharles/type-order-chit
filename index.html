@@ -785,7 +785,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.41';
+const APP_VERSION = 'v3.11.42';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -1508,15 +1508,36 @@ function functionsForVoice(list, tiers){
     tier: f.tier || '', tierLabel: f.tier ? label(f.tier) : '', dietary: (f.dietary || []).map(String).filter(x => x.trim()), notes: f.notes || '',
     mezze: Math.max(0, parseInt(f.mezze, 10) || 0),   // v3.11.24: the mezze boards, for "add mezze boards to Tara's function"
     tiramisu: Math.max(0, parseInt(f.tiramisu, 10) || 0),   // v3.11.25: the add-ons, for "what add-ons for Tara's function"
-    extras: fnExtras(f).map(x => ({ label: x.label, qty: x.qty })),
+    extras: fnExtras(f).map(x => ({ id: x.id, label: x.label, qty: x.qty })),   // v3.11.42: with its id (Pluto changes one-offs)
     // the dishes, for "how many plates of polenta" (each as the screen reads it: a set amount, or one per so many people)
-    courses: (f.courses || []).map(c => ({ name: c.name || '', items: (c.items || []).filter(i => i && i.label).map(i => {
+    // v3.11.42: each course with its id and time (Pluto shows and changes them)
+    courses: (f.courses || []).map(c => ({ id: c.id || '', name: c.name || '', time: c.time || '', items: (c.items || []).filter(i => i && i.label).map(i => {
       const set = i.kind === 'set' || i.kind === 'fixed' || i.kind === 'text';
       return set ? { id: i.id, label: i.label, kind: 'set', qty: Math.max(0, Number(i.qty) || 0) } : { id: i.id, label: i.label, kind: 'head', per: Math.max(1, Number(i.per) || DEFAULT_PER) };
     }) })) }));
 }
 function keepFunctionsCopy(){
-  try{ localStorage.setItem(FN_KEPT_KEY, JSON.stringify({ at: Date.now(), functions: functionsForVoice(state.functions, state.tiers) })); }catch(e){}
+  try{ localStorage.setItem(FN_KEPT_KEY, JSON.stringify({ at: Date.now(), functions: functionsForVoice(state.functions, state.tiers), tiers: tierList(state.tiers) })); }catch(e){}
+}
+/* v3.11.42 (his ask, 24 Oct: his functions shown and changed in Pluto): the menu tiers as Pluto offers them */
+function tierList(tiers){ return ((tiers && tiers.length) ? tiers : TIER_SEED).map(t => ({ id: String(t.id), label: String(t.label || t.name || t.id) })); }
+/* v3.11.42: the functions as the shared server holds them now (4 s at most), or null. A save changes only its own
+   function in this fresh list, so a change made meanwhile elsewhere (Pluto, another phone, the voice) isn't lost. */
+async function fnFreshList(){
+  try{
+    const ctl = typeof AbortController === 'function' ? new AbortController() : null, t = setTimeout(() => { if(ctl) ctl.abort(); }, 4000);
+    const r = await fetch(API + '/api/functions', { cache: 'no-store', headers: chefHeaders(), signal: ctl ? ctl.signal : undefined });
+    clearTimeout(t);
+    if(!r.ok) return null;
+    const d = await r.json();
+    return Array.isArray(d.functions) ? d.functions : null;
+  }catch(e){ return null; }
+}
+/* a function's content, to tell whether it changed since it was opened (not its id or order) */
+function fnSig(f){
+  if(!f) return '';
+  return JSON.stringify([f.date || '', f.name || '', +f.pax || 0, f.tier || '', f.startTime || '', (f.dietary || []).map(String), f.notes || '', +f.mezze || 0, +f.tiramisu || 0,
+    fnExtras(f).map(x => [x.label, x.qty]), (f.courses || []).map(c => [c.name || '', c.time || '', (c.items || []).map(i => { const k = normaliseItem(i, c.name); return [k.label || '', k.kind, k.per || 0, k.qty || 0]; })])]);
 }
 
 /* Anything before the current service day is gone for good, as agreed. */
@@ -2826,6 +2847,9 @@ function goto(view){
   if(!(view.name === 'recipeEdit' && view.rid === 'new')) state.recipeDraft = null;
   if(view.name !== state.view.name && (view.name === 'recipeImport' || state.view.name === 'recipeImport')){ state.importPreview = null; state.importRaw = ''; }
   if(!(view.name === 'fnEdit' && view.fid === 'new')){ state.fnDraft = null; state.fnFromDoc = false; }
+  // v3.11.42: the function as it was when its form opened, so Save can tell if it was changed elsewhere meanwhile
+  if(view.name === 'fnEdit' && view.fid !== 'new' && !(state.view.name === 'fnEdit' && state.view.fid === view.fid)){ state.fnEditBase = fnSig(findFunction(view.fid)); }
+  else if(view.name !== 'fnEdit') state.fnEditBase = '';
   if(view.name !== 'fnDoc'){ state.fnDocText = ''; state.fnDocRead = null; state.fnDocPicks = null; }   // v3.11.28
   if(INV_FLOW.indexOf(view.name) < 0){ state.invText = ''; state.invRead = null; state.invPicks = null; state.invMatchAt = -1; state.invMatchPick = null; state.invVia = ''; }   // v3.11.30
   if(view.name !== 'plPaste' && view.name !== 'plCheck'){ state.plText = ''; state.plRead = null; state.plPicks = null; state.plOpen = {}; }   // v3.11.32
@@ -6371,6 +6395,16 @@ function attachHandlers(){
       const low = tiraLowAsk(+f.tiramisu || 0, +f.pax || 0);   // v3.11.36
       if(low && !confirm(low)) return;
       b.disabled = true; b.textContent = 'Saving…';
+      /* v3.11.42: the list read afresh first, so only this function changes; and if this function itself was changed
+         elsewhere since its form opened (Pluto, another phone, the voice), he's asked before his version goes over it */
+      const fresh = await fnFreshList();
+      if(fresh && b.dataset.fnSave !== 'new'){
+        const srv = fresh.find(x => x && x.id === b.dataset.fnSave);
+        if(srv && state.fnEditBase && fnSig(srv) !== state.fnEditBase
+          && !confirm('"' + (srv.name || 'This function') + '" was changed in Pluto or on another phone since you opened it. Save your version over it?')){
+          b.disabled = false; b.textContent = 'Save'; return;
+        }
+      }
       if(b.dataset.fnSave === 'new'){
         f.id = 'f'+uid();
         state.functions.push(f);
@@ -6382,6 +6416,7 @@ function attachHandlers(){
         if(cur) Object.assign(cur, f);
         else { state.functions.push(f); }
       }
+      if(fresh){ const mine = findFunction(f.id) || f; state.functions = fresh.filter(x => x && x.id !== mine.id).concat([mine]); normaliseFunctions(); }
       state.functions.sort((a,c)=> a.date < c.date ? -1 : a.date > c.date ? 1 : 0);
       const ok = await pushFunctions();
       if(!ok){ b.disabled = false; b.textContent = 'Save'; return; }
@@ -6395,6 +6430,8 @@ function attachHandlers(){
       const f = findFunction(b.dataset.fnDel);
       if(!f) return;
       if(!confirm('Delete "'+(f.name||'this function')+'"? This cannot be undone.')) return;
+      const fresh = await fnFreshList();   // v3.11.42: only this one goes; changes made elsewhere meanwhile stay
+      if(fresh){ state.functions = fresh; normaliseFunctions(); }
       state.functions = state.functions.filter(x => x.id !== f.id);
       await pushFunctions();
       goto({name:'functions'});
@@ -7015,16 +7052,16 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.41"></script>
+<script src="move-data.js?v=3.11.42"></script>
 <!-- v3.11.28: the function doc reader. A separate file too: if it fails, only "From management's doc" says so. -->
-<script src="function-reader.js?v=3.11.41"></script>
+<script src="function-reader.js?v=3.11.42"></script>
 <!-- v3.11.30: the invoice rules. A separate file too: if it fails, only bringing in an invoice says so. -->
-<script src="invoice-engine.js?v=3.11.41"></script>
+<script src="invoice-engine.js?v=3.11.42"></script>
 <!-- v3.11.31: the supplier readers for a scanned invoice (Aziz's so far). -->
-<script src="invoice-readers.js?v=3.11.41"></script>
+<script src="invoice-readers.js?v=3.11.42"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.41"></script>
-<script src="voice-brain.js?v=3.11.41"></script>
-<script src="voice.js?v=3.11.41"></script>
+<script src="roster-engine.js?v=3.11.42"></script>
+<script src="voice-brain.js?v=3.11.42"></script>
+<script src="voice.js?v=3.11.42"></script>
 </body>
 </html>
