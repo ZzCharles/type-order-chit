@@ -785,7 +785,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.44';
+const APP_VERSION = 'v3.11.45';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -2855,7 +2855,7 @@ function goto(view){
   if(view.name !== 'plPaste' && view.name !== 'plCheck'){ state.plText = ''; state.plRead = null; state.plPicks = null; state.plOpen = {}; }   // v3.11.32
   if(view.name !== 'invPrices'){ state.psEdit = ''; state.psText = null; }   // v3.11.34
   if(view.name !== 'invHist' || view.fid !== state.view.fid){ state.prEdit = null; state.prDraft = null; }   // v3.11.35
-  state.view = view; try{ history.pushState({view}, ''); }catch(e){} animate(render);
+  state.view = view; animate(render);   // v3.11.45: no history step per screen (the phone's Back goes one level up: upBack)
 }
 function findSupplier(id){ return state.suppliers.find(s=>s.id===id); }
 
@@ -2962,6 +2962,7 @@ function render(){
   attachMoveHandlers();   // v3.11.3
   // v3.9.0: the voice mic hides where you type (voice.js; absent if it didn't load)
   if(typeof voiceScreen === 'function') voiceScreen();
+  armBack();   // v3.11.45
 }
 
 function prepTileSub(){
@@ -4479,7 +4480,7 @@ function renderRecipes(){
 
 function renderRecipe(id){
   const r = findRecipe(id);
-  if(!r) return `<div class="empty">Recipe not found.</div>`;
+  if(!r) return `<div class="crumb"><button data-goto="recipes">&larr; Recipes</button></div><div class="empty">Recipe not found.</div>`;   // v3.11.45: a "←" for Back
 
   const ing = (r.ingredients||[]).map(i => {
     const f = fmtAmount(i.qty, i.unit);
@@ -6976,10 +6977,30 @@ async function clearOrder(id, silent){
 
 function refreshFromServer(){ fetchFunctions(); fetchDevices(); fetchOrders(); publishCatalogue(false); fetchInvoices(); fetchRecipes(); refreshPrep(); pushPrepCatalogue(); }
 
-try{ history.replaceState({view:{name:'home'}}, ''); }catch(e){}
-window.addEventListener('popstate', (e)=>{
-  state.view = (e.state && e.state.view) ? e.state.view : {name:'home'};
-  render();
+/* v3.11.45 (his scribble, 30 Oct: "Too many back presses needed on pass. Each back should take me a level
+   back, not the previous screen. If I go 1-2-3-4-2-3-1 it currently goes in reverse. I need it to go a layer
+   back that's it"): the phone's Back does what the screen's own "←" does, one level up. A screen change no
+   longer adds a step to the history; while The Pass is off Home it keeps exactly one, so Back comes here (in
+   Chrome, and in the app's tab, whose Back asks the page first), and on Home Back leaves The Pass as before.
+   A share sheet open: Back closes it. */
+var backArmed = false, backSkip = false;   // var: render() may come before this line runs
+function armBack(){
+  if(ROOM) return;
+  const off = state.view.name !== 'home' && state.view.name !== 'welcome';
+  if(off && !backArmed){ try{ history.pushState({ pass: 'up' }, ''); backArmed = true; }catch(e){} }
+  else if(!off && backArmed){ backArmed = false; backSkip = true; try{ history.back(); }catch(e){ backSkip = false; } }
+}
+function upBack(){
+  if(document.getElementById('share-sheet')){ closeShareSheet(); armBack(); return; }
+  const up = document.querySelector('#app .crumb button');
+  if(up) up.click(); else goto({ name: 'home' });
+  setTimeout(armBack, 400);   // a "←" that asked first and stayed: the step back again
+}
+try{ history.replaceState({ pass: 'home' }, ''); }catch(e){}
+window.addEventListener('popstate', ()=>{
+  if(backSkip){ backSkip = false; return; }
+  backArmed = false;
+  upBack();
 });
 
 loadData();
@@ -7052,16 +7073,16 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.44"></script>
+<script src="move-data.js?v=3.11.45"></script>
 <!-- v3.11.28: the function doc reader. A separate file too: if it fails, only "From management's doc" says so. -->
-<script src="function-reader.js?v=3.11.44"></script>
+<script src="function-reader.js?v=3.11.45"></script>
 <!-- v3.11.30: the invoice rules. A separate file too: if it fails, only bringing in an invoice says so. -->
-<script src="invoice-engine.js?v=3.11.44"></script>
+<script src="invoice-engine.js?v=3.11.45"></script>
 <!-- v3.11.31: the supplier readers for a scanned invoice (Aziz's so far). -->
-<script src="invoice-readers.js?v=3.11.44"></script>
+<script src="invoice-readers.js?v=3.11.45"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.44"></script>
-<script src="voice-brain.js?v=3.11.44"></script>
-<script src="voice.js?v=3.11.44"></script>
+<script src="roster-engine.js?v=3.11.45"></script>
+<script src="voice-brain.js?v=3.11.45"></script>
+<script src="voice.js?v=3.11.45"></script>
 </body>
 </html>

@@ -1262,8 +1262,8 @@ function startTeach(word, note){
 function leaveTeach(){
   stopTeachEar();
   draft = { word: '', find: '', pick: '', note: '' };
-  if(teachPushed){ teachPushed = false; history.back(); }
-  else goto({ name: 'voice' });
+  teachPushed = false;
+  goto({ name: 'voice' });   // v3.11.45: straight to Voice (a screen change no longer adds a history step)
 }
 function teachSave(){
   var r = room.teachWord(draft.word, draft.pick);
