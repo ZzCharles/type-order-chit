@@ -4981,7 +4981,7 @@ function createRoom(host){
   var FN_CHANGE = /\b(make it|make that|make the|change it|change that|change the|set it|lets do|let us do|go with|how about|what about|maybe|actually|instead|should be|lets make|up it|drop it|bring it)\b/;
   var FN_NUMW = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13,
     fourteen: 14, fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50 };
-  var fnPortion = null;   // the dish last talked about (2 minutes): { at, fid, itemId }
+  var fnPortion = null;   // the dish last talked about (2 minutes): { at, fid, itemId, own (v3.11.43: its and its function's words) }
   function fnCounted(pax){ return Math.round(Math.max(0, +pax || 0) / 5) * 5; }
   function fnPer(it){ return Math.max(1, +it.per || 5); }
   function fnPlates(it, pax){ return it.kind === 'set' ? Math.max(0, +it.qty || 0) : Math.ceil(fnCounted(pax) / fnPer(it)); }
@@ -5006,6 +5006,19 @@ function createRoom(host){
     wednesdays: 1, thursdays: 1, fridays: 1, saturdays: 1, sundays: 1, th: 1, st: 1, nd: 1, rd: 1, all: 1, each: 1, dish: 1, dishes: 1, food: 1, menu: 1 };
   /* words left after the question's own and the day's: a dish asked for that isn't on the function */
   function fnWords(c){ return c.split(' ').filter(function(w){ return w && !FN_QWORDS[w] && !/^\d/.test(w) && w.length >= 3; }).length > 0; }
+  /* v3.11.43 (his heard log, 24 Oct: just after the function's polenta, "can you add three boxes of mozzarella to the
+     ordering" was read back as "Change the total servings of Polenta to 3 plates…"; he tapped No): a sentence that names
+     anything else (a product, a unit, an order) isn't about the dish in mind. own: the dish's and its function's words */
+  var FN_TALK = { can: 1, you: 1, could: 1, would: 1, will: 1, add: 1, put: 1, give: 1, people: 1, person: 1, per: 1, guest: 1, guests: 1, head: 1, heads: 1, count: 1,
+    more: 1, extra: 1, another: 1, fewer: 1, less: 1, and: 1, also: 1, well: 1, again: 1, them: 1, our: 1, want: 1, like: 1, think: 1, yes: 1, hey: 1, pluto: 1, wait: 1,
+    right: 1, sure: 1, mate: 1, bro: 1, plate: 1, sending: 1 };
+  function fnStem(w){ return w.replace(/(es|s)$/, ''); }
+  function fnForeign(c, own){
+    var mine = {};
+    String(own || '').split(' ').forEach(function(w){ if(w) mine[fnStem(w)] = 1; });
+    return c.split(' ').some(function(w){ return w.length >= 3 && !/^\d/.test(w) && !FN_QWORDS[w] && !FN_FIX_FILL[w] && !FN_TALK[w] && !FN_NUMW[w] && !mine[fnStem(w)]; });
+  }
+  function fnOwn(label, name){ return clean(String(label || '') + ' ' + String(name || '')); }
   function fnPlateWord(n){ return n === 1 ? '1 plate' : n + ' plates'; }
   function fnPortionSay(it, f, today){
     var n = fnPlates(it, f.pax), counted = fnCounted(f.pax), whose = fnWhose(f) + ' ' + fnOn(f.date, today);
@@ -5039,9 +5052,14 @@ function createRoom(host){
     var f = fs2 && fs2.length === 1 ? fs2[0] : !fs2 && p ? list.filter(function(x){ return x.id === p.fid; })[0] : null;
     if(!f && !fs2 && list.length && !p) f = list[0];
     if(!f) return cant(fs2 && fs2.length > 1 ? 'Which function? Say its name or its day.' : 'Which function? Ask me its plates first, like \u201chow many plates of polenta for Saturday\u2019s function\u201d.', 'fn portion which function');
-    var dishes = fnDishIn(c, f), it = dishes.length === 1 ? dishes[0] : !dishes.length && p && p.fid === f.id ? fnItems(f).filter(function(i){ return i.id === p.itemId; })[0] : null;
+    var dishes = fnDishIn(c, f), held = !dishes.length && p && p.fid === f.id ? fnItems(f).filter(function(i){ return i.id === p.itemId; })[0] : null;
+    // v3.11.43: the dish in mind only when nothing else is named ("3 plates of mozzarella" isn't the polenta's)
+    if(held && fnForeign(c, p.own)) return cant('I can\u2019t find that dish on ' + fnWhose(f) + ' ' + fnOn(f.date, today) + '.', 'fn portion other dish');
+    var it = dishes.length === 1 ? dishes[0] : held;
     if(!it) return cant(dishes.length > 1 ? 'Which dish: ' + joinAnd(dishes.map(function(i){ return i.label; })).replace(/ and /, ' or ') + '?' : 'Which dish? Say its name, like \u201cmake the polenta 8 plates\u201d.', 'fn portion which dish');
-    fnPortion = { at: now(), fid: f.id, itemId: it.id };
+    // v3.11.43: "2 more", "add another 3": the number isn't the new total, so it isn't guessed
+    if(/\b(more|extra|another|fewer|less)\b/.test(c) && !/\bin total\b/.test(c)) return cant('Say the new total, like \u201cmake it 10 plates in total\u201d.', 'fn portion not a total');
+    fnPortion = { at: now(), fid: f.id, itemId: it.id, own: fnOwn(it.label, f.name) };
     var cur = fnPlates(it, f.pax), whose = fnWhose(f) + ' ' + fnOn(f.date, today), counted = fnCounted(f.pax);
     if(it.kind === 'set' && cur === n) return ans('answer', { say: ['It\u2019s already ' + fnPlateWord(n) + ' of ' + it.label + ' for ' + whose + '.'], log: 'fn portion same' });
     var per = counted ? Math.floor(counted / n) : 0;
@@ -5510,7 +5528,9 @@ function createRoom(host){
     var c = clean(text);
     if(fnDetailRoute(c)) return 'detail';   // v3.11.24: the head count, dietary or mezze boards
     var pr = fnPortion && now() - fnPortion.at <= FN_FOLLOW_MS;
-    if((FN_WORD.test(c) || pr) && fnNumIn(c) != null && (FN_CHANGE.test(c) || FN_WRITE.test(c)) && (FN_PLATES.test(c) || pr) && !/^(how|what|whats|which)\b/.test(c)) return 'portion';
+    // v3.11.43: without "plates", only when nothing else is named (his log: "can you add three boxes of mozzarella to the
+    // ordering", just after the polenta, is the order's)
+    if((FN_WORD.test(c) || pr) && fnNumIn(c) != null && (FN_CHANGE.test(c) || FN_WRITE.test(c)) && (FN_PLATES.test(c) || (pr && !fnForeign(c, fnPortion.own))) && !/^(how|what|whats|which)\b/.test(c)) return 'portion';
     if(FN_WORD.test(c)){
       if(/\bwho\b|\bwhos\b/.test(c) && /\b(working|rostered|on|doing)\b/.test(c)) return null;
       if(FN_WRITE.test(c) && !FN_ASKS.test(c)) return 'write';
@@ -5593,7 +5613,7 @@ function createRoom(host){
           if(!items.length){ outs.push(cap(fnWhose(f)) + ' ' + fnOn(f.date, today) + ' has no dishes yet.'); return; }
           if(ds.length){
             ds.slice(0, 3).forEach(function(it){ outs.push(cap(fnPortionSay(it, f, today))); });
-            if(ds.length === 1 && pf.length === 1) fnPortion = { at: now(), fid: f.id, itemId: ds[0].id };
+            if(ds.length === 1 && pf.length === 1) fnPortion = { at: now(), fid: f.id, itemId: ds[0].id, own: fnOwn(ds[0].label, f.name) };
             return;
           }
           // v3.11.26: "how many peaches" (his "pizzas", misheard): the word said isn't on it, said so (never the head count instead)
@@ -5845,7 +5865,7 @@ function createRoom(host){
         if(!rs || !rs.ok) return ans('error', { say: [FN_WHY[rs && rs.why] || 'I couldn\u2019t save that, so nothing changed.'], log: 'fn portion failed ' + ((rs && rs.why) || '') });
         var flab = c.label + ': ' + fnPlateWord(c.n) + ' for ' + c.whose;
         var fid2 = remember(flab, [{ k: 'fnItem', fid: c.fid, itemId: c.itemId, label: c.label, before: rs.before, after: { kind: 'set', qty: c.n }, pax: rs.pax }]);
-        fnPortion = { at: now(), fid: c.fid, itemId: c.itemId };
+        fnPortion = { at: now(), fid: c.fid, itemId: c.itemId, own: fnOwn(c.label, c.whose) };
         return ans('done', { say: ['Done. ' + c.label + ' is ' + fnPlateWord(c.n) + ' in total for ' + c.whose + '.'], action: { id: fid2, label: flab, undo: true }, log: 'fn portion ok ' + c.n });
       }
       if(c.kind === 'fnDetail'){   // v3.11.24: a function's head count, dietary or mezze boards
@@ -5949,7 +5969,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.42',
+  version: 'v3.11.43',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
