@@ -105,6 +105,21 @@
     var c = lines.filter(function(l){ return /^[S$]/.test(l.t) && money(l.t) != null && l.x > lb.x + 120 && l.y >= lb.y - 5; }).sort(function(a, b){ return a.y - b.y; })[0];
     return c ? money(c.t) : null;
   }
+  /* v3.11.44 (his photos of 29 Oct, invoices 83466 and 83634: one page each, leaning the other way from 83554, so each
+     amount sat a little above its label and "the first amount from its line down" was the next label's): the printed
+     totals as three amounts in a row (Total Ex GST, Total GST, Total Invoice) where the first two add up to the third,
+     whichever way the photo leans; null when no three do, or more than one three do (then as before) */
+  function fdaFooter(lines){
+    var labels = lines.filter(function(l){ return /^(Freight Ex GST|Total Ex GST|Total GST|Total Invoice|Outstanding Balance)/i.test(l.t); });
+    if(!labels.some(function(l){ return /^Total Invoice/i.test(l.t); })) return null;
+    var lx = Math.min.apply(null, labels.map(function(l){ return l.x; }));
+    var top = Math.min.apply(null, labels.map(function(l){ return l.y; })) - 40, bot = Math.max.apply(null, labels.map(function(l){ return l.y; })) + 40;
+    var vals = lines.filter(function(l){ return /^[S$]/.test(l.t) && money(l.t) != null && l.x > lx + 120 && l.y > top && l.y < bot; })
+      .sort(function(a, b){ return a.y - b.y; }).map(function(l){ return money(l.t); });
+    var found = [];
+    for(var k = 0; k + 2 < vals.length; k++) if(vals[k + 2] > 0 && Math.abs(vals[k] + vals[k + 1] - vals[k + 2]) < 0.005) found.push({ net: vals[k], gst: vals[k + 1], total: vals[k + 2] });
+    return found.length === 1 ? found[0] : null;
+  }
   /* "190CT 2026" (the O of OCT read as a zero), "19 OCT 2026", "19/10/2026" -> "2026-10-19"; '' when unreadable */
   function readDate(t){
     var s = String(t || '').toUpperCase().replace(/\s+/g, ''), m;
@@ -139,6 +154,8 @@
         rows.forEach(function(r){ lines.push({ page: pi + 1, description: r.description || '(not read)', unit: r.unit, price: r.price, net: r.net, gst: r.gst, total: r.total }); });
         var tot = labelled(p, /^Total Invoice/i);
         if(tot != null) totals = { net: labelled(p, /^Total Ex GST/i), gst: labelled(p, /^Total GST/i), total: tot };
+        var adds = fdaFooter(p);   // v3.11.44: three that add up win
+        if(adds) totals = adds;
       });
       if(!number) problems.push('The invoice number wasn\'t read.');
       if(!date) problems.push('The invoice date wasn\'t read.');
@@ -229,6 +246,20 @@
           if(v) totals = { net: null, gst: null, total: money(v.t) };
         }
       });
+      // v3.11.44 (his invoice 210358, 29 Oct: an item's name printed on two lines, "Sliced Swiss / Brown Mushroom"):
+      // words on no amount's row join the item above, only when the amounts read add up exactly to the printed balance
+      // (so no item's numbers are missing); otherwise they stay a line of their own, empty, for the checks to flag
+      if(totals && totals.total != null && Math.abs(lines.reduce(function(a, l){ return a + (l.total || 0); }, 0) - totals.total) < 0.005){
+        lines = lines.reduce(function(out, l){
+          var prev = out[out.length - 1];
+          if(prev && prev.page === l.page && prev.total != null && l.price == null && l.net == null && l.total == null && l.qty == null && l.description !== '(not read)'){
+            prev.description = (prev.description + ' ' + l.description).replace(/\s+/g, ' ').trim();
+            return out;
+          }
+          out.push(l);
+          return out;
+        }, []);
+      }
       if(!number) problems.push('The invoice number wasn\'t read.');
       if(!date) problems.push('The invoice date wasn\'t read.');
       return { number: number, date: date, totals: totals, lines: lines, problems: problems };
