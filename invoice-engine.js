@@ -247,6 +247,35 @@
     (history || []).forEach(function(h){ if(h.supplier === supplier && h.productId === productId && !h.once && (!cur || newer(h, cur))) cur = h; });
     return cur;
   }
+  /* v3.11.48 (his pick A, 24 Oct: a floating header on a supplier's order screen, "About $X · N items on this order · N not
+     priced yet"): what the order comes to at this supplier's current kept prices (before GST). Only what can be priced in
+     the same unit is added: packs × a pack price; kg (or L) × a per-kg price; packs × a per-kg price × the pack's size;
+     kg ÷ the pack's size × a pack price. Anything else is "not priced yet", never guessed.
+     o = { items: [{ productId, qty, unit }], prices, supplierId } -> { total, items: n on the order, priced: n, unpriced: n, lines: [{ productId, cost, why }] } */
+  function cartTotal(o){
+    o = o || {};
+    var out = { total: 0, items: 0, priced: 0, unpriced: 0, lines: [] }, sum = 0;
+    (o.items || []).forEach(function(it){
+      if(!(Number(it.qty) > 0)) return;
+      out.items++;
+      var rec = currentPrice(o.prices, o.supplierId, it.productId), measure = MEASURE[String(it.unit || '').toLowerCase()], cost = null, why = '';
+      var pk = rec && rec.pack && rec.pack.amount > 0 ? rec.pack : null;
+      if(!rec || !(rec.price > 0)) why = 'no price kept';
+      else if(rec.billing === 'weight'){
+        if(measure) cost = it.qty * rec.price;
+        else if(pk) cost = it.qty * pk.amount * rec.price;
+        else why = 'priced per kg, ordered by the ' + (it.unit || 'each') + ': its size isn\'t known';
+      } else {
+        if(!measure) cost = it.qty * rec.price;
+        else if(pk && pk.unit === measure) cost = it.qty / pk.amount * rec.price;
+        else why = 'priced per pack, ordered by the ' + measure + ': the pack\'s size isn\'t known';
+      }
+      if(cost != null){ out.priced++; sum += cents(cost); } else out.unpriced++;
+      out.lines.push({ productId: it.productId, cost: cost == null ? null : cents(cost) / 100, why: why });
+    });
+    out.total = sum / 100;
+    return out;
+  }
   /* a product's last n deliveries (default 5), newest first, each with its change against the delivery before it
      from the same supplier: { rec, dir: 'up'|'down'|'same'|'first', pct } */
   function historyOf(history, productId, n){
@@ -266,26 +295,35 @@
      asked for), product by product, against the invoice's matched lines, in kg/L or packs.
      o = { orders, supplierId, date, lines: [{ line, check, match }], products, groupOf(productId) }
      -> [{ kind: 'same'|'more'|'less'|'not invoiced'|'extra'|'different product'|'not matched'|'can\'t compare', … }] */
-  function orderedVsInvoiced(o){
-    var t = day(o.date), from = t - 3 * DAY, ordered = {}, out = [];
-    var prod = {}; (o.products || []).forEach(function(p){ prod[p.id] = p; });
-    var group = typeof o.groupOf === 'function' ? o.groupOf : function(){ return ''; };
+  /* v3.11.47: what The Pass sent this supplier in those 3 days, product by product -> { from, to (dates), sent (orders), items: { id: qty } } */
+  function sentOrders(o){
+    var t = day(o.date), from = t - 3 * DAY, items = {}, sent = 0;
     (o.orders || []).forEach(function(e){
       var d = day(e.for) === day(e.for) ? day(e.for) : day(e.day);
       if(e.sup !== o.supplierId || !(d >= from && d <= t)) return;
-      Object.keys(e.items || {}).forEach(function(id){ ordered[id] = round((ordered[id] || 0) + Number(e.items[id] || 0), 3); });
+      sent++;
+      Object.keys(e.items || {}).forEach(function(id){ items[id] = round((items[id] || 0) + Number(e.items[id] || 0), 3); });
     });
-    var got = {};
+    var key = function(ms){ return ms === ms ? new Date(ms).toISOString().slice(0, 10) : ''; };
+    return { from: key(from), to: key(t), sent: sent, items: items };
+  }
+  function orderedVsInvoiced(o){
+    var ordered = sentOrders(o).items, out = [];
+    var prod = {}; (o.products || []).forEach(function(p){ prod[p.id] = p; });
+    var group = typeof o.groupOf === 'function' ? o.groupOf : function(){ return ''; };
+    var got = {}, onIt = {};   // v3.11.47: onIt: on the invoice even when it can't be compared (never "not on the invoice")
+    var cant = function(id, why){ var r = { kind: 'can\'t compare', productId: id, why: why }; if(ordered[id] != null){ r.ordered = ordered[id]; r.unit = (prod[id] || {}).unit || ''; } out.push(r); };
     (o.lines || []).forEach(function(x){
       var m = x.match, q = x.check && x.check.qty;
       if(!m){ out.push({ kind: 'not matched', description: x.line.description }); return; }
+      onIt[m.productId] = 1;
       var p = prod[m.productId] || {}, measure = MEASURE[String(p.unit || '').toLowerCase()], amount = null, unit = '';
-      if(q == null){ out.push({ kind: 'can\'t compare', productId: m.productId, why: 'its quantity didn\'t check out' }); return; }
+      if(q == null){ cant(m.productId, 'its quantity didn\'t check out'); return; }
       if(measure){
         if(m.billing === 'weight'){ amount = q; unit = measure; }
         else if(m.pack && m.pack.unit === measure){ amount = round(q * m.pack.amount, 3); unit = measure; }
       } else if(m.billing !== 'weight'){ amount = q; unit = p.unit || 'each'; }
-      if(amount == null){ out.push({ kind: 'can\'t compare', productId: m.productId, why: measure ? 'its pack size isn\'t known' : 'billed by weight, ordered by the ' + (p.unit || 'each') }); return; }
+      if(amount == null){ cant(m.productId, measure ? 'its pack size isn\'t known' : 'billed by weight, ordered by the ' + (p.unit || 'each')); return; }
       var g = got[m.productId] || (got[m.productId] = { amount: 0, unit: unit, pack: m.pack || null });
       g.amount = round(g.amount + amount, 3);
     });
@@ -293,7 +331,7 @@
     Object.keys(got).forEach(function(id){
       var g = got[id], want = ordered[id];
       if(want == null){
-        var same = Object.keys(ordered).filter(function(oid){ return !got[oid] && !used[oid] && group(oid) && group(oid) === group(id); })[0];
+        var same = Object.keys(ordered).filter(function(oid){ return !got[oid] && !used[oid] && !onIt[oid] && group(oid) && group(oid) === group(id); })[0];
         if(same){ out.push({ kind: 'different product', productId: id, instead: same, ordered: ordered[same], invoiced: g.amount, unit: g.unit }); used[same] = 1; }
         else out.push({ kind: 'extra', productId: id, invoiced: g.amount, unit: g.unit });
         return;
@@ -304,9 +342,29 @@
       out.push(r);
     });
     Object.keys(ordered).forEach(function(id){
-      if(got[id] || used[id]) return;
+      if(got[id] || used[id] || onIt[id]) return;
       out.push({ kind: 'not invoiced', productId: id, ordered: ordered[id], unit: (prod[id] || {}).unit || '' });
     });
+    return out;
+  }
+
+  /* ---------- a line fixed by hand (v3.11.47, his pick of 30 Oct: "tap the numbers") ---------- */
+  /* His fix, typed as printed on the paper: the quantity, the price and the total (v = { qty, price, total }: numbers, or
+     null for a box left empty). The GST follows: a tenth of the total on a line that had GST, else as read; the net is the
+     total less the GST. The line as read is kept once (read), for Undo and "read as". */
+  function editLine(l, v){
+    var read = l.read || { qtyPrinted: l.qtyPrinted == null ? null : l.qtyPrinted, price: l.price, net: l.net, gst: l.gst, total: l.total, fixed: !!l.fixed, unreadable: !!l.unreadable };
+    var taxed = read.gst != null && cents(read.gst) !== 0, gst = v.total != null && taxed ? round(v.total / 11, 2) : read.gst;
+    var out = Object.assign({}, l, { read: read, qtyPrinted: v.qty, price: v.price, total: v.total, gst: gst, fixed: true,
+      net: v.total == null ? null : gst != null ? round(v.total - gst, 2) : v.total });
+    out.unreadable = out.price == null || out.net == null || out.total == null;
+    return out;
+  }
+  /* Undo: the line as read */
+  function undoEdit(l){
+    if(!l.read) return l;
+    var r = l.read, out = Object.assign({}, l, { qtyPrinted: r.qtyPrinted, price: r.price, net: r.net, gst: r.gst, total: r.total, fixed: r.fixed, unreadable: r.unreadable });
+    delete out.read;
     return out;
   }
 
@@ -484,7 +542,7 @@
   }
 
   return { COLS: COLS, cents: cents, money: money, num: num, csvRows: csvRows, readCSV: readCSV, checkLine: checkLine, checkInvoice: checkInvoice,
-    readPack: readPack, perBase: perBase, nameKey: nameKey, findMatch: findMatch, suggest: suggest, priceRecord: priceRecord, priceChange: priceChange, currentPrice: currentPrice, historyOf: historyOf,
-    orderedVsInvoiced: orderedVsInvoiced, credits: credits, compareSuppliers: compareSuppliers, hasContact: hasContact,
+    readPack: readPack, perBase: perBase, nameKey: nameKey, findMatch: findMatch, suggest: suggest, priceRecord: priceRecord, priceChange: priceChange, currentPrice: currentPrice, cartTotal: cartTotal, historyOf: historyOf,
+    orderedVsInvoiced: orderedVsInvoiced, sentOrders: sentOrders, editLine: editLine, undoEdit: undoEdit, credits: credits, compareSuppliers: compareSuppliers, hasContact: hasContact,
     looseKey: looseKey, readPriceList: readPriceList, listRecord: listRecord, samePrice: samePrice, setPack: setPack, editPrice: editPrice, suppliersFor: suppliersFor, cheaperElsewhere: cheaperElsewhere };
 });

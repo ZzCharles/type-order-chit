@@ -1132,7 +1132,9 @@ function vsNote(t){ return '<p class="vs-note">' + t + '</p>'; }
 function quote(s){ return '“' + s + '”'; }
 
 function voicePage(){
-  var s = settings(), h = '<div class="crumb"><button data-goto="home">&larr; Home</button> / Voice</div>';
+  // v3.11.49: in the app's tab, Voice is behind the gear: one level up is More
+  var inApp = typeof IN_PLUTO !== 'undefined' && IN_PLUTO;
+  var s = settings(), h = inApp ? '<div class="crumb"><button data-goto="more">&larr; More</button> / Voice</div>' : '<div class="crumb"><button data-goto="home">&larr; Home</button> / Voice</div>';
   // the switch, and how long it keeps listening
   h += '<div class="form-card vs-box"><div class="vs-row"><div class="vs-title">Talk to The Pass</div>';
   if(SR) h += '<label class="switch"><input type="checkbox" data-vs-on' + (s.on ? ' checked' : '') + '><span class="switch-track"><span class="switch-knob"></span></span>'

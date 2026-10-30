@@ -642,6 +642,28 @@ a.btn-block{display:block;}
 .cb-seg button{flex:1;font:inherit;font-size:12px;font-weight:700;padding:8px 6px;border-radius:999px;border:1.5px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer;}
 .cb-seg button.on{background:var(--ink);border-color:var(--ink);color:#fff;}
 .cb-matchbtn{margin-top:8px;font:inherit;font-size:12px;font-weight:700;padding:7px 14px;border-radius:999px;border:1.5px solid #C98A2C;background:#FBF4E6;color:#6E4810;cursor:pointer;}
+/* v3.11.47 (his pick, 30 Oct: "tap the numbers"): a line's numbers open in place; ordered · delivered under each line */
+.cb-nums{background:none;border:none;font:inherit;color:var(--ink-soft);padding:0;cursor:pointer;text-align:left;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;}
+.cb-edit{margin-top:10px;padding:10px;border-radius:12px;background:#F7F5EC;}
+.cb-boxes{display:grid;grid-template-columns:1fr 1.2fr 1.2fr;gap:6px;}
+.cb-boxes label{display:block;font-size:10px;font-weight:800;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:3px;}
+.cb-boxes input{width:100%;box-sizing:border-box;font:inherit;font-size:15px;font-weight:700;padding:8px 9px;border:1.5px solid var(--line);border-radius:10px;background:#fff;color:var(--ink);font-variant-numeric:tabular-nums;}
+.cb-boxes input:focus{outline:none;border-color:var(--ink);}
+.cb-live{font-size:12px;font-weight:700;color:#2F5F39;margin-top:8px;line-height:1.4;}
+.cb-live.bad{color:var(--stamp);font-weight:600;}
+.cb-hint{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.4;}
+.cb-editbtns{display:flex;gap:8px;margin-top:8px;}
+.cb-editbtns .btn{padding:9px 16px;font-size:10px;}
+.cb-editbtns .btn:last-child{flex:1;}
+.cb-od{display:inline-block;font-size:11px;font-weight:700;margin-top:6px;padding:3px 9px;border-radius:999px;background:#F2F0E6;color:var(--muted);}
+.cb-od.diff{background:#FBF1DE;color:#8A5A16;}
+.cb-fixed{font-size:11px;color:var(--muted);margin-top:4px;}
+.iv-sent{font-size:11.5px;color:var(--muted);margin:8px 2px 0;line-height:1.4;}
+/* v3.11.48 (his pick A, 24 Oct): the order's total floats at the top of a supplier's order screen */
+.cart-head{position:sticky;top:8px;z-index:6;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:11px 15px;margin-bottom:12px;font-size:13px;color:var(--ink-soft);box-shadow:0 6px 18px rgba(38,35,25,.10);}
+.cart-head b{font-size:15.5px;font-weight:800;color:var(--ink);}
+.cart-un{color:#8A5A16;font-weight:700;}
+body:has(.cart-head){align-items:flex-start;}   /* the page grows with the list (it's one screen tall otherwise), so the header floats all the way down */
 .cb-off .cb-name,.cb-off .cb-amt{color:var(--muted);}
 .iv-ovi{font-size:12.5px;padding:8px 0;border-bottom:1px solid #F5F3EA;}
 .iv-ovi:last-child{border-bottom:none;}
@@ -785,7 +807,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.45';
+const APP_VERSION = 'v3.11.49';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -798,6 +820,7 @@ let state = {
   fnDocText: '', fnDocRead: null, fnDocPicks: null, fnFromDoc: false,   // v3.11.28: a new function from management's doc (never saved)
   invText: '', invRead: null, invPicks: null, invMatchAt: -1, invMatchPick: null,   // v3.11.30: an invoice being brought in (never saved until Keep)
   invScanId: '', invVia: '',   // v3.11.31: a scan being waited for; how the invoice came in
+  invEdit: null,   // v3.11.47: the line whose numbers are open ({ i, qty, price, total }: what's typed)
   devices: [], codes: [], authEnforced: false, authLoaded: false,
   recipes: [], recipeSections: [], recipeSync: null, recipesLoaded: false,
   recipeSearch: '', recipeFilter: null, importPreview: null, importRaw: '',
@@ -2851,7 +2874,7 @@ function goto(view){
   if(view.name === 'fnEdit' && view.fid !== 'new' && !(state.view.name === 'fnEdit' && state.view.fid === view.fid)){ state.fnEditBase = fnSig(findFunction(view.fid)); }
   else if(view.name !== 'fnEdit') state.fnEditBase = '';
   if(view.name !== 'fnDoc'){ state.fnDocText = ''; state.fnDocRead = null; state.fnDocPicks = null; }   // v3.11.28
-  if(INV_FLOW.indexOf(view.name) < 0){ state.invText = ''; state.invRead = null; state.invPicks = null; state.invMatchAt = -1; state.invMatchPick = null; state.invVia = ''; }   // v3.11.30
+  if(INV_FLOW.indexOf(view.name) < 0){ state.invText = ''; state.invRead = null; state.invPicks = null; state.invMatchAt = -1; state.invMatchPick = null; state.invVia = ''; state.invEdit = null; }   // v3.11.30
   if(view.name !== 'plPaste' && view.name !== 'plCheck'){ state.plText = ''; state.plRead = null; state.plPicks = null; state.plOpen = {}; }   // v3.11.32
   if(view.name !== 'invPrices'){ state.psEdit = ''; state.psText = null; }   // v3.11.34
   if(view.name !== 'invHist' || view.fid !== state.view.fid){ state.prEdit = null; state.prDraft = null; }   // v3.11.35
@@ -2912,12 +2935,15 @@ function render(){
   const n = state.orders.length;
   const bellBadge = n ? `<span class="bell-badge show">${n>9?'9+':n}</span>` : '';
   const bellBtn = `<button class="bell-btn" data-bell="1" aria-label="${n?n+' orders waiting':'No orders waiting'}">${bellBadge}<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg></button>`;
-  let html = `<div class="brand"><h1>The Pass</h1><div class="brand-right">${bellBtn}${homeBtn}<span class="tag">${APP_VERSION}</span></div></div>`;
+  // v3.11.49 (his pick B, 30 Oct): in the app's tab, a gear beside the version opens More (Voice, Move my data)
+  const gearBtn = IN_PLUTO && v.name === 'home' ? `<button class="home-btn" data-goto="more" aria-label="More"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>` : '';
+  let html = `<div class="brand"><h1>The Pass</h1><div class="brand-right">${bellBtn}${homeBtn}<span class="tag">${APP_VERSION}</span>${gearBtn}</div></div>`;
   // v3.11.3: the welcome screen has no bell or home button; the backup copy says so on every screen
   if(v.name === "welcome") html = html.replace(bellBtn + homeBtn, '');
   if(copyRole() === 'backup') html = `<button class="backup-banner" data-goto="move">Backup copy. Use ${IN_PLUTO ? 'Chrome' : 'Pluto'} for real orders.</button>` + html;
   if(v.name === "welcome") html += renderWelcome();
   else if(v.name === "move") html += renderMove();
+  else if(v.name === "more") html += renderMore();   // v3.11.49
   else if(v.name === "home") html += renderHome();
   else if(v.name === "list") html += renderList();
   else if(v.name === "supplier") html += renderSupplier(v.id);
@@ -3052,7 +3078,15 @@ function renderHome(){
       </div>`;
   const done = state.broughtIn ? `<div class="move-done">Your data is in. Your chef key didn't move (it's a password): type it again in Recipes.</div>` : '';
 
-  return `<div class="home-tabs">${done}${waiting}${body}${voiceCard}${moveCard}</div>`;
+  // v3.11.49 (his pick B, 30 Oct): in the app's tab, Voice and Move my data are behind the gear (Chrome keeps them here)
+  return `<div class="home-tabs">${done}${waiting}${body}${IN_PLUTO ? '' : voiceCard + moveCard}</div>`;
+}
+/* v3.11.49 (his pick B, 30 Oct, design/pass-home-tidy-mockup.html): the gear's screen in the app's tab */
+function renderMore(){
+  const card = (go, title, sub) => `<div class="group"><button class="tab-card" data-goto="${go}"><div class="tab-main"><div class="tab-title">${title}</div><div class="tab-sub">${sub}</div></div><div class="chev">&rsaquo;</div></button></div>`;
+  return `<div class="crumb"><button data-goto="home">&larr; Home</button> / More</div><div class="home-tabs">`
+    + (typeof renderVoice === 'function' ? card('voice', 'Voice', 'Learned words &amp; heard log') : '')
+    + card('move', 'Move my data', copyRole() === 'backup' ? 'This is the backup copy' : 'To Chrome, or back') + `</div>`;
 }
 
 /* ===== Move my data (v3.11.3; Pluto Stage 4) =====
@@ -3116,7 +3150,8 @@ function renderWelcome(){
     ${mv.found ? '' : `<div class="move-alt"><button data-move-fresh="1">Start from the starter list instead</button></div>`}`;
 }
 function renderMove(){
-  const crumb = `<div class="crumb"><button data-goto="home">&larr; Home</button> / Move my data</div>`;
+  const crumb = IN_PLUTO ? `<div class="crumb"><button data-goto="more">&larr; More</button> / Move my data</div>`   // v3.11.49: one level up is More in the app
+    : `<div class="crumb"><button data-goto="home">&larr; Home</button> / Move my data</div>`;
   if(typeof MoveData === 'undefined') return crumb + `<div class="empty">Move my data didn’t load. Reload The Pass.</div>`;
   const mv = state.move || {};
   const role = copyRole();
@@ -3324,7 +3359,7 @@ window.passScan = function(json){
   const r = InvoiceReaders.read(o.pages);
   if(!r.ok){ showToast(r.why); return; }
   const p = r.parsed, printed = (p.invoice && p.invoice.supplier) || (p.lines[0] && p.lines[0].supplier) || '';
-  state.invRead = p; state.invText = ''; state.invVia = 'scan';
+  state.invRead = p; state.invText = ''; state.invVia = 'scan'; state.invEdit = null;
   state.invPicks = { supplierId: invSupplierFor(printed), received: p.lines.map(() => true), choice: {} };
   goto({name:'invCheck'}); window.scrollTo(0,0);
   showToast('Read ' + p.lines.length + ' line' + (p.lines.length === 1 ? '' : 's') + ' from ' + o.pages.length + ' page' + (o.pages.length === 1 ? '' : 's'));
@@ -3378,7 +3413,7 @@ function invBringHTML(){
       <div class="fd-title">Bring in an invoice</div>
       ${IN_APP_SCAN ? `<div class="iv-two"><button class="btn" id="inv-scan">Scan</button><button class="btn btn-doc" data-goto="invPaste">Paste</button></div><div class="add-row"><button class="cb-link" data-goto="invPrices">Prices</button></div>`
         : `<div class="iv-two"><button class="btn" data-goto="invPaste">Paste an invoice</button><button class="btn btn-doc" data-goto="invPrices">Prices</button></div>`}
-      <div class="rd-note">${IN_APP_SCAN ? 'Scan reads Aziz’s and Michael’s Fresh’s invoices so far; the picture is deleted once read.' : 'Scan works in the Pluto app (1.25 or newer).'} Only the words and numbers are kept, on this phone.</div>
+      <div class="rd-note">${IN_APP_SCAN ? 'Scan reads invoices from Aziz, Michael’s Fresh, Dick Stone, Highland Poultry and Two Providores so far; the picture is deleted once read.' : 'Scan works in the Pluto app (1.25 or newer).'} Only the words and numbers are kept, on this phone.</div>
     </div>
     ${rows ? `<div class="section-label">Kept lately</div><div class="card tight">${rows}</div>` : ''}`;
 }
@@ -3411,13 +3446,41 @@ function invState(){
   return { r: r, p: p, chk: chk, rows: rows, date: date, number: number, prices: prices,
     unmatched: rows.filter(z => !z.m).length, toDecide: rows.filter(z => z.needsChoice && !p.choice[z.i]).length };
 }
+/* v3.11.47: a line as read, short: "7 × $1.20 = $12.00" */
+function invReadAs(r){ return (r.qtyPrinted != null ? r.qtyPrinted + ' × ' : '') + invMoney(r.price) + ' = ' + invMoney(r.total); }
+/* v3.11.47 (his pick, 30 Oct: "tap the numbers"): the line's numbers open in place, one line at a time; the check runs as he types */
+function invEditHTML(l){
+  const e = state.invEdit, gst = l.gst != null && InvoiceEngine.cents(l.gst) !== 0;
+  const box = (k, label) => `<div><label for="inv-e-${k}">${label}</label><input id="inv-e-${k}" data-inv-ebox="${k}" inputmode="decimal" autocomplete="off" value="${escapeHtml(e[k])}"></div>`;
+  return `<div class="cb-edit"><div class="cb-boxes">${box('qty', 'Qty')}${box('price', gst ? 'Price ex GST' : 'Price')}${box('total', 'Total')}</div>
+    <div class="cb-live" id="inv-e-live"></div>
+    <div class="cb-hint">Type what’s printed on the paper. Read as ${escapeHtml(invReadAs(l.read || l))}.</div>
+    <div class="cb-editbtns"><button class="btn btn-ghost" id="inv-e-undo">${l.read ? 'Undo' : 'Cancel'}</button><button class="btn" id="inv-e-done">Done</button></div></div>`;
+}
+/* v3.11.47: what he ordered against what came, under the line (the product's, from The Pass's sent orders) */
+function invOdHTML(o, on){
+  if(!o) return '';
+  const u = o.unit && o.unit !== 'each' ? ' ' + escapeHtml(o.unit) : '', got = on ? 'delivered ' + o.invoiced + u : 'not delivered';
+  if(o.kind === 'same') return `<span class="cb-od${on ? '' : ' diff'}">ordered ${o.ordered}${u} · ${got}</span>`;
+  if(o.kind === 'more' || o.kind === 'less') return `<span class="cb-od diff">ordered ${o.ordered}${u} · ${got}${o.packNote ? ' (' + escapeHtml(o.packNote) + ')' : ''}</span>`;
+  if(o.kind === 'extra') return `<span class="cb-od diff">not ordered · ${got}</span>`;
+  if(o.kind === 'different product') return `<span class="cb-od diff">sent instead of ${escapeHtml(invProductName(o.instead))} (ordered ${o.ordered}${u})</span>`;
+  return `<span class="cb-od">${o.ordered != null ? `ordered ${o.ordered}${u} · ` : ''}can’t compare: ${escapeHtml(o.why || '')}</span>`;
+}
+/* "25 to 28 Oct", "29 Oct to 1 Nov" */
+function invRange(a, b){
+  if(!a || !b) return 'the 3 days before it';
+  const A = new Date(a + 'T12:00:00'), B = new Date(b + 'T12:00:00'), mon = d => d.toLocaleDateString('en-AU', { month: 'short' });
+  return A.getDate() + (mon(A) === mon(B) ? '' : ' ' + mon(A)) + ' to ' + B.getDate() + ' ' + mon(B);
+}
 function invLineHTML(z, st){
   const p = st.p, l = z.x.line, c = z.x.check, m = z.m, ch = z.change, on = p.received[z.i] !== false, real = m && !m.skip;
   const name = real ? escapeHtml(invProductName(m.productId)) : `<span class="cb-unk">${escapeHtml(l.description)}</span>`;
   const weighed = c.weighed || (m && m.billing === 'weight');
   const sub = c.qty != null ? (weighed ? c.qty + ' kg × ' + invMoney(l.price) : c.qty + ' × ' + invMoney(l.price)) + (l.gst ? ' + GST' : '') : invMoney(l.price);
+  const open = on && state.invEdit && state.invEdit.i === z.i;
   let extra = '';
-  if(!c.ok) extra += `<div class="cb-flag">${escapeHtml(c.flags.join(' '))}${c.fix ? ` <button class="cb-link" data-inv-fix="${z.i}">Use ${invMoney(c.fix.total)}</button>` : ''}</div>`;
+  if(!c.ok && !open) extra += `<div class="cb-flag">${escapeHtml(c.flags.join(' '))}${c.fix ? ` <button class="cb-link" data-inv-fix="${z.i}">Use ${invMoney(c.fix.total)}</button>` : ''}</div>`;   // v3.11.47: open, the live check says it
   if(m && m.skip) extra += `<div class="cb-sub">Not a product: no price kept</div>`;
   // v3.11.40 (his phone, 24 Oct): matching waits for the supplier: before it, there are no products of his to offer
   if(!m) extra += findSupplier(p.supplierId) ? `<button class="cb-matchbtn" data-inv-match="${z.i}">Match this once</button>` : `<div class="cb-sub">Pick the supplier at the top first, then match this.</div>`;
@@ -3428,9 +3491,10 @@ function invLineHTML(z, st){
     extra += `<div class="cb-chg">${ch.dir === 'up' ? 'Up' : 'Down'} ${invMoney(Math.abs(ch.diff))}${per} (${Math.abs(ch.pct)}%) since ${escapeHtml(invDayLabel(ch.last.date))}</div>
       <div class="cb-seg"><button class="${pick === 'once' ? 'on' : ''}" data-inv-choice="${z.i}" data-v="once">Approve once</button><button class="${pick === 'current' ? 'on' : ''}" data-inv-choice="${z.i}" data-v="current">Update price</button></div>`;
   }
+  if(l.read && !open) extra += `<div class="cb-fixed">Fixed by hand · read as ${escapeHtml(invReadAs(l.read))}</div>`;
   return `<div class="cb-line${on ? '' : ' cb-off'}"><button class="cb-tick${on ? ' on' : ''}" data-inv-tick="${z.i}" aria-label="Delivered">${on ? '&#10003;' : ''}</button><div class="iv-body">
     <div class="cb-top"${real ? ` data-goto="invHist" data-fid="${escapeHtml(m.productId)}"` : ''}><span class="cb-name">${name}</span><span class="cb-amt">${invMoney(c.fix ? c.fix.total : l.total)}</span></div>
-    <div class="cb-sub${on ? '' : ' cb-red'}">${on ? sub : 'Not delivered · credit to chase'}</div>${real ? `<div class="cb-pr">${escapeHtml(l.description)}</div>` : ''}${extra}</div></div>`;
+    ${open ? invEditHTML(l) : `<div class="cb-sub${on ? '' : ' cb-red'}">${on ? `<button class="cb-nums" data-inv-edit="${z.i}">${sub}</button>` : 'Not delivered · credit to chase'}</div>`}${real ? `<div class="cb-pr">${escapeHtml(l.description)}</div>` : ''}${extra}${invOdHTML(z.od, on)}</div></div>`;
 }
 function renderInvCheck(){
   const st = invState(), back = `<div class="crumb"><button data-inv-back="1">&larr; Back to the paste</button></div>`;
@@ -3443,20 +3507,19 @@ function renderInvCheck(){
   const ticked = p.received.filter(v => v !== false).length;
   const adds = chk.adds.total === true ? `Adds up to <b>${invMoney(chk.sums.total)}</b>` : `<span class="cb-amb">${escapeHtml(chk.flags.filter(f => !/ to check\.$/.test(f))[0] || 'Check the totals.')}</span>`;
   const supPick = sup ? '' : `<div class="section-label">Which of your suppliers is “${escapeHtml(printed || 'this')}”?</div><div class="chip-row iv-sups">${state.suppliers.map(s => `<button class="chip cat-chip" data-inv-sup="${escapeHtml(s.id)}">${escapeHtml(s.name)}</button>`).join('')}</div>`;
+  // v3.11.47 (his pick, 30 Oct): ordered · delivered under each line; what was ordered and not invoiced below; where "ordered" comes from, said
   let ovi = '';
   if(sup){
-    const NAME = id => escapeHtml(invProductName(id));
-    const list = InvoiceEngine.orderedVsInvoiced({ orders: readOrderHistory(), supplierId: p.supplierId, date: st.date, products: invProducts(p.supplierId), groupOf: () => '',
-      lines: st.rows.filter(z => !(z.m && z.m.skip)).map(z => ({ line: z.x.line, check: z.x.check, match: z.m })) })
-      .filter(o => o.kind !== 'same' && o.kind !== 'not matched').map(o => {
-        const u = o.unit && o.unit !== 'each' ? ' ' + escapeHtml(o.unit) : '';
-        if(o.kind === 'more' || o.kind === 'less') return `${NAME(o.productId)}: ordered ${o.ordered}${u}, invoiced ${o.invoiced}${u}${o.packNote ? ' (' + escapeHtml(o.packNote) + ')' : ''}`;
-        if(o.kind === 'not invoiced') return `${NAME(o.productId)}: ordered ${o.ordered}${u}, not on the invoice`;
-        if(o.kind === 'extra') return `${NAME(o.productId)}: on the invoice, not ordered`;
-        if(o.kind === 'different product') return `${NAME(o.productId)} sent instead of ${NAME(o.instead)}`;
-        return `${NAME(o.productId)}: can’t compare (${escapeHtml(o.why || '')})`;
-      });
-    ovi = list.length ? `<div class="section-label">Ordered vs invoiced</div><div class="card tight">${list.map(t => `<div class="iv-ovi">${t}</div>`).join('')}</div>` : `<div class="iv-ovi-ok">Matches what you ordered.</div>`;
+    const sent = InvoiceEngine.sentOrders({ orders: readOrderHistory(), supplierId: p.supplierId, date: st.date }), when = invRange(sent.from, sent.to);
+    if(sent.sent){
+      const list = InvoiceEngine.orderedVsInvoiced({ orders: readOrderHistory(), supplierId: p.supplierId, date: st.date, products: invProducts(p.supplierId), groupOf: () => '',
+        lines: st.rows.filter(z => !(z.m && z.m.skip)).map(z => ({ line: z.x.line, check: z.x.check, match: z.m })) });
+      const byId = {}; list.forEach(o => { if(o.productId && o.kind !== 'not invoiced') byId[o.productId] = o; });
+      st.rows.forEach(z => { z.od = z.m && !z.m.skip ? byId[z.m.productId] || null : null; });
+      const missing = list.filter(o => o.kind === 'not invoiced').map(o => `${escapeHtml(invProductName(o.productId))}: ordered ${o.ordered}${o.unit && o.unit !== 'each' ? ' ' + escapeHtml(o.unit) : ''}`);
+      ovi = (missing.length ? `<div class="section-label">Ordered, not on the invoice</div><div class="card tight">${missing.map(t => `<div class="iv-ovi">${t}</div>`).join('')}</div>` : '')
+        + `<div class="iv-sent">Ordered = what The Pass sent ${escapeHtml(sup.name)} from ${when}. Orders by phone or text aren’t known.</div>`;
+    } else ovi = `<div class="iv-sent">Nothing was sent to ${escapeHtml(sup.name)} through The Pass from ${when}, so there’s no order to compare. Orders by phone or text aren’t known.</div>`;
   }
   const cr = InvoiceEngine.credits(chk.lines, p.received);
   const wait = !sup ? 'Pick the supplier first.' : [st.unmatched ? `match ${st.unmatched} line${st.unmatched === 1 ? '' : 's'}` : '', st.toDecide ? `decide ${st.toDecide} price${st.toDecide === 1 ? '' : 's'}` : ''].filter(Boolean).join(' and ');
@@ -5112,6 +5175,19 @@ function renderNotifications(){
 }
 
 
+/* v3.11.48 (his pick A, 24 Oct: "About $X · N items on this order · N not priced yet"): what this order comes to at this
+   supplier's kept prices (invoices and price lists, before GST); only what can be priced in the same unit is added
+   (InvoiceEngine.cartTotal), so it's "about", and says how many it couldn't price. Here only: never Review Order, a text
+   or an email. */
+function cartHeadHTML(s){
+  if(typeof InvoiceEngine === 'undefined') return '';
+  const items = s.products.filter(p => p.qty > 0);
+  if(!items.length) return '';
+  const r = InvoiceEngine.cartTotal({ items: items.map(p => ({ productId: p.id, qty: p.qty, unit: p.unit })), prices: invLoad(INV_PRICES_KEY, []), supplierId: s.id });
+  const n = r.items + ' item' + (r.items === 1 ? '' : 's') + ' on this order';
+  if(!r.priced) return `<div class="cart-head">${n} · <span class="cart-un">no prices kept yet</span></div>`;
+  return `<div class="cart-head">About <b>${invMoney(r.total)}</b> · ${n}${r.unpriced ? ` · <span class="cart-un">${r.unpriced} not priced yet</span>` : ''}</div>`;
+}
 function renderSupplier(id){
   const s = findSupplier(id);
   if(!s) return `<div class="empty">Supplier not found.</div>`;
@@ -5148,6 +5224,7 @@ function renderSupplier(id){
       ${hasQty ? `<button class="clear-btn" data-clear="${s.id}">Clear</button>` : ''}
     </div>
     ${sentBanner}
+    ${cartHeadHTML(s)}
     <div class="card">${lines}</div>
     <div style="margin-top:10px;"><button class="btn btn-block" data-repeat="${s.id}">&#8635; Repeat Last Order</button></div>
     <div class="add-row"><button class="btn btn-ghost" data-goto="addProduct" data-supplier="${s.id}">+ Add Product</button></div>
@@ -5930,7 +6007,7 @@ function attachHandlers(){
     if(!text.trim()){ showToast('Paste the invoice first'); return; }
     const r = InvoiceEngine.readCSV(text);
     const printed = (r.invoice && r.invoice.supplier) || (r.lines[0] && r.lines[0].supplier) || '';
-    state.invRead = r; state.invText = ''; state.invVia = 'paste';
+    state.invRead = r; state.invText = ''; state.invVia = 'paste'; state.invEdit = null;
     state.invPicks = { supplierId: invSupplierFor(printed), received: r.lines.map(() => true), choice: {} };
     goto({name:'invCheck'}); window.scrollTo(0,0);
   });
@@ -5949,6 +6026,39 @@ function attachHandlers(){
     const i = +b.dataset.invFix, l = state.invRead.lines[i], c = InvoiceEngine.checkLine(l);
     if(c.fix){ l.total = c.fix.total; l.fixed = true; render(); }
   }));
+  // v3.11.47 (his pick, 30 Oct: "tap the numbers"): a line's quantity, price and total, fixed by hand as printed
+  document.querySelectorAll('[data-inv-edit]').forEach(b => b.addEventListener('click', ()=>{
+    const i = +b.dataset.invEdit, l = state.invRead.lines[i], c = InvoiceEngine.checkLine(l), f = v => v == null ? '' : (+v).toFixed(2);
+    state.invEdit = { i: i, qty: c.qty != null ? String(c.qty) : l.qtyPrinted != null ? String(l.qtyPrinted) : '', price: f(l.price), total: f(l.total) };
+    render();
+    const q = document.getElementById('inv-e-qty'); if(q){ q.focus(); q.select(); }
+  }));
+  const ivVals = () => { const e = state.invEdit, n = k => InvoiceEngine.num(e[k]); return { qty: n('qty'), price: n('price'), total: n('total') }; };
+  const ivFilled = v => [v.qty, v.price, v.total].every(x => x != null && x === x) && v.qty > 0;
+  const ivLive = () => {
+    const box = document.getElementById('inv-e-live'), e = state.invEdit; if(!box || !e) return;
+    const v = ivVals(), l = state.invRead.lines[e.i];
+    if(!ivFilled(v)){ box.className = 'cb-live bad'; box.textContent = 'Type a number in each box.'; return; }
+    const c = InvoiceEngine.checkLine(InvoiceEngine.editLine(l, v)), g = l.gst != null && InvoiceEngine.cents(l.gst) !== 0;
+    box.className = 'cb-live' + (c.ok ? '' : ' bad');
+    box.textContent = c.ok ? '✓ ' + v.qty + (c.weighed ? ' kg' : '') + ' × ' + invMoney(v.price) + (g ? ' + GST' : '') + ' = ' + invMoney(v.total) : c.flags.join(' ');
+  };
+  document.querySelectorAll('[data-inv-ebox]').forEach(x => x.addEventListener('input', ()=>{ state.invEdit[x.dataset.invEbox] = x.value; ivLive(); }));
+  ivLive();
+  const ivEDone = document.getElementById('inv-e-done');
+  if(ivEDone) ivEDone.addEventListener('click', ()=>{
+    const e = state.invEdit, v = ivVals(), l = state.invRead.lines[e.i];
+    if(!ivFilled(v)){ showToast('Type a number in each box'); return; }
+    const same = (l.qtyPrinted != null ? l.qtyPrinted : InvoiceEngine.checkLine(l).qty) === v.qty && l.price === v.price && l.total === v.total;
+    if(!same) state.invRead.lines[e.i] = InvoiceEngine.editLine(l, v);
+    state.invEdit = null; render();
+  });
+  const ivEUndo = document.getElementById('inv-e-undo');
+  if(ivEUndo) ivEUndo.addEventListener('click', ()=>{
+    const i = state.invEdit.i, l = state.invRead.lines[i];
+    if(l.read){ state.invRead.lines[i] = InvoiceEngine.undoEdit(l); showToast('Back to what was read'); }
+    state.invEdit = null; render();
+  });
   document.querySelectorAll('[data-inv-match]').forEach(b => b.addEventListener('click', ()=>{ state.invMatchAt = +b.dataset.invMatch; state.invMatchPick = null; goto({name:'invMatch'}); window.scrollTo(0,0); }));
   function ivKeepForm(){
     const pk = state.invMatchPick; if(!pk) return;
@@ -7073,16 +7183,16 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.45"></script>
+<script src="move-data.js?v=3.11.49"></script>
 <!-- v3.11.28: the function doc reader. A separate file too: if it fails, only "From management's doc" says so. -->
-<script src="function-reader.js?v=3.11.45"></script>
+<script src="function-reader.js?v=3.11.49"></script>
 <!-- v3.11.30: the invoice rules. A separate file too: if it fails, only bringing in an invoice says so. -->
-<script src="invoice-engine.js?v=3.11.45"></script>
+<script src="invoice-engine.js?v=3.11.49"></script>
 <!-- v3.11.31: the supplier readers for a scanned invoice (Aziz's so far). -->
-<script src="invoice-readers.js?v=3.11.45"></script>
+<script src="invoice-readers.js?v=3.11.49"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.45"></script>
-<script src="voice-brain.js?v=3.11.45"></script>
-<script src="voice.js?v=3.11.45"></script>
+<script src="roster-engine.js?v=3.11.49"></script>
+<script src="voice-brain.js?v=3.11.49"></script>
+<script src="voice.js?v=3.11.49"></script>
 </body>
 </html>

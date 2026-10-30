@@ -29,13 +29,13 @@
   /* handwriting glued to the front of a printed (all-capitals) name: "TooSPECK" -> "SPECK" */
   function tidy(s){ return String(s).replace(/^[A-Za-z]*[a-z][A-Za-z]*?(?=[A-Z]{2,})/, '').trim(); }
 
-  /* a page's lines with their centre: { t, x, y } */
+  /* a page's lines with their centre: { t, x, y }; v3.11.46: and their width and height (w, h) */
   function linesOf(page){
-    var out = [];
+    var out = [], len = function(a, b){ return Math.sqrt((a[0] - b[0]) * (a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1])); };
     ((page && page.blocks) || []).forEach(function(b){ (b.lines || []).forEach(function(l){
       var c = l.corners || [];
       if(c.length !== 4) return;
-      out.push({ t: String(l.text || '').trim(), x: (c[0][0] + c[1][0] + c[2][0] + c[3][0]) / 4, y: (c[0][1] + c[1][1] + c[2][1] + c[3][1]) / 4 });
+      out.push({ t: String(l.text || '').trim(), x: (c[0][0] + c[1][0] + c[2][0] + c[3][0]) / 4, y: (c[0][1] + c[1][1] + c[2][1] + c[3][1]) / 4, w: len(c[0], c[1]), h: len(c[0], c[3]) });
     }); });
     return out;
   }
@@ -127,9 +127,9 @@
       var mon = MONTHS[m[2].replace(/^0/, 'O')], d = +m[1], y = +m[3];
       if(mon && d >= 1 && d <= 31) return y + '-' + (mon < 10 ? '0' : '') + mon + '-' + (d < 10 ? '0' : '') + d;
     }
-    // v3.11.40: in a date of digits, an O read for a zero and an I or L for a one ("31/1O/2026")
-    if((m = /^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/.exec(/^[\dOIL\/.-]+$/.test(s) ? s.replace(/O/g, '0').replace(/[IL]/g, '1') : s)) && +m[2] >= 1 && +m[2] <= 12 && +m[1] >= 1 && +m[1] <= 31)
-      return m[3] + '-' + (+m[2] < 10 ? '0' : '') + (+m[2]) + '-' + (+m[1] < 10 ? '0' : '') + (+m[1]);
+    // v3.11.40: in a date of digits, an O read for a zero and an I or L for a one ("31/1O/2026"); v3.11.46: a two-digit year ("26/10/26", Dick Stone's)
+    if((m = /^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4}|\d{2})$/.exec(/^[\dOIL\/.-]+$/.test(s) ? s.replace(/O/g, '0').replace(/[IL]/g, '1') : s)) && +m[2] >= 1 && +m[2] <= 12 && +m[1] >= 1 && +m[1] <= 31)
+      return (m[3].length === 2 ? '20' : '') + m[3] + '-' + (+m[2] < 10 ? '0' : '') + (+m[2]) + '-' + (+m[1] < 10 ? '0' : '') + (+m[1]);
     return '';
   }
   function fdaDate(lines){
@@ -265,14 +265,357 @@
       return { number: number, date: date, totals: totals, lines: lines, problems: problems };
     }
   };
-  var READERS = [FDA, MF];
+  /* ---------- v3.11.46: Dick Stone, Highland Poultry and Two Providores (his photos of invoices 846508, 17502 and
+     756622, 26–28 Oct 2026: one of each, so each waits on a second photo before it's trusted) ----------
+     What the three share. The text reader often reads several columns as one line ("3.73 KG", "13.20 FRE",
+     "18.85 188.50 0.00 188.5("), so each word gets its own place: its share of the line's width. The columns are
+     found by their headings' words; the rows by the line amounts; every other column's words are grouped into
+     printed rows and paired with them top to bottom when there are as many (so a tilt, a curl, or a column printed
+     half a line higher, as Dick Stone's amounts are, can't shift a row), otherwise by height after that column's
+     usual offset. Only the table and the printed totals are read: never bank details, balances, phones or emails. */
+  var UNITS = { EA: 'EACH', EACH: 'EACH', KG: 'KG', KGS: 'KG', CTN: 'CTN', CTNS: 'CTN', BOX: 'BOX', PKT: 'PKT', PK: 'PKT', PACK: 'PACK',
+    BAG: 'BAG', TUB: 'TUB', TIN: 'TIN', BTL: 'BTL', LT: 'LT', DOZ: 'DOZ', CASE: 'CASE', TRAY: 'TRAY', BUNCH: 'BUNCH', PUNNET: 'PUNNET' };
+  function unitOf(t){ return UNITS[String(t).toUpperCase().replace(/\.$/, '')] || ''; }
+  function round2(v){ return Math.round(v * 100) / 100; }
+  function digits(t){ var m = /^\s*(\d{3,})\s*$/.exec(t); return m ? m[1] : ''; }
+  function isNum(t){ return /^\d+(\.\d+)?$/.test(t); }
+  /* the supplier's name printed on the page: never in an email or web address (another supplier may write to them) */
+  function named(pages, re){ return pages.some(function(p){ return p.some(function(l){ return re.test(l.t) && !/@|\.com|www\./i.test(l.t); }); }); }
+  /* a line's words, each placed at its share of the line's width */
+  function wordsOf(l){
+    var out = [], re = /\S+/g, m, n = l.t.length || 1, w = l.w || 0, left = l.x - w / 2;
+    while((m = re.exec(l.t))) out.push({ t: m[0], x: left + (m.index + m[0].length / 2) / n * w, y: l.y, w: m[0].length / n * w, line: l });
+    return out;
+  }
+  /* a page's words, its usual line height and its width */
+  function kit(lines){
+    var ws = [].concat.apply([], lines.map(wordsOf)), xs = ws.map(function(w){ return w.x; });
+    return { lines: lines, ws: ws, th: median(lines.map(function(l){ return l.h || 0; }).filter(function(h){ return h > 0; })) || 14,
+      span: xs.length ? Math.max.apply(null, xs) - Math.min.apply(null, xs) : 1000, slope: 0, yc: function(o){ return o.y; } };
+  }
+  /* a heading's word, within a few lines' height of another heading (near): the nearest in height */
+  function head(k, re, near, ok){
+    return k.ws.filter(function(w){ return re.test(w.t) && Math.abs(w.y - near.y) < k.th * 4 && (!ok || ok(w)); })
+      .sort(function(a, b){ return Math.abs(a.y - near.y) - Math.abs(b.y - near.y); })[0] || null;
+  }
+  /* the page's tilt from its headings (the median slope between headings far apart), at most 1 in 7 */
+  function tilt(k, hs){
+    var s = [];
+    for(var i = 0; i < hs.length; i++) for(var j = i + 1; j < hs.length; j++) if(Math.abs(hs[j].x - hs[i].x) > k.span / 4) s.push((hs[j].y - hs[i].y) / (hs[j].x - hs[i].x));
+    k.slope = s.length ? Math.max(-0.15, Math.min(0.15, median(s))) : 0;
+    k.yc = function(o){ return o.y - k.slope * o.x; };
+  }
+  /* the table's band: below the headings, above the first footer line */
+  function zone(k, hs, footRe){
+    var top = Math.max.apply(null, hs.map(k.yc)) + k.th * 0.5;
+    var foot = k.lines.filter(function(l){ return footRe.test(l.t) && k.yc(l) > top; }).map(k.yc).sort(function(a, b){ return a - b; })[0];
+    var bottom = foot == null ? Infinity : foot - k.th * 0.5;
+    return function(w){ var v = k.yc(w); return v > top && v < bottom; };
+  }
+  /* words into printed rows, top to bottom: a new row where the gap is over 0.6 of a line's height */
+  function bands(k, ws){
+    var out = [];
+    ws.slice().sort(function(a, b){ return k.yc(a) - k.yc(b); }).forEach(function(w){
+      var last = out[out.length - 1];
+      if(last && k.yc(w) - last.end < k.th * 0.6){ last.ws.push(w); last.end = k.yc(w); } else out.push({ ws: [w], end: k.yc(w) });
+    });
+    out.forEach(function(b){ b.y = median(b.ws.map(k.yc)); b.ws.sort(function(a, c){ return a.x - c.x; }); });
+    return out;
+  }
+  /* each group ({ y }) on a row ({ y }): top to bottom when there are as many; otherwise the nearest row after the
+     groups' usual offset, within tol, when put takes it. -> the groups on no row */
+  function pairRows(rows, groups, put, tol){
+    if(!rows.length) return groups.slice();
+    if(groups.length === rows.length){ groups.forEach(function(g, k){ put(rows[k], g); }); return []; }
+    var near = function(v){ return rows.reduce(function(b, r){ return Math.abs(r.y - v) < Math.abs(b.y - v) ? r : b; }); };
+    var off = median(groups.map(function(g){ return g.y - near(g.y).y; }));
+    return groups.filter(function(g){ var r = near(g.y - off); return !(Math.abs(g.y - off - r.y) < tol && put(r, g) !== false); });
+  }
+  /* the rows: one per printed row of the anchor column (the line amounts); each other column's rows (cols: { key: words })
+     paired with them; numbers on no row make a row of their own (its amount not read: the checks flag it); the
+     description's rows last. Words alone on no row (a note like "1 CARTONS") are left out. */
+  function assemble(k, anchorWords, cols, descWords){
+    var rows = bands(k, anchorWords).map(function(b){ return { y: b.y, g: { a: b } }; });
+    var gaps = rows.slice(1).map(function(r, i){ return r.y - rows[i].y; }), tol = (gaps.length ? Math.min.apply(null, gaps) : k.th * 3) / 2;
+    var extra = [];
+    Object.keys(cols).forEach(function(key){
+      pairRows(rows, bands(k, cols[key]), function(r, g){ if(r.g[key]) return false; r.g[key] = g; }, tol).forEach(function(g){
+        var o = extra.filter(function(x){ return !x.g[key] && Math.abs(x.y - g.y) < tol; })[0];
+        if(o) o.g[key] = g; else { o = { y: g.y, g: {} }; o.g[key] = g; extra.push(o); }
+      });
+    });
+    rows = rows.concat(extra).sort(function(a, b){ return a.y - b.y; });
+    pairRows(rows, bands(k, descWords), function(r, g){ if(r.g.d) return false; r.g.d = g; }, tol);
+    return rows.map(function(r){ var w = function(key){ return r.g[key] ? r.g[key].ws : []; }; return { a: w('a'), d: w('d'), w: w }; });
+  }
+  function textOf(ws){ return ws.map(function(w){ return w.t; }).join(' ').replace(/\s+/g, ' ').trim(); }
+  /* where a label's own words end: its amount may be read on the same line ("Fuel Levy 3.63") */
+  function labelEnd(lb){
+    var ws = wordsOf(lb).filter(function(w){ return money(w.t) == null; }), w = ws[ws.length - 1];
+    return w ? w.x + w.w / 2 : lb.x + (lb.w || 0) / 2;
+  }
+  /* the amount printed right of a label: the nearest in height within a line and a half */
+  function moneyBeside(k, lb){
+    var right = labelEnd(lb);
+    var c = k.ws.filter(function(w){ return w.x > right && money(w.t) != null && Math.abs(k.yc(w) - k.yc(lb)) < k.th * 1.5; })
+      .sort(function(a, b){ return Math.abs(k.yc(a) - k.yc(lb)) - Math.abs(k.yc(b) - k.yc(lb)); })[0];
+    return c ? money(c.t) : null;
+  }
+  /* the printed totals as three amounts right of the footer's labels, top to bottom, the first two adding up to the
+     third (net, GST, total), when exactly one three does */
+  function footAdds(k, labels){
+    if(!labels.length) return null;
+    var right = Math.min.apply(null, labels.map(labelEnd));
+    var top = Math.min.apply(null, labels.map(k.yc)) - k.th * 1.5, bot = Math.max.apply(null, labels.map(k.yc)) + k.th * 1.5;
+    var vals = k.ws.filter(function(w){ return w.x > right && money(w.t) != null && k.yc(w) > top && k.yc(w) < bot; })
+      .sort(function(a, b){ return k.yc(a) - k.yc(b); }).map(function(w){ return money(w.t); });
+    var found = [];
+    for(var i = 0; i + 2 < vals.length; i++) if(vals[i + 2] > 0 && Math.abs(vals[i] + vals[i + 1] - vals[i + 2]) < 0.005) found.push({ net: vals[i], gst: vals[i + 1], total: vals[i + 2] });
+    return found.length === 1 ? found[0] : null;
+  }
+  /* the text printed with a label: after it on its line ("Date: 28/10/2026"), else the nearest line right of it
+     (where 'right') or under it (where 'under') that read takes; never a due date */
+  function besideText(k, re, read, where){
+    var hits = k.lines.filter(function(l){ return re.test(l.t); }), i, v;
+    for(i = 0; i < hits.length; i++) if((v = read(hits[i].t.replace(re, '').replace(/^\s*:?\s*/, '')))) return v;
+    for(i = 0; i < hits.length; i++){
+      var lb = hits[i];
+      var c = k.lines.filter(function(l){
+        if(l === lb || /due/i.test(l.t) || !read(l.t)) return false;
+        return where === 'under' ? Math.abs(l.x - lb.x) < Math.max(lb.w || 0, k.th * 4) && l.y > lb.y + k.th * 0.3 && l.y < lb.y + k.th * 2.5
+          : l.x - (l.w || 0) / 2 > lb.x && Math.abs(l.y - lb.y) < k.th * 1.5;
+      }).sort(function(a, b){ return Math.abs(a.y - lb.y) - Math.abs(b.y - lb.y); })[0];
+      if(c) return read(c.t);
+    }
+    return '';
+  }
+  /* a reader's lines and totals into the shape the other readers give */
+  function result(number, date, totals, lines, problems){
+    if(!number) problems.push('The invoice number wasn\'t read.');
+    if(!date) problems.push('The invoice date wasn\'t read.');
+    return { number: number, date: date, totals: totals, lines: lines, problems: problems };
+  }
+
+  /* Dick Stone (invoice 846508): DICK STONE PTY LTD at the top; "Invoice No:" and "Date:" (dd/mm/yy) on the right;
+     a table Product Code · Item Description · Quantity · Unit · Unit Price · Amount (amounts before GST, printed half a
+     line above their row; weighed quantities like 3.73 KG); a note under the items ("1 CARTONS", left out); the footer
+     "Total Excl. GST $", "GST Amount", "Total Incl. GST $". Meat: no GST on the lines he showed. */
+  function dsTable(k){
+    var hD = k.ws.filter(function(w){ return /^Description$/i.test(w.t); })[0];
+    if(!hD) return null;
+    var hA = head(k, /^Amount$/i, hD), hP = head(k, /^Price$/i, hD), hQ = head(k, /^Quantity$/i, hD), hC = head(k, /^Code$/i, hD);
+    if(!hA || !hP || !hQ) return null;
+    var hU = head(k, /^Unit$/i, hD, function(w){ return w.line !== hP.line && w.x > hQ.x && w.x < hP.x; });
+    var hs = [hD, hA, hP, hQ, hC, hU].filter(Boolean);
+    tilt(k, hs);
+    var inT = zone(k, hs, /^(Total\s*Excl|Terms\b|Claims\b|GST\s*Am)/i);
+    var cutA = (hP.x + hA.x) / 2, cutP = ((hU || hQ).x + hP.x) / 2, cutQ = (hD.x + hQ.x) / 2, cutC = hC ? hC.line.x + hC.line.w / 2 + k.th * 0.5 : -Infinity;
+    var t = k.ws.filter(inT), at = function(lo, hi){ return t.filter(function(w){ return w.x > lo && w.x <= hi; }); };
+    var q = at(cutQ, cutP), desc = at(cutC, cutQ).concat(q.filter(function(w){ return !isNum(w.t) && !unitOf(w.t); }));
+    return assemble(k, at(cutA, Infinity).filter(function(w){ return money(w.t) != null; }), {
+      p: at(cutP, cutA).filter(function(w){ return money(w.t) != null; }),
+      q: q.filter(function(w){ return isNum(w.t) || unitOf(w.t); })
+    }, desc).map(function(r){
+      var a = r.a.map(function(w){ return money(w.t); })[0], p = r.w('p').map(function(w){ return money(w.t); })[0];
+      var qty = r.w('q').filter(function(w){ return isNum(w.t); })[0], u = r.w('q').map(function(w){ return unitOf(w.t); }).filter(Boolean)[0];
+      return { description: textOf(r.d), unit: u || 'EACH', qty: qty ? +qty.t : null, price: p == null ? null : p, net: a == null ? null : a };
+    });
+  }
+  var DS = {
+    name: 'Dick Stone',
+    detect: function(pages){ return named(pages, /DICK\s*STONE/i); },
+    read: function(pages){
+      var number = '', date = '', totals = null, lines = [], problems = [];
+      pages.forEach(function(p, pi){
+        var k = kit(p);
+        if(!number) number = besideText(k, /^Invoice\s*No\.?/i, digits, 'right');
+        if(!date) date = besideText(k, /^Date\b/i, readDate, 'right');
+        var rows = dsTable(k);
+        if(rows == null) problems.push('Page ' + (pi + 1) + ': the table\'s Quantity, Unit Price and Amount columns weren\'t read.');
+        else if(!rows.length) problems.push('Page ' + (pi + 1) + ': no invoice lines read.');
+        (rows || []).forEach(function(r){ lines.push({ page: pi + 1, description: r.description || '(not read)', unit: r.unit, qty: r.qty, price: r.price, net: r.net }); });
+        var labels = p.filter(function(l){ return /^(Total\s*Excl|GST\s*Am|Total\s*Incl)/i.test(l.t); });
+        var t = footAdds(k, labels);
+        if(!t){
+          var lb = function(re){ return labels.filter(function(l){ return re.test(l.t); })[0]; }, inc = lb(/^Total\s*Incl/i);
+          if(inc && moneyBeside(k, inc) != null) t = { net: lb(/^Total\s*Excl/i) ? moneyBeside(k, lb(/^Total\s*Excl/i)) : null, gst: lb(/^GST\s*Am/i) ? moneyBeside(k, lb(/^GST\s*Am/i)) : null, total: moneyBeside(k, inc) };
+        }
+        if(t) totals = t;
+      });
+      // the lines' amounts are before GST and no line says its GST: when the invoice charges none, each line's is 0
+      lines.forEach(function(l){ l.gst = totals && totals.gst === 0 ? 0 : null; l.total = l.net; });
+      if(totals && totals.gst > 0) problems.push('This invoice charges GST, and Dick Stone\'s lines don\'t say which: their amounts are before GST.');
+      return result(number, date, totals, lines, problems);
+    }
+  };
+
+  /* Highland Poultry (invoice 17502): "Tax invoice"; "Invoice number" and "Issue date" with the value under each
+     (never the "Due date"); a table Item ID · Description · (unit) · Units · Unit Price incl. tax · Tax ("FRE": GST
+     free) · Amount incl. tax; the footer "Tax", "Total Amount (inc. tax)", "Total paid", "Balance due" (only the
+     first two read). Their name is printed only in the email and the payment details, so the email counts here
+     with their table's own headings. */
+  var HP_FREE = /^(FRE|FREE|EXEMPT|N-?T|GSTFREE)$/i, HP_TAXED = /^(GST|10%|GST10%)$/i;
+  function hpTable(k){
+    var hD = k.ws.filter(function(w){ return /^Description$/i.test(w.t); })[0];
+    if(!hD) return null;
+    var hA = head(k, /^Amount$/i, hD), hU = head(k, /^Units$/i, hD), hP = head(k, /^Price$/i, hD), hI = head(k, /^ID$/i, hD);
+    if(!hA || !hU || !hP) return null;
+    var hT = head(k, /^Tax$/i, hD, function(w){ return w.x > hP.x && w.x < hA.x; });
+    var hs = [hD, hA, hU, hP, hI, hT].filter(Boolean);
+    tilt(k, hs);
+    var inT = zone(k, hs, /^(Subtotal|Tax\b|Total\s*Amount|Total\s*paid|Balance\s*due)/i);
+    var cutA = ((hT || hP).x + hA.x) / 2, cutT = hT ? (hP.x + hT.x) / 2 : cutA, cutP = (hU.x + hP.x) / 2, cutU = hU.x - (hU.x - hD.x) / 4;
+    var cutC = hI ? hI.line.x + hI.line.w / 2 + k.th * 0.5 : -Infinity;
+    var t = k.ws.filter(inT), at = function(lo, hi){ return t.filter(function(w){ return w.x > lo && w.x <= hi; }); };
+    var q = at(cutU, cutP), desc = at(cutC, cutU).concat(q.filter(function(w){ return !isNum(w.t) && !unitOf(w.t); }));
+    return assemble(k, at(cutA, Infinity).filter(function(w){ return money(w.t) != null; }), {
+      p: at(cutP, cutT).filter(function(w){ return money(w.t) != null; }),
+      t: at(cutP, cutA).filter(function(w){ return HP_FREE.test(w.t) || HP_TAXED.test(w.t); }),
+      q: q.filter(function(w){ return isNum(w.t) || unitOf(w.t); })
+    }, desc).map(function(r){
+      var a = r.a.map(function(w){ return money(w.t); })[0], p = r.w('p').map(function(w){ return money(w.t); })[0], tax = r.w('t').map(function(w){ return w.t; })[0] || '';
+      var qty = r.w('q').filter(function(w){ return isNum(w.t); })[0], u = r.w('q').map(function(w){ return unitOf(w.t); }).filter(Boolean)[0];
+      return { description: textOf(r.d), unit: u || 'EACH', qty: qty ? +qty.t : null, priceInc: p == null ? null : p, amount: a == null ? null : a, tax: tax };
+    });
+  }
+  var HP = {
+    name: 'Highland Poultry',
+    detect: function(pages){
+      return named(pages, /HIGHLAND\s*POULTRY/i) || pages.some(function(p){
+        return p.some(function(l){ return /highland\s*poultry/i.test(l.t); }) && p.some(function(l){ return /^Item\s*ID$/i.test(l.t); }) && p.some(function(l){ return /including\s*tax/i.test(l.t); });
+      });
+    },
+    read: function(pages){
+      var number = '', date = '', totals = null, rows = [], problems = [];
+      pages.forEach(function(p, pi){
+        var k = kit(p);
+        if(!number) number = besideText(k, /^Invoice\s*(number|no)\b\.?/i, digits, 'under');
+        if(!date) date = besideText(k, /^Issue\s*dat\w*/i, readDate, 'under');
+        var t = hpTable(k);
+        if(t == null) problems.push('Page ' + (pi + 1) + ': the table\'s Units, Unit Price and Amount columns weren\'t read.');
+        else if(!t.length) problems.push('Page ' + (pi + 1) + ': no invoice lines read.');
+        (t || []).forEach(function(r){ r.page = pi + 1; rows.push(r); });
+        var tot = p.filter(function(l){ return /^Total\s*Amount/i.test(l.t); })[0];
+        var total = tot ? moneyBeside(k, tot) : null;
+        if(total != null){
+          var tl = p.filter(function(l){ return /^Tax(\s+[S$]?[\d.,]+)?$/i.test(l.t) && l.y < tot.y; }).sort(function(a, b){ return b.y - a.y; })[0], gst = tl ? moneyBeside(k, tl) : null;
+          totals = { net: gst == null ? null : round2(total - gst), gst: gst, total: total };
+        }
+      });
+      // prices and amounts include the tax: "FRE" (or no tax on the whole invoice) means none; "GST" means a tenth of the
+      // amount before it; a tax column not read on an invoice with tax: the net is left empty for the checks to flag
+      var unread = 0;
+      var lines = rows.map(function(r){
+        var l = { page: r.page, description: r.description || '(not read)', unit: r.unit, qty: r.qty, price: null, net: null, gst: null, total: r.amount };
+        if(HP_FREE.test(r.tax) || (!r.tax && totals && totals.gst === 0)){ l.price = r.priceInc; l.net = r.amount; l.gst = r.amount == null ? null : 0; }
+        else if(HP_TAXED.test(r.tax) && r.amount != null){ l.gst = round2(r.amount / 11); l.net = round2(r.amount - l.gst); l.price = r.priceInc == null ? null : round2(r.priceInc / 1.1); }
+        else unread++;
+        return l;
+      });
+      if(unread) problems.push(unread + ' line' + (unread === 1 ? '\'s' : 's\'') + ' tax column wasn\'t read: check the GST.');
+      return result(number, date, totals, lines, problems);
+    }
+  };
+
+  /* Two Providores (invoice 756622): "Tax Invoice N" and "Date: dd/mm/yyyy" at the top; a table Qty Del · Qty Ord · Unit ·
+     Product Code · Product · Brand · Unit Price · Gross · GST · Total Incl, under section names ("Dryarea", "Freezer");
+     the quantity billed is the one delivered. The printer cuts off the Total Incl column's last digit ("188.5("), so a
+     line's total is its Gross + GST when what's left of the printed one agrees (or none was read); a total read whole is
+     passed on as read. The footer: a fuel levy (its price with GST: a line of its own, its GST worked out from the
+     printed totals when they add up exactly), "Total Excluding GST", "GST", "Total Amount Due". */
+  // a charge's label is the whole line ("Fuel Levy", or with its amount read on it), never a sentence about one
+  // ("freight charges may apply …")
+  var TP_CHARGE = /^(Fuel\s*Levy|Freight|Delivery(\s*Fee)?)\s*:?(\s+\$?[\d.,]+)?$/i,
+    TP_FOOT = /^((Fuel\s*Levy|Freight|Delivery(\s*Fee)?)\s*:?(\s+\$?[\d.,]+)?$|Total\s*Excl|Total\s*Amount)/i;
+  function tpTable(k){
+    var hB = k.ws.filter(function(w){ return /^Brand$/i.test(w.t); })[0];
+    if(!hB) return null;
+    // "Product" is printed twice (over Product Code, and over the products): the products' is the one nearest Brand
+    var hG = head(k, /^Gross$/i, hB), hProd = k.ws.filter(function(w){ return /^Product$/i.test(w.t) && w.x < hB.x && Math.abs(w.y - hB.y) < k.th * 4; })
+      .sort(function(a, b){ return b.x - a.x; })[0];
+    if(!hG || !hProd) return null;
+    var hP = head(k, /^Price$/i, hB, function(w){ return w.x > hB.x && w.x < hG.x; }), hS = head(k, /^GST$/i, hB, function(w){ return w.x > hG.x; });
+    var hT = head(k, /^(Total|Incl)$/i, hB, function(w){ return w.x > (hS || hG).x; });
+    var hCode = head(k, /^Code$/i, hB, function(w){ return w.x < hProd.x; }), hDel = head(k, /^Del$/i, hB), hOrd = head(k, /^Ord$/i, hB);
+    if(!hP) return null;
+    var hs = [hB, hG, hProd, hP, hS, hT, hCode, hDel, hOrd].filter(Boolean);
+    tilt(k, hs);
+    var inT = zone(k, hs, TP_FOOT);
+    var cutN = (hB.x + hP.x) / 2, cutB = hB.x - hB.w, pLeft = hProd.x - hProd.w / 2;
+    var cutL = hCode ? (hCode.x + pLeft) / 2 : pLeft - k.th, cutDO = hDel && hOrd ? (hDel.x + hOrd.x) / 2 : null;
+    var cols = [hP, hG, hS, hT].map(function(h){ return h ? h.x : null; });
+    var t = k.ws.filter(inT), at = function(lo, hi){ return t.filter(function(w){ return w.x > lo && w.x <= hi; }); };
+    var left = at(-Infinity, cutL).filter(function(w){ return isNum(w.t) || unitOf(w.t); });
+    return assemble(k, at(cutN, Infinity).filter(function(w){ return /^[\d.,]+\S?$/.test(w.t); }), { l: left }, at(cutL, cutB)).map(function(r){
+      // the numbers: four in order (price, gross, GST, total), else each by the nearest heading
+      var v = [null, null, null, null], ns = r.a;
+      if(ns.length === 4) v = ns.slice();
+      else ns.forEach(function(w){
+        var best = -1;
+        cols.forEach(function(x, i){ if(x != null && (best < 0 || Math.abs(w.x - x) < Math.abs(w.x - cols[best]))) best = i; });
+        if(best >= 0 && (!v[best] || Math.abs(w.x - cols[best]) < Math.abs(v[best].x - cols[best]))) v[best] = w;
+      });
+      var price = v[0] ? money(v[0].t) : null, gross = v[1] ? money(v[1].t) : null, gst = v[2] ? money(v[2].t) : null;
+      var total = v[3] ? money(v[3].t) : null;
+      if(total == null && gross != null && gst != null){
+        var sum = round2(gross + gst), seen = v[3] ? v[3].t.replace(',', '.').replace(/[^\d.]+$/, '') : '';
+        if(!v[3] || (seen.length >= 3 && sum.toFixed(2).indexOf(seen) === 0)) total = sum;
+      }
+      var lw = r.w('l'), nums = lw.filter(function(w){ return isNum(w.t); }), del = null;
+      if(cutDO != null) del = nums.filter(function(w){ return w.x < cutDO; })[0] || null;
+      else if(nums.length === 2) del = nums[0];
+      var u = lw.map(function(w){ return unitOf(w.t); }).filter(Boolean)[0];
+      return { description: textOf(r.d), unit: u || 'EACH', qty: del ? +del.t : null, price: price, net: gross, gst: gst, total: total };
+    });
+  }
+  var TP = {
+    name: 'Two Providores',
+    detect: function(pages){ return named(pages, /TWO\s*PROVIDORES/i); },
+    read: function(pages){
+      var number = '', date = '', totals = null, lines = [], problems = [], levy = null;
+      pages.forEach(function(p, pi){
+        var k = kit(p);
+        if(!number) p.forEach(function(l){ var m = /Tax\s*Invoice\s*:?\s*(\d{3,})/i.exec(l.t); if(m && !number) number = m[1]; });
+        if(!date) date = besideText(k, /^Date\b/i, readDate, 'right');
+        var rows = tpTable(k);
+        if(rows == null) problems.push('Page ' + (pi + 1) + ': the table\'s Unit Price, Gross and Brand columns weren\'t read.');
+        else if(!rows.length) problems.push('Page ' + (pi + 1) + ': no invoice lines read.');
+        (rows || []).forEach(function(r){ r.page = pi + 1; r.description = r.description || '(not read)'; lines.push(r); });
+        // "GST" is a heading too: the footer's is the one near the footer's other labels
+        var GST = /^GST\s*:?(\s+\$?[\d.,]+)?$/i, labels = p.filter(function(l){ return TP_FOOT.test(l.t) || GST.test(l.t); });
+        var foot = labels.filter(function(l){ return !GST.test(l.t); });
+        labels = labels.filter(function(l){ return !GST.test(l.t) || foot.some(function(f){ return Math.abs(f.y - l.y) < k.th * 6; }); });
+        var t = footAdds(k, labels);
+        if(!t){
+          var lb = function(re){ return labels.filter(function(l){ return re.test(l.t); })[0]; }, due = lb(/^Total\s*Amount/i), ex = lb(/^Total\s*Excl/i), g = lb(GST);
+          if(due && moneyBeside(k, due) != null) t = { net: ex ? moneyBeside(k, ex) : null, gst: g ? moneyBeside(k, g) : null, total: moneyBeside(k, due) };
+        }
+        if(t) totals = t;
+        var lv = labels.filter(function(l){ return TP_CHARGE.test(l.t); })[0];
+        if(lv && moneyBeside(k, lv) != null) levy = { page: pi + 1, name: /fuel/i.test(lv.t) ? 'Fuel Levy' : /freight/i.test(lv.t) ? 'Freight' : 'Delivery', total: moneyBeside(k, lv) };
+      });
+      if(levy){
+        // its net and GST: what the printed totals leave after the items, only when that comes back to the levy exactly
+        var l = { page: levy.page, description: levy.name, unit: 'EACH', qty: null, price: null, net: null, gst: null, total: levy.total };
+        var known = lines.every(function(x){ return x.net != null && x.gst != null; });
+        if(totals && totals.net != null && totals.gst != null && known){
+          var net = round2(totals.net - lines.reduce(function(a, x){ return a + x.net; }, 0)), gst = round2(totals.gst - lines.reduce(function(a, x){ return a + x.gst; }, 0));
+          if(net > 0 && gst >= 0 && Math.round((net + gst) * 100) === Math.round(levy.total * 100) && (gst === 0 || Math.abs(gst * 100 - net * 10) <= 1)){ l.price = net; l.net = net; l.gst = gst; }
+        }
+        if(l.net == null) problems.push('The ' + levy.name.toLowerCase() + '\'s GST couldn\'t be worked out from the totals: check it.');
+        lines.push(l);
+      }
+      return result(number, date, totals, lines, problems);
+    }
+  };
+  var READERS = [FDA, MF, DS, HP, TP];
 
   /* the scan's pages -> { ok, reader, parsed: { invoice, lines, prices, problems } (InvoiceEngine.readCSV's shape), why } */
   function read(pages){
     var ps = (Array.isArray(pages) ? pages : []).map(linesOf);
     if(!ps.length || ps.every(function(p){ return !p.length; })) return { ok: false, why: 'No words were read from the scan: try again in better light, flat.' };
     var reader = READERS.filter(function(r){ return r.detect(ps); })[0];
-    if(!reader) return { ok: false, why: 'The Pass can\'t read this supplier\'s invoices yet (only Aziz\'s and Michael\'s Fresh\'s so far). Paste a Claude chat\'s CSV instead.' };
+    if(!reader) return { ok: false, why: 'The Pass can\'t read this supplier\'s invoices yet (so far: Aziz, Michael\'s Fresh, Dick Stone, Highland Poultry and Two Providores). Paste a Claude chat\'s CSV instead.' };
     var r = reader.read(ps), sup = reader.name;
     var lines = r.lines.map(function(l){
       var v = function(x){ return x == null ? null : x; };   // an empty column is null, as a CSV's would be
