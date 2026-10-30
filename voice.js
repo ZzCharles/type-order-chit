@@ -638,7 +638,7 @@ async function roomFunctionSave(r){
      "match"  the products a note names (this room's own finder; Pluto asks him when it's more than one): { items: [{ pids, name, suppliers }] }
      "add"    { pids, name, text, at, id? } pinned (id and at are kept when an undo puts one back): { note }
      "remove" { id }: { note } (as it was, for Pluto's undo)
-     "edit"   { id, text }: { note }
+     "edit"   { id, text, at? }: { note } (v3.11.55: `at`, the time a change by voice was said; Pluto's undo sends the first back)
    Kept on this phone only; never logged beyond counts; not in the heard log (no sentence). */
 var PN_OPS = { list: 1, match: 1, add: 1, remove: 1, edit: 1 };
 function roomPnShape(n){
@@ -656,7 +656,7 @@ function roomProductNotes(r){
     data = x ? { ok: true, note: roomPnShape(x) } : { ok: false, why: !pids.length ? 'gone' : pnAll().length >= PN_MAX ? 'full' : 'bad' };
   }
   else if(op === 'remove'){ x = pnRemove(String(r.id || '')); data = x ? { ok: true, note: roomPnShape(x) } : { ok: false, why: 'gone' }; }
-  else { x = pnEdit(String(r.id || ''), r.text); data = x ? { ok: true, note: roomPnShape(x) } : { ok: false, why: 'gone' }; }
+  else { x = pnEdit(String(r.id || ''), r.text, r.at); data = x ? { ok: true, note: roomPnShape(x) } : { ok: false, why: 'gone' }; }
   return { v: 1, status: 'answer', say: [], keep: false, data: data,
     log: 'product notes ' + op + ': ' + (!data.ok ? data.why : data.notes ? data.notes.length : data.items ? data.items.length : 'done') };
 }

@@ -813,7 +813,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.54';
+const APP_VERSION = 'v3.11.55';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -2670,10 +2670,13 @@ function pnRemove(id){
   if(!x) return null;
   return pnKeep(l.filter(n => n !== x)) ? x : null;
 }
-function pnEdit(id, text){
+// v3.11.55: a note changed by Pluto's voice takes the time its new words were said (`at`; Pluto's undo sends the first
+// time back). Never a time ahead of now; without one (the Notes screen) the note keeps its time.
+function pnEdit(id, text, at){
   const l = pnAll(), x = l.find(n => n.id === id), t = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 300);
   if(!x || !t) return null;
   x.text = t;
+  if(at != null && isFinite(at) && +at > 0 && +at <= Date.now() + 60000){ x.at = +at; l.sort((a, b) => a.at - b.at); }
   return pnKeep(l) ? x : null;
 }
 function pnDay(at){ try{ return new Date(at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }); }catch(e){ return ''; } }
@@ -7244,16 +7247,16 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.54"></script>
+<script src="move-data.js?v=3.11.55"></script>
 <!-- v3.11.28: the function doc reader. A separate file too: if it fails, only "From management's doc" says so. -->
-<script src="function-reader.js?v=3.11.54"></script>
+<script src="function-reader.js?v=3.11.55"></script>
 <!-- v3.11.30: the invoice rules. A separate file too: if it fails, only bringing in an invoice says so. -->
-<script src="invoice-engine.js?v=3.11.54"></script>
+<script src="invoice-engine.js?v=3.11.55"></script>
 <!-- v3.11.31: the supplier readers for a scanned invoice (Aziz's so far). -->
-<script src="invoice-readers.js?v=3.11.54"></script>
+<script src="invoice-readers.js?v=3.11.55"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.54"></script>
-<script src="voice-brain.js?v=3.11.54"></script>
-<script src="voice.js?v=3.11.54"></script>
+<script src="roster-engine.js?v=3.11.55"></script>
+<script src="voice-brain.js?v=3.11.55"></script>
+<script src="voice.js?v=3.11.55"></script>
 </body>
 </html>
