@@ -3359,7 +3359,7 @@ function createRoom(host){
   }
   function menu(){
     var d = host.data(), cat = catalogue(d, taught());
-    var strong = [], cues = ['prep', 'order', 'orders', 'supplier', 'how much', 'whats on the', 'prep list', 'the list', 'made', 'done', 'ticked off'];
+    var strong = [], cues = ['prep', 'order', 'orders', 'ordered', 'supplier', 'how much', 'whats on the', 'prep list', 'the list', 'made', 'done', 'ticked off'];   // v3.11.51: "ordered" ("when we last ordered rocket" went to Ask)
     function put2(w){
       w = clean(w);
       if(!w) return;
@@ -3375,6 +3375,7 @@ function createRoom(host){
     ['roster', 'rostered'].forEach(put2);                    // v3.9.11
     ['function', 'functions'].forEach(put2);                 // v3.11.22: his functions, read by voice
     ['invoice', 'invoices', 'spend', 'spent', 'spending'].forEach(put2);   // v3.11.38: "how much did we spend this week"
+    ['cart', 'basket', 'trolley'].forEach(put2);             // v3.11.51: "what's in the cart"
     cues = cues.filter(function(c){ return strong.indexOf(c) < 0; });
     return { room: 'almo', label: 'Almo', contract: 1, help: 'your prep list, orders, timesheet and functions', busy: 'Checking the list\u2026',
       strong: strong, cues: cues,
@@ -4693,6 +4694,20 @@ function createRoom(host){
     var text = String(req.text || '');
     var cmd = p.cmd;
     if(p.kind === 'fnAddonHow' || p.kind === 'fnMezzeHow') return await fnAddonReply(p, req);   // v3.11.24, v3.11.25
+    if(p.kind === 'ohWhich'){                                     // v3.11.51: "Which item?" about the orders sent
+      var oc = choice != null ? choice : matchOption(text, p.options);
+      pending = null;
+      if(oc == null || oc === 'none'){
+        var om = parse(text, (await fresh()).cat);   // a new sentence starts over; anything else drops the question
+        if(text && (om.verb || om.items.some(function(it){ return it.exact && it.exact.length; }))) return await handle(Object.assign({}, req, { reply: null }));
+        return ans('answer', { say: ['Left it.'], log: 'history which dropped' });
+      }
+      var oh = ohList(), ocat = (await fresh()).cat, opids = String(oc).split(','), oen = entryById(ocat, 'p:' + opids[0]);
+      if(!oh || !oen) return cant('That item isn’t in The Pass now.', 'history which gone');
+      var oit = { pids: opids, name: oen.name, homes: opids.map(function(x){ var e = entryById(ocat, 'p:' + x); return e ? e.sid : ''; }) };
+      prFocus = { at: now(), pids: oit.pids, name: oit.name, homes: oit.homes };
+      return ohItem(oh, ocat, oit, p.sids || []);
+    }
     if(/^new(?:sec|prod|supp|unit)$/.test(p.kind)) return await newItemAnswer(p, req, mode);   // v3.11.13
     if(/^dict/.test(p.kind)) return await dictAnswer(p, req, mode);   // v3.11.0
     if(/^ts/.test(p.kind)) return await tsAnswer(p, req, mode);   // v3.9.6
@@ -5544,6 +5559,201 @@ function createRoom(host){
     return ' (' + (cur.billing === 'weight' ? prMoney(cur.price) + ' a kilo' : cur.perBase != null && cur.pack ? prMoney(cur.perBase) + ' ' + PR_UNIT[cur.pack.unit] : prMoney(cur.price)) + ')';
   }
 
+  /* ---------- v3.11.51 (his asks, 25 Oct): the cart and the orders sent, by voice, read only ----------
+     "what's in the cart (list)?": what's on the orders now, not sent yet (Send empties an order): each supplier's lines,
+     then the about-total the order screen's header works out (invoice-engine.js cartTotal: this supplier's price as
+     kept now; an item with no price is counted, never guessed). "Add … to the cart" is the order, as said.
+     "when did I last order squid?" / "how much mozzarella did we order last time?" / "what was the last Aziz order?":
+     the orders sent from The Pass (host.orderHistory(), the page's order history, 400 days); an order by phone or text
+     isn't known, and that's said. Nothing changes, and no price goes in the log. */
+  var CART_WORD = /\b(?:cart|carts|kart|basket|trolley)\b/;
+  function cartText(t){ return String(t).replace(/\b(?:shopping )?(?:cart|carts|kart|basket|trolley)(?: list)?\b/gi, 'order'); }
+  /* the ask has to start the sentence ("can you tell me …" before it is fine): in his long notes to Claude about the
+     app ("and also to be able to ask when did they last order squid …") it's talk, as before */
+  var ASK_LEAD = '^(?:(?:and|so|ok|okay|um|uh|hey|also|right|yeah|alright|please) )*(?:(?:can|could|would|will) you (?:please )?)?(?:(?:tell me|remind me|let me know|find out|check)(?: for me)? |do you know |i (?:want|need) to know |any idea )?';
+  var CART_READ = new RegExp(ASK_LEAD + '(?:whats|what is|what are|read|tell me|check|show me|go through|run through|list|is there anything|are there any|anything|how much|give me|(?:the |my |our )?(?:shopping )?(?:cart|carts|kart|basket|trolley)\\b)');
+  /* "what's in the cart" is read here; anything else said with "cart" ("add mozzarella to the cart", "is the
+     mozzarella in the cart") goes on as said, with "order" for "cart" */
+  async function cartAsk(text, said){
+    if(!CART_READ.test(clean(said))) return null;
+    var f = await fresh(), cm = parse(text, f.cat);
+    if(/^(?:(?:and|so|ok|okay|whats|what about) )*(?:the |my |our )?(?:cart|carts|kart|basket|trolley)(?: list)?(?: please| then| now)?$/.test(clean(said))) return cartRead(f.cat, []);   // "cart?"
+    if(cm.verb && cm.verb !== 'read') return null;
+    if(cm.items.some(function(it){ return it.exact && it.exact.length; })) return null;
+    return cartRead(f.cat, cm.sids || []);
+  }
+  /* "is the rocket on the order?", "have we got mozzarella in the cart?", "did I put basil on the Aziz order?": read
+     (before, "have we got …" added one) */
+  var ON_ORDER_Q = /^(?:(?:and|so|ok|okay|um|uh|hey|also) )*(?:(?:have|did|do) (?:we|i|you) (?:got|get|have|put|add|added)|have you got|is there|are there|is|are)\b.*\b(?:on|in) (?:the|my|our|todays) (?:[a-z]+ ){0,3}order(?: (?:yet|now|already|please|for (?:today|tomorrow)))*$/;
+  async function onOrderAsk(text){
+    if(!ON_ORDER_Q.test(clean(text))) return null;
+    var f = await fresh(), cat = f.cat, sids = parse(text, cat).sids || [], it = askItem(text, cat);
+    if(!it) return null;
+    // "is the mince on the order": each item it could be (three at most)
+    var es = (it.many || it.pids.map(function(p){ return entryById(cat, 'p:' + p); })).filter(function(e){ return e && (!sids.length || sids.indexOf(e.sid) > -1); }).slice(0, 3);
+    if(!es.length) return null;
+    var on = es.filter(function(e){ return +e.qty > 0; });
+    if(!on.length){
+      var where = es.every(function(e){ return e.sid === es[0].sid; }) ? 'the ' + supSay(es[0].sname) + ' order' : 'any order';
+      return ans('answer', { say: ['No ' + joinOr(es.map(label)) + ' on ' + where + ' yet.'], log: 'read item asked' });
+    }
+    return ans('answer', { say: [on.map(function(e){ return label(e) + ': ' + amount(+e.qty, e.unit) + ' on the ' + supSay(e.sname) + ' order.'; }).join(' ')], log: 'read item asked' });
+  }
+  /* the item asked about: by its name or nickname (as for prices), else by the words left once the question's own are
+     taken out ("when did we last order mince": Beef Mince or Pork Mince), as an order finds it */
+  var ASK_FILLER = {};
+  ('when did do does have has was were is are i we you they us last first time times ordered order orders reorder reordered get got buy bought put add added '
+    + 'the a an any some of from for to on in at my our how much many who what whats which can could would will tell me remind know check please and so ok '
+    + 'okay um uh hey also right yeah alright it that this those them there week weeks yesterday today todays ago latest previous '
+    + 'more else everything anything all item items stuff things yet now already').split(' ').forEach(function(w){ ASK_FILLER[w] = 1; });
+  function askItem(text, cat){
+    var it = prItem(text, cat);
+    if(it) return it;
+    var supW = {};
+    cat.suppliers.forEach(function(s){ clean(supSay(s.name)).split(' ').forEach(function(w){ supW[w] = 1; }); });
+    var rest = clean(text).split(' ').filter(function(w){ return w && !ASK_FILLER[w] && !supW[w] && !/^\d/.test(w); });
+    if(!rest.length) return null;
+    var fi = findItems({ stems: keyOf(rest.join(' ')).split(' ') }, cat, ['order']);
+    if(fi.how !== 'exact' && fi.how !== 'superset') return null;
+    var list = fi.how === 'superset' ? fi.list.slice(0, fi.top) : fi.list, names = {};
+    list.forEach(function(e){ names[clean(e.name)] = 1; });
+    if(Object.keys(names).length > 1) return { many: list };
+    return { pids: list.map(function(e){ return e.pid; }), name: list[0].name, homes: list.map(function(e){ return e.sid; }) };
+  }
+  function cartTotalOf(pd, sid, items){
+    return pd.engine.cartTotal({ items: items.map(function(p){ return { productId: p.id, qty: +p.qty, unit: p.unit }; }), prices: pd.prices, supplierId: sid });
+  }
+  // "About $186.70." / "About $186.70 in all, with 2 not priced yet." / "No prices kept for these yet." ('' with no prices to hand)
+  function cartSum(pd, list, when){
+    if(!pd || !pd.engine || !pd.engine.cartTotal) return '';
+    var cents = 0, n = 0, priced = 0, unpriced = 0;
+    list.forEach(function(x){ var t = cartTotalOf(pd, x.sid, x.items); cents += Math.round(t.total * 100); n += t.items; priced += t.priced; unpriced += t.unpriced; });
+    if(!priced) return n === 1 ? 'No price kept for it yet.' : 'No prices kept for these yet.';
+    return 'About ' + prMoney(cents / 100) + (list.length > 1 ? ' in all' : '') + (when || '') + (unpriced ? ', with ' + unpriced + ' not priced yet.' : '.');
+  }
+  function cartRead(cat, sids){
+    var sups = sids.length ? sids.map(function(id){ return supplier(cat, id); }).filter(Boolean) : cat.suppliers;
+    var list = sups.map(function(s){ return { s: s, sid: s.id, items: onOrder(s) }; }).filter(function(x){ return x.items.length; });
+    var one = sids.length === 1 && sups.length === 1;
+    if(!list.length){
+      var went = sups.filter(function(s){ return host.sentToday && host.sentToday(s.id); }).map(function(s){ return supSay(s.name); });
+      var none = one ? 'Nothing on the ' + supSay(sups[0].name) + ' order yet.' : 'The cart’s empty: nothing on any order yet.';
+      if(went.length) none += one ? ' Today’s order went already.' : ' Sent today: ' + joinAnd(went) + '.';
+      return ans('answer', { say: [none], show: { title: 'Cart', lines: [], open: one ? { view: 'supplier', id: sups[0].id } : { view: 'list' } }, log: 'cart 0' });
+    }
+    var n = 0; list.forEach(function(x){ n += x.items.length; });
+    function head(x){ return supSay(x.s.name) + (one ? ' order' : '') + ', ' + x.items.length + (x.items.length === 1 ? ' item' : ' items'); }
+    var say = [], more = [], show;
+    if(list.length === 1){
+      var x = list[0], lines = x.items.map(lineOf);
+      say.push(spoken((one ? '' : 'In the cart: ') + head(x) + ': ', lines, SPOKEN_MAX));
+      if(lines.length > SPOKEN_MAX) more.push(spoken('', lines, SPOKEN_MAX, 'rest'));
+      lastRead = { kind: 'order', sid: x.sid, at: now() };   // "is there more?" reads on
+      show = { title: supSay(x.s.name) + ' order', lines: x.items.slice(0, 6).map(function(p){ return { text: itemSay(p.name) + ' · ' + fmt(+p.qty) + ' ' + p.unit, tone: 'ok' }; }), open: { view: 'supplier', id: x.sid } };
+    } else {
+      // every line when they're few; else how many each, and each supplier's lines after
+      say.push(n <= SPOKEN_MAX ? 'In the cart: ' + list.map(function(x){ return head(x) + ': ' + joinAnd(x.items.map(lineOf)) + '.'; }).join(' ') : 'In the cart: ' + joinAnd(list.map(head)) + '.');
+      if(n > SPOKEN_MAX) list.forEach(function(x){ more.push(supSay(x.s.name) + ': ' + joinAnd(x.items.map(lineOf)) + '.'); });
+      show = { title: 'Cart', lines: list.slice(0, 6).map(function(x){ return { text: supSay(x.s.name) + ' · ' + x.items.length + (x.items.length === 1 ? ' item' : ' items'), tone: 'ok' }; }), open: { view: 'list' } };
+    }
+    var sum = cartSum(prData(), list);
+    if(sum) say.push(sum);
+    return ans('answer', { say: say, more: more, show: show, log: 'cart ' + list.length + ' supplier' + (list.length === 1 ? '' : 's') + ' ' + n + ' item' + (n === 1 ? '' : 's') });
+  }
+
+  var OH_WHO = '(?:i|we|you|they)', OH_GOT = '(?:order|ordered|reorder|reordered|buy|bought|get|got)';
+  var OH_ITEM = new RegExp(ASK_LEAD + '(?:when (?:(?:did|have|do) ' + OH_WHO + ' (?:last |first )?|' + OH_WHO + ' (?:last|first) )' + OH_GOT + '\\b'
+    + '|who (?:did|do|have) ' + OH_WHO + ' last ' + OH_GOT + '\\b'
+    + '|when (?:was|were|is|are) (?:[a-z]+ ){1,4}(?:last )?ordered\\b'
+    + '|(?:when (?:was|is)|whens) the last time ' + OH_WHO + ' ' + OH_GOT + '\\b'
+    + '|how (?:much|many) (?:[a-z0-9.]+ ){0,4}(?:did|have) ' + OH_WHO + ' ' + OH_GOT + '\\b(?=.*\\blast\\b))');
+  var OH_ORDER = new RegExp(ASK_LEAD + '(?:(?:what|when|how much) (?:was|is|were) (?:in )?(?:the|our|my) (?:last|latest|previous) (?:[a-z]+ ){0,3}orders?\\b'
+    + '|what did (?:i|we) (?:order|get|send)\\b(?=.*\\blast\\b))');
+  var OH_MONEY = /\bhow much (?:was|is|were)\b|\b(?:total|cost|costs|come to|came to|worth)\b/;
+  function ohKind(text){   // a question at the start of the sentence (never "add …", "repeat …")
+    var c = clean(text);
+    if(OH_ORDER.test(c)) return 'order';
+    if(OH_ITEM.test(c)) return 'item';
+    return null;
+  }
+  function ohList(){
+    var h = host.orderHistory ? host.orderHistory() : null;
+    if(!Array.isArray(h)) return null;
+    return h.filter(function(e){ return e && e.items && +e.at > 0; }).sort(function(a, b){ return b.at - a.at; });
+  }
+  // "today", "yesterday", "on Tuesday 27 October" (the day it was sent)
+  function ohWhen(at){
+    var t = new Date(at), n = new Date(now());
+    var days = Math.round((new Date(n.getFullYear(), n.getMonth(), n.getDate()) - new Date(t.getFullYear(), t.getMonth(), t.getDate())) / 864e5);
+    if(days <= 0) return 'today';
+    if(days === 1) return 'yesterday';
+    return 'on ' + DAY_FULL[DAY_KEYS[t.getDay()]] + ' ' + t.getDate() + ' ' + MONTHS[t.getMonth()];
+  }
+  function ohSup(cat, sid){ var s = supplier(cat, sid); return s ? supSay(s.name) : 'a supplier no longer in The Pass'; }
+  function ohAgo(hist){ return hist.length ? ' (they go back to ' + ohWhen(hist[hist.length - 1].at).replace(/^on /, '') + ')' : ''; }
+  var OH_UNKNOWN = ' Orders by phone or text aren’t kept.';
+  async function ohAnswer(kind, text, mode){
+    var hist = ohList();
+    if(!hist) return cant('I can’t see the orders sent from here.', 'history no data');
+    var f = await fresh(), cat = f.cat, sids = parse(text, cat).sids || [], c = clean(text);
+    var it = askItem(text, cat);
+    if(it && it.many){
+      // "squid": of the items it could be, the one ever ordered
+      var ever = it.many.filter(function(e){ return hist.some(function(h){ return +h.items[e.pid] > 0; }); });
+      var names = {}; ever.forEach(function(e){ names[clean(e.name)] = 1; });
+      if(Object.keys(names).length === 1) it = { pids: ever.map(function(e){ return e.pid; }), name: ever[0].name, homes: ever.map(function(e){ return e.sid; }) };
+      else{
+        // asked, so a name said next is the pick (never a new order line)
+        var seen = {}, opts = [];
+        (ever.length > 1 ? ever : it.many).forEach(function(e){
+          var k = clean(e.name);
+          if(seen[k]){ seen[k].value += ',' + e.pid; return; }
+          if(opts.length < 3){ seen[k] = { label: itemSay(e.name), value: e.pid }; opts.push(seen[k]); }
+        });
+        return asking('ohWhich', 'Which item? ' + cap(joinOr(opts.map(function(o){ return o.label; }))) + '?', opts, { sids: sids });
+      }
+    }
+    if(it){
+      prFocus = { at: now(), pids: it.pids, name: it.name, homes: it.homes };
+      return ohItem(hist, cat, it, sids);
+    }
+    if(kind === 'order' || sids.length === 1 || /^how (?:much|many) did/.test(c) && !/\b(it|that|them|those|this)\b/.test(c)) return ohOrder(hist, cat, sids.length === 1 ? sids : [], text);
+    if(mode === 'pluto' && !/\border(?:ed)?\b/.test(c)) return notmine('history no item');
+    var bare = /\b(it|that|them|those|this)\b/.test(c) || !c.split(' ').some(function(w){ return w && !ASK_FILLER[w]; });
+    return cant(bare ? 'Which item? Say its name, like “when did we last order mozzarella”.' : 'I couldn’t find that item in The Pass. Say it as it’s named on your list.', 'history no item');
+  }
+  function ohItem(hist, cat, it, sids){
+    var pids = it.pids, nm = itemSay(it.name);
+    var got = hist.filter(function(e){ return (!sids.length || sids.indexOf(e.sup) > -1) && pids.some(function(p){ return +e.items[p] > 0; }); });
+    var on = pids.map(function(p){ return entryById(cat, 'p:' + p); }).filter(function(e){ return e && +e.qty > 0; })[0];
+    var tail = on ? ' ' + cap(amount(+on.qty, on.unit)) + ' on the ' + supSay(on.sname) + ' order now, not sent yet.' : '';
+    if(!got.length) return ans('answer', { say: ['I can’t find ' + nm + ' in the orders sent from The Pass' + ohAgo(hist) + '.' + OH_UNKNOWN + tail], log: 'history item none' });
+    function q(e){ var p = pids.filter(function(x){ return +e.items[x] > 0; })[0], en = entryById(cat, 'p:' + p); return amount(+e.items[p], en ? en.unit : ''); }
+    var a = got[0], b = got[1];
+    var s = 'You last ordered ' + nm + ' ' + ohWhen(a.at) + ': ' + q(a) + ' from ' + ohSup(cat, a.sup) + '.';
+    if(b) s += ' Before that, ' + ohWhen(b.at).replace(/^on /, '') + ': ' + q(b) + (b.sup !== a.sup ? ' from ' + ohSup(cat, b.sup) : '') + '.';
+    return ans('answer', { say: [s + tail], log: 'history item ' + got.length });
+  }
+  function ohOrder(hist, cat, sids, text){
+    var list = hist.filter(function(e){ return !sids.length || sids.indexOf(e.sup) > -1; });
+    if(!list.length) return ans('answer', { say: ['No orders' + (sids.length ? ' to ' + ohSup(cat, sids[0]) : '') + ' sent from The Pass yet.' + OH_UNKNOWN], log: 'history order none' });
+    var e = list[0], pids = Object.keys(e.items).filter(function(p){ return +e.items[p] > 0; }), known = [], lines = [];
+    pids.forEach(function(p){
+      var en = entryById(cat, 'p:' + p);
+      if(!en) return;
+      known.push({ id: p, qty: +e.items[p], unit: en.unit });
+      lines.push(amount(+e.items[p], en.unit) + ' ' + itemSay(en.name));
+    });
+    var head = 'The last ' + ohSup(cat, e.sup) + ' order went ' + ohWhen(e.at) + ', ' + pids.length + (pids.length === 1 ? ' item' : ' items');
+    var gone = pids.length - known.length, more = [];
+    var s = lines.length ? spoken(head + ': ', lines, SPOKEN_MAX) : head + '.';
+    if(lines.length > SPOKEN_MAX) more.push(spoken('', lines, SPOKEN_MAX, 'rest'));
+    if(gone) s += ' ' + (gone === 1 ? 'One is' : gone + ' are') + ' no longer in The Pass.';
+    var say = [s];
+    if(OH_MONEY.test(clean(text)) && known.length){ var sum = cartSum(prData(), [{ sid: e.sup, items: known }], ' at today’s prices'); if(sum) say.push(sum); }
+    return ans('answer', { say: say, more: more, log: 'history order ' + pids.length });
+  }
+
   /* is this a question about the functions? -> 'ask' | 'write' | null. "who's working the function on
      Saturday" is the roster's. Right after a function answer, a bare day or week ("and next week?",
      "what about Sunday") asks the same again. */
@@ -5692,6 +5902,18 @@ function createRoom(host){
       if(fnr === 'follow') return await fnAnswer(req.text || '', fnRecent());
       if(fnr === 'dish') return await fnAnswer(req.text || '', { kind: 'portion', ids: fnRecent().ids });   // v3.11.26
       if(fnr === 'portion') return await fnChange(req.text || '');
+      // v3.11.51: "what's in the cart"; "cart" is the order for everything else
+      if(CART_WORD.test(clean(req.text || ''))){
+        var cs = req.text;
+        req = Object.assign({}, req, { text: cartText(req.text) });
+        var ca = await onOrderAsk(req.text) || await cartAsk(req.text, cs);
+        if(ca) return ca;
+      } else {
+        var oa = await onOrderAsk(req.text || '');
+        if(oa) return oa;
+      }
+      var ohk = ohKind(req.text || '');   // v3.11.51: the orders sent ("when did I last order squid")
+      if(ohk) return await ohAnswer(ohk, req.text || '', mode);
       var prk = prKind(req.text || '');   // v3.11.38: prices by voice (read only)
       if(prk) return await prAnswer(prk, req.text || '');
       // v3.11.1 (his log, 13 Oct): "and Friday", "check Saturday as well" right after a roster answer
@@ -5992,7 +6214,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.50',
+  version: 'v3.11.51',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,

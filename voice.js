@@ -79,6 +79,8 @@ var host = {
   },
   lastOrder: function(sid){ return getLastOrder(sid); },
   sentToday: function(sid){ return sentToday(sid); },
+  // v3.11.51 (his asks, 25 Oct): the orders sent from The Pass, read only ("when did I last order squid")
+  orderHistory: function(){ return typeof readOrderHistory === 'function' ? readOrderHistory() : null; },
   /* v3.11.38 (his asks, 24 Oct): prices by voice, read only. The kept prices and matches (Prices), the prices-only
      suppliers' names, and the Invoices screen's weekly totals as this phone keeps them; the rules are invoice-engine.js. */
   prices: function(){
