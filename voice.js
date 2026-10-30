@@ -81,6 +81,10 @@ var host = {
   sentToday: function(sid){ return sentToday(sid); },
   // v3.11.51 (his asks, 25 Oct): the orders sent from The Pass, read only ("when did I last order squid")
   orderHistory: function(){ return typeof readOrderHistory === 'function' ? readOrderHistory() : null; },
+  // v3.11.54 (memories stage 2, his picks of 31 Oct): notes on products, kept on this phone (index.html pnAll…)
+  productNotes: function(){ return typeof pnAll === 'function' ? pnAll() : []; },
+  addProductNote: function(n){ return typeof pnAdd === 'function' ? pnAdd(n) : null; },
+  removeProductNote: function(id){ return typeof pnRemove === 'function' ? pnRemove(id) : null; },
   /* v3.11.38 (his asks, 24 Oct): prices by voice, read only. The kept prices and matches (Prices), the prices-only
      suppliers' names, and the Invoices screen's weekly totals as this phone keeps them; the rules are invoice-engine.js. */
   prices: function(){
@@ -628,6 +632,34 @@ async function roomFunctionSave(r){
   try{ res = await host.saveFunction(op, String(r.fid || ''), String(r.part || ''), r.value, r.expect); }catch(e){ res = { ok: false, why: 'failed' }; }
   return { v: 1, status: 'answer', say: [], keep: false, log: 'function ' + (op === 'part' ? 'part ' + r.part : op) + ': ' + (res.ok ? 'saved' : res.why), data: res };
 }
+/* v3.11.54 (memories stage 2, his picks of 31 Oct; Pluto-Room-Contract §5 "want"): Pluto pins his notes on products
+   and reads them back. { want: "product-notes", op } is answered with data, never words:
+     "list"   every note, newest first: { id, pids, item (the product's name now), suppliers, gone, text, at }
+     "match"  the products a note names (this room's own finder; Pluto asks him when it's more than one): { items: [{ pids, name, suppliers }] }
+     "add"    { pids, name, text, at, id? } pinned (id and at are kept when an undo puts one back): { note }
+     "remove" { id }: { note } (as it was, for Pluto's undo)
+     "edit"   { id, text }: { note }
+   Kept on this phone only; never logged beyond counts; not in the heard log (no sentence). */
+var PN_OPS = { list: 1, match: 1, add: 1, remove: 1, edit: 1 };
+function roomPnShape(n){
+  var hits = n.pids.map(function(pid){ return typeof lookupProduct === 'function' ? lookupProduct(pid) : null; }).filter(Boolean);
+  return { id: n.id, pids: n.pids.slice(), item: hits.length ? hits[0].product.name : n.name, suppliers: hits.map(function(h){ return h.supplier.name; }),
+           gone: !hits.length, text: n.text, at: n.at };
+}
+function roomProductNotes(r){
+  var op = PN_OPS[r.op] ? r.op : 'list', data, x;
+  if(op === 'list') data = { ok: true, notes: pnAll().sort(function(a, b){ return b.at - a.at; }).map(roomPnShape) };
+  else if(op === 'match') data = Object.assign({ ok: true }, room.noteItems ? room.noteItems(String(r.text || '')) : { items: [] });
+  else if(op === 'add'){
+    var pids = (Array.isArray(r.pids) ? r.pids : []).map(String).filter(function(pid){ return typeof lookupProduct === 'function' && lookupProduct(pid); });
+    x = pids.length ? pnAdd({ id: r.id, pids: pids, name: r.name, text: r.text, at: r.at }) : null;
+    data = x ? { ok: true, note: roomPnShape(x) } : { ok: false, why: !pids.length ? 'gone' : pnAll().length >= PN_MAX ? 'full' : 'bad' };
+  }
+  else if(op === 'remove'){ x = pnRemove(String(r.id || '')); data = x ? { ok: true, note: roomPnShape(x) } : { ok: false, why: 'gone' }; }
+  else { x = pnEdit(String(r.id || ''), r.text); data = x ? { ok: true, note: roomPnShape(x) } : { ok: false, why: 'gone' }; }
+  return { v: 1, status: 'answer', say: [], keep: false, data: data,
+    log: 'product notes ' + op + ': ' + (!data.ok ? data.why : data.notes ? data.notes.length : data.items ? data.items.length : 'done') };
+}
 var ROOM_CALLS = {
   hello: function(){ return room.hello(); },
   menu: function(){ return room.menu(); },
@@ -637,6 +669,7 @@ var ROOM_CALLS = {
     if(r.want === 'functions') return roomHeld() || await roomFunctions();   // v3.11.23
     if(r.want === 'invoices') return roomHeld() || roomInvoices();            // v3.11.39
     if(r.want === 'function-save') return roomHeld() || await roomFunctionSave(r);   // v3.11.42
+    if(r.want === 'product-notes') return roomHeld() || roomProductNotes(r);         // v3.11.54
     var a = roomHeld() || await room.handle(Object.assign({}, r, { mode: 'pluto' }));
     if(r.text) logIt({ at: Date.now(), heard: String(r.text), alts: (r.alts || []).map(String), via: 'pluto' }, a || {});
     return a;

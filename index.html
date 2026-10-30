@@ -693,6 +693,12 @@ body:has(.cart-head){align-items:flex-start;}   /* the page grows with the list 
 .pl-new{display:inline-block;font-size:9.5px;font-weight:800;letter-spacing:.7px;background:#E5EFE3;color:#2F5F39;border-radius:999px;padding:2px 7px;margin-left:6px;vertical-align:2px;}
 .pl-note{font-size:11.5px;color:#8A5A16;margin-top:4px;line-height:1.4;}
 .pl-like{color:#8A5A16;}
+/* v3.11.54: a note on a product (his pick A: a strip under it, the whole width) */
+.product-line.has-pn{flex-wrap:wrap;}
+.pn-strip{flex-basis:100%;order:9;display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-top:2px;font-size:12px;font-weight:600;color:#8A5A16;background:#FBF1DE;border-radius:10px;padding:6px 6px 6px 9px;line-height:1.35;}
+.pn-strip span{min-width:0;overflow-wrap:anywhere;}
+.pn-x{flex:none;border:0;background:none;color:var(--muted);font-size:16px;font-weight:700;line-height:1;padding:0 4px;cursor:pointer;}
+.pn-clear{flex:none;border:1px solid #E3C99A;background:#fff;color:#8A5A16;border-radius:999px;font-size:11.5px;font-weight:700;padding:3px 9px;cursor:pointer;white-space:nowrap;}
 .pl-fold{display:flex;justify-content:space-between;align-items:baseline;margin-top:16px;}
 .pl-q{font-size:13.5px;font-weight:700;margin-top:8px;}
 .pl-acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;align-items:center;}
@@ -807,7 +813,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.53';
+const APP_VERSION = 'v3.11.54';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -2630,6 +2636,52 @@ function sentToday(id){
     if(!rec || rec.day !== serviceDateKey()) return null;
     return rec;
   }catch(e){ return null; }
+}
+
+/* v3.11.54 (memories stage 2, his picks of 31 Oct, ../Pluto/design/product-notes-mockup.html): notes on products.
+   "Remember there's 4 kg of thick Italian sausage in the freezer", said to Pluto, is pinned to that product here; it
+   shows under the product on its order screen (A: a strip, its date, ×) and is read out when he next orders it by voice
+   ("Keep the note?"). Kept on this phone only (never the orders Worker, never staff or suppliers); Move my data carries
+   it like every order-chit- item. One note: { id, pids (the product, at each supplier that has it), name, text, at }. */
+const PN_KEY = 'order-chit-product-notes', PN_MAX = 100;
+function pnAll(){
+  let l = null;
+  try{ l = JSON.parse(localStorage.getItem(PN_KEY) || '[]'); }catch(e){ l = null; }
+  return (Array.isArray(l) ? l : []).filter(n => n && typeof n.id === 'string' && Array.isArray(n.pids) && n.pids.length && typeof n.text === 'string' && n.text && isFinite(n.at))
+    .map(n => ({ id: n.id, pids: n.pids.map(String), name: String(n.name || ''), text: String(n.text).slice(0, 300), at: +n.at }));
+}
+function pnKeep(l){ try{ localStorage.setItem(PN_KEY, JSON.stringify(l.slice(-PN_MAX))); return true; }catch(e){ return false; } }
+// a product's notes, newest first
+function pnFor(pid){ return pnAll().filter(n => n.pids.indexOf(String(pid)) > -1).sort((a, b) => b.at - a.at); }
+// a note pinned (or put back by an undo, with its own id and time): the note as kept, or null
+function pnAdd(n){
+  if(!n || !Array.isArray(n.pids) || !n.pids.length || !String(n.text || '').trim()) return null;
+  const l = pnAll();
+  if(l.length >= PN_MAX) return null;
+  const x = { id: String(n.id || ('pn' + Date.now().toString(36) + uid())), pids: n.pids.map(String).slice(0, 10), name: String(n.name || '').slice(0, 80),
+    text: String(n.text).replace(/\s+/g, ' ').trim().slice(0, 300), at: isFinite(n.at) && n.at ? +n.at : Date.now() };
+  if(l.some(y => y.id === x.id)) return null;
+  l.push(x); l.sort((a, b) => a.at - b.at);
+  return pnKeep(l) ? x : null;
+}
+// a note taken out: the note it was (for an undo), or null
+function pnRemove(id){
+  const l = pnAll(), x = l.find(n => n.id === id);
+  if(!x) return null;
+  return pnKeep(l.filter(n => n !== x)) ? x : null;
+}
+function pnEdit(id, text){
+  const l = pnAll(), x = l.find(n => n.id === id), t = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+  if(!x || !t) return null;
+  x.text = t;
+  return pnKeep(l) ? x : null;
+}
+function pnDay(at){ try{ return new Date(at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' }); }catch(e){ return ''; } }
+// the strip under a product (his pick A); the × takes two taps (a note lost to a slip of the finger is lost to him)
+let pnArmed = '';
+function pnStripHTML(pid){
+  return pnFor(pid).map(n => `<div class="pn-strip"><span>${escapeHtml(pnDay(n.at))}: ${escapeHtml(n.text)}</span>${pnArmed === n.id
+    ? `<button class="pn-clear" data-pn-clear="${escapeHtml(n.id)}">Clear note?</button>` : `<button class="pn-x" data-pn-arm="${escapeHtml(n.id)}" title="clear note">&times;</button>`}</div>`).join('');
 }
 
 function sentTimeLabel(at){
@@ -5193,8 +5245,8 @@ function renderSupplier(id){
   if(!s) return `<div class="empty">Supplier not found.</div>`;
   const fresh = plNewSet();   // v3.11.32: items a price list added, marked NEW
   const pc = priceContext();  // v3.11.37: prices where he orders
-  let lines = s.products.map(p => { const pl = priceLinesFor(s.id, p.id, pc); return `
-    <div class="product-line">
+  let lines = s.products.map(p => { const pl = priceLinesFor(s.id, p.id, pc), pn = pnStripHTML(p.id); return `
+    <div class="product-line${pn ? ' has-pn' : ''}">
       <div class="product-info">
         <div class="product-name">${escapeHtml(p.name)}${fresh.has(p.id) ? '<span class="pl-new">NEW</span>' : ''}</div>
         <div class="product-unit">${escapeHtml(p.unit)}${(p.inc && p.inc!==1) ? ' &middot; +'+formatQty(p.inc)+'/tap' : ''}${pl.price ? ' &middot; ' + escapeHtml(pl.price) : ''}</div>
@@ -5207,6 +5259,7 @@ function renderSupplier(id){
       </div>
       <button class="del-x" data-edit-product="${p.id}" data-supplier="${s.id}" title="edit item">&#9998;</button>
       <button class="del-x" data-del-product="${p.id}" title="remove item">&times;</button>
+      ${pn}
     </div>
   `; }).join('');
   if(s.products.length===0) lines = `<div class="empty">No products yet for this supplier.</div>`;
@@ -5458,6 +5511,13 @@ function attachHandlers(){
       p.qty = Math.round(v*100)/100;
       saveData(); render();
     });
+  });
+  // v3.11.54: a product's note: × arms it, "Clear note?" clears it
+  document.querySelectorAll('[data-pn-arm]').forEach(el=>{
+    el.addEventListener('click', ()=>{ pnArmed = el.dataset.pnArm; render(); });
+  });
+  document.querySelectorAll('[data-pn-clear]').forEach(el=>{
+    el.addEventListener('click', ()=>{ pnArmed = ''; if(pnRemove(el.dataset.pnClear)) showToast('Note cleared'); render(); });
   });
   document.querySelectorAll('[data-del-product]').forEach(el=>{
     el.addEventListener('click', ()=>{
@@ -7184,16 +7244,16 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.53"></script>
+<script src="move-data.js?v=3.11.54"></script>
 <!-- v3.11.28: the function doc reader. A separate file too: if it fails, only "From management's doc" says so. -->
-<script src="function-reader.js?v=3.11.53"></script>
+<script src="function-reader.js?v=3.11.54"></script>
 <!-- v3.11.30: the invoice rules. A separate file too: if it fails, only bringing in an invoice says so. -->
-<script src="invoice-engine.js?v=3.11.53"></script>
+<script src="invoice-engine.js?v=3.11.54"></script>
 <!-- v3.11.31: the supplier readers for a scanned invoice (Aziz's so far). -->
-<script src="invoice-readers.js?v=3.11.53"></script>
+<script src="invoice-readers.js?v=3.11.54"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.53"></script>
-<script src="voice-brain.js?v=3.11.53"></script>
-<script src="voice.js?v=3.11.53"></script>
+<script src="roster-engine.js?v=3.11.54"></script>
+<script src="voice-brain.js?v=3.11.54"></script>
+<script src="voice.js?v=3.11.54"></script>
 </body>
 </html>

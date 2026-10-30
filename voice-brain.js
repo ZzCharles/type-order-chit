@@ -4018,8 +4018,9 @@ function createRoom(host){
     // v3.11.0: what was done, for a list read out ("Done. 5 added to the prep list.")
     cmd.out = { prep: toAdd.length, order: ops.filter(function(o){ return o.k === 'qty'; }).length, extra: nothing.concat(notes) };
     var title = openView && openView.view === 'prep' ? 'Prep list' : orderChanges[0] ? supSay(orderChanges[0].e.sname) + ' order' : 'Done';
-    return ans('done', { say: talk, show: { title: title, lines: show.slice(0, 6), open: openView },
-      action: { id: id, label: lab, undo: true }, log: ops.map(function(o){ return o.k === 'qty' ? o.name + ' ' + o.before + '>' + o.after : o.k; }).join(', ') });
+    return noteAsk(ans('done', { say: talk, show: { title: title, lines: show.slice(0, 6), open: openView },
+      action: { id: id, label: lab, undo: true }, log: ops.map(function(o){ return o.k === 'qty' ? o.name + ' ' + o.before + '>' + o.after : o.k; }).join(', ') }),
+      ops.filter(function(o){ return o.k === 'qty' && o.after > o.before; }));   // v3.11.54: a note on what was ordered
   }
 
   async function undoNow(id){
@@ -4080,6 +4081,9 @@ function createRoom(host){
         qtyOps = qtyOps.filter(function(q){ return q.pid !== o.pid; });
         said = said.filter(function(x){ return x.indexOf(itemSay(o.name) + ' is back to') !== 0; });
         if(host.removeProduct && host.removeProduct(o.sid, o.pid)) said.push('Took ' + o.name + ' back off the ' + supSay(o.sname) + ' products.'); else skipped.push(o.name);
+      }
+      else if(o.k === 'pnRemove'){   // v3.11.54: a note on a product, put back as it was
+        if(host.addProductNote && host.addProductNote(o.note)) said.push('The note on ' + itemSay(o.note.name) + ' is back.'); else skipped.push('the note');
       }
       else if(o.k === 'restore'){
         var s2 = (data.suppliers || []).filter(function(x){ return x.id === o.sid; })[0];
@@ -4695,6 +4699,7 @@ function createRoom(host){
     var text = String(req.text || '');
     var cmd = p.cmd;
     if(p.kind === 'fnAddonHow' || p.kind === 'fnMezzeHow') return await fnAddonReply(p, req);   // v3.11.24, v3.11.25
+    if(p.kind === 'pnKeep') return await pnKeepReply(p, req);    // v3.11.54: "Keep the note?"
     if(p.kind === 'ohWhich'){                                     // v3.11.51: "Which item?" about the orders sent
       var oc = choice != null ? choice : matchOption(text, p.options);
       pending = null;
@@ -5639,6 +5644,108 @@ function createRoom(host){
     if(Object.keys(names).length > 1) return { many: list };
     return { pids: list.map(function(e){ return e.pid; }), name: list[0].name, homes: list.map(function(e){ return e.sid; }) };
   }
+  /* ---------- v3.11.54: notes on products (memories stage 2, his picks of 31 Oct) ----------
+     ../Pluto/design/product-notes-mockup.html. A note he told Pluto ("remember there's 4 kg of thick Italian sausage
+     in the freezer") is pinned to its product on this phone (index.html pnAll…). Ordering that product by voice adds
+     it first, then reads the note and asks "Keep the note?" (his pick A; his words of 30 Oct: "it could ask me if I
+     want to remove it … and only then removes it"). Silence, or anything else said, keeps it. It only repeats what he
+     noted, and when: never "you've got enough". Tapping + asks nothing (the strip is there to see). */
+  function pnWhen(at){
+    try{ return new Date(at).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', timeZone: 'Australia/Sydney' }); }catch(e){ return 'an earlier day'; }
+  }
+  function pnQuoted(s){ s = String(s || '').trim(); return '"' + s + (/[.!?]$/.test(s) ? '' : '.') + '"'; }
+  function noteAsk(a, ordered){
+    if(a.status !== 'done' || !ordered.length || !host.productNotes) return a;
+    var all = [];
+    try{ all = host.productNotes() || []; }catch(e){ return a; }
+    var n = null;
+    ordered.some(function(o){
+      var l = all.filter(function(x){ return x.pids.indexOf(String(o.pid)) > -1; }).sort(function(x, y){ return y.at - x.at; });
+      if(l.length) n = l[0];
+      return !!n;
+    });
+    if(!n) return a;
+    askN++;
+    pending = { id: 'ask-' + askN, kind: 'pnKeep', noteId: n.id, options: [{ label: 'Keep it', value: 'keep' }, { label: 'Remove it', value: 'remove' }] };
+    var said = a.say.concat(a.more || []);
+    a.status = 'ask';
+    a.say = said.slice(0, 2).concat(['You noted on ' + pnWhen(n.at) + ': ' + pnQuoted(n.text) + ' Keep the note?']);
+    a.more = said.slice(2);
+    a.ask = { id: pending.id, expect: 'choice', options: pending.options };
+    a.log += '; a note: keep?';
+    return a;
+  }
+  async function pnKeepReply(p, req){
+    pending = null;
+    var choice = req.reply && req.reply.choice != null ? String(req.reply.choice) : null, text = String(req.text || ''), t = clean(text);
+    var v = choice === 'keep' || choice === 'remove' ? choice : null;
+    if(!v && t){
+      if(/\b(remove|delete|clear|scrap|bin|get rid|drop|take it off|dont keep|do not keep|dont need|no need|not needed)\b/.test(t)) v = 'remove';
+      else if(/\b(keep|leave|hold on|hang on)\b/.test(t)) v = 'keep';
+      else { var yn = yesNo(t); v = yn === 'yes' ? 'keep' : yn === 'no' ? 'remove' : null; }
+    }
+    if(!v){
+      // something else said instead: the note stays, and a new order or question is taken as one
+      var m = parse(text, (await fresh()).cat);
+      if(text && (m.verb || m.items.some(function(it){ return it.exact && it.exact.length; }))) return await handle(Object.assign({}, req, { reply: null }));
+      return ans('answer', { say: ['Kept the note.'], log: 'note kept (not a keep or remove)' });
+    }
+    if(v === 'keep') return ans('answer', { say: ['Kept it.'], log: 'note kept' });
+    var gone = host.removeProductNote ? host.removeProductNote(p.noteId) : null;
+    if(!gone) return ans('answer', { say: ["That note's already gone."], log: 'note already gone' });
+    var lab = 'Removed the note on ' + itemSay(gone.name);
+    return ans('done', { say: ['Removed the note.'], action: { id: remember(lab, [{ k: 'pnRemove', note: gone }]), label: lab, undo: true }, log: 'note removed' });
+  }
+  /* Which product a note names, for Pluto (its want "product-notes", op "match"): the same finder as "how much was the
+     mozzarella" (askItem), on the kept lists (nothing fetched), never the last product asked about ("that"). One name:
+     its products at every supplier that has it. More than one: up to four, for Pluto to ask him which. `sure` only when
+     the product's name is plainly in the note, or one product clearly leads: Pluto pins on its own only then. */
+  function noteItems(text){
+    var c = catalogue(host.data(), taught()), keepFocus = prFocus, it, sure = true;
+    prFocus = null;
+    try{ it = askItem(String(text || ''), c); }finally{ prFocus = keepFocus; }
+    /* found by a name: sure only with two of the product's words in a row in the note, or its whole one-word name
+       ("mozzarella"); one word of a longer name ("kransky") is a loose word like any other */
+    if(it && !it.many){
+      var tw = keyOf(String(text || '')).split(' '), nw = keyOf(it.name).split(' '), run = 0;
+      for(var ti = 0; ti < tw.length; ti++) for(var ni = 0; ni < nw.length; ni++){ var k = 0; while(tw[ti + k] && tw[ti + k] === nw[ni + k]) k++; if(k > run) run = k; }
+      sure = run >= 2 || (nw.length === 1 && run === 1);
+      if(!sure) it = null;     // then counted word by word, below (a product may still clearly lead)
+    }
+    /* a note names things loosely ("the sausage is running low"): then each of its words that's part of a product's
+       name (not a filler, a number, or a supplier's word), counted per product. Sure only when one product has at least
+       two of the words and two more than any other ("thick italian sausage" for Italian-Style Thick Sausage Mix);
+       one loose word ("under the shoe rack": Lamb Rack) is never sure */
+    if(!it){
+      var supW = {}, found = [], hitN = [];
+      c.suppliers.forEach(function(s){ clean(supSay(s.name)).split(' ').forEach(function(w){ supW[w] = 1; }); });
+      clean(String(text || '')).split(' ').forEach(function(w){
+        if(!w || w.length < 3 || ASK_FILLER[w] || STOP[w] || supW[w] || /\d/.test(w)) return;
+        var fi = findItems({ stems: keyOf(w).split(' ') }, c, ['order']);
+        if(fi.how === 'exact' || fi.how === 'superset') fi.list.forEach(function(e){ var i = found.indexOf(e); if(i < 0){ found.push(e); hitN.push(1); } else hitN[i]++; });
+      });
+      if(found.length){
+        var byN = {}, names = [];
+        found.forEach(function(e, i){ var k = clean(e.name); if(!byN[k]){ byN[k] = { n: 0, list: [] }; names.push(k); } byN[k].list.push(e); byN[k].n = Math.max(byN[k].n, hitN[i]); });
+        names.sort(function(a, b){ return byN[b].n - byN[a].n; });
+        var top = byN[names[0]], next = names[1] ? byN[names[1]].n : 0;
+        sure = top.n >= 2 && top.n - next >= 2;
+        it = sure || names.length === 1 ? { pids: top.list.map(function(e){ return e.pid; }), name: top.list[0].name, homes: top.list.map(function(e){ return e.sid; }) }
+          : { many: [].concat.apply([], names.map(function(k){ return byN[k].list; })) };
+      }
+    }
+    if(!it) return { items: [], sure: false };
+    var supName = function(sid){ var s = c.suppliers.filter(function(x){ return x.id === sid; })[0]; return s ? s.name : ''; };
+    if(!it.many) return { items: [{ pids: it.pids.map(String), name: it.name, suppliers: it.homes.map(supName).filter(Boolean) }], sure: sure };
+    var by = {}, order = [];
+    it.many.forEach(function(e){
+      var k = clean(e.name);
+      if(!by[k]){ by[k] = { pids: [], name: e.name, suppliers: [] }; order.push(k); }
+      if(by[k].pids.indexOf(String(e.pid)) < 0){ by[k].pids.push(String(e.pid)); by[k].suppliers.push(supName(e.sid)); }
+    });
+    return { items: order.slice(0, 4).map(function(k){ return by[k]; }), sure: false };
+  }
+
   function cartTotalOf(pd, sid, items){
     return pd.engine.cartTotal({ items: items.map(function(p){ return { productId: p.id, qty: +p.qty, unit: p.unit }; }), prices: pd.prices, supplierId: sid });
   }
@@ -6228,13 +6335,13 @@ function createRoom(host){
     return it ? it.words.join(' ') : '';
   }
 
-  return { hello: hello, menu: menu, handle: handle, confirm: confirm, undo: undo, reset: reset,
+  return { hello: hello, menu: menu, handle: handle, confirm: confirm, undo: undo, reset: reset, noteItems: noteItems,
            pendingAsk: function(){ return pending ? { id: pending.id, kind: pending.kind, options: pending.options } : null; },
            words: words, checkWord: checkWord, teachWord: teachWord, forgetWord: forgetWord, choices: choices, guessWord: guessWord };
 }
 
 return {
-  version: 'v3.11.53',
+  version: 'v3.11.54',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
