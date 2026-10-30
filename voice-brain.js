@@ -3593,9 +3593,10 @@ function createRoom(host){
   }
   /* an order item on no list: offered as a new product only when an order is
      clearly meant ("to the order", a supplier, "order …", or an amount with
-     its unit), and the name is a few real words (never a misheard jumble) */
+     its unit), and the name is a few real words (never a misheard jumble). v3.11.53 (his log, 29 Oct: "can you change the
+     ordering value" offered a product called "Value"): only to add, never to change something that isn't there */
   function newProdAsk(cmd, it, kinds, v, K, shown){
-    if(!canNewProd() || (v !== 'add' && v !== 'set') || kinds.indexOf('order') < 0) return null;
+    if(!canNewProd() || v !== 'add' || kinds.indexOf('order') < 0) return null;
     var one = function(l){ return l && l.length === 1 && l[0] === 'order'; };
     var meant = one(K.strict) || one(K.prefer) || (K.sids && K.sids.length === 1) || (it.qty && !it.qty.vague && it.qty.unit);
     var w = clean(shown).split(' ').filter(Boolean);
@@ -5591,13 +5592,31 @@ function createRoom(host){
     if(!it) return null;
     // "is the mince on the order": each item it could be (three at most)
     var es = (it.many || it.pids.map(function(p){ return entryById(cat, 'p:' + p); })).filter(function(e){ return e && (!sids.length || sids.indexOf(e.sid) > -1); }).slice(0, 3);
-    if(!es.length) return null;
+    return es.length ? onOrderSay(es, '', 'read item asked') : null;
+  }
+  // each item on its order now, or none ("No Beef Mince or Pork Mince on the Aziz order yet.")
+  function onOrderSay(es, tail, log){
     var on = es.filter(function(e){ return +e.qty > 0; });
     if(!on.length){
       var where = es.every(function(e){ return e.sid === es[0].sid; }) ? 'the ' + supSay(es[0].sname) + ' order' : 'any order';
-      return ans('answer', { say: ['No ' + joinOr(es.map(label)) + ' on ' + where + ' yet.'], log: 'read item asked' });
+      return ans('answer', { say: ['No ' + joinOr(es.map(label)) + ' on ' + where + ' yet.' + tail], log: log });
     }
-    return ans('answer', { say: [on.map(function(e){ return label(e) + ': ' + amount(+e.qty, e.unit) + ' on the ' + supSay(e.sname) + ' order.'; }).join(' ')], log: 'read item asked' });
+    return ans('answer', { say: [on.map(function(e){ return label(e) + ': ' + amount(+e.qty, e.unit) + ' on the ' + supSay(e.sname) + ' order.'; }).join(' ') + tail], log: log });
+  }
+  /* v3.11.53 (30 Oct: "have we got rocket" added half a kilo; "have we got any rocket", "got any rocket", "have we got
+     enough rocket" asked "Did you mean Rocket?", and a yes added it): asked whether we've got an item, The Pass says what's
+     on the order and that it can't see the shelves; never a change. Not about people, the roster, functions or lists
+     ("have we got anyone on Saturday" stays the roster's), and only for an item of his. */
+  var HAVE_Q = new RegExp(ASK_LEAD + '(?:have (?:we|you) (?:still )?got|do (?:we|you) (?:still )?have|got (?:any|some|enough))\\b');
+  var HAVE_NOT = /\b(anyone|anybody|someone|somebody|nobody|staff|people|working|work|rostered|roster|shift|shifts|function|functions|prep|list|lists|timesheet|hours)\b/;
+  var SHELVES = ' I can’t see the shelves, only the orders.';
+  async function haveAsk(text){
+    var c = clean(text);
+    if(!HAVE_Q.test(c) || HAVE_NOT.test(c)) return null;
+    var cat = (await fresh()).cat, it = askItem(text, cat);
+    if(!it) return null;
+    var es = (it.many || it.pids.map(function(p){ return entryById(cat, 'p:' + p); })).filter(Boolean).slice(0, 3);
+    return es.length ? onOrderSay(es, SHELVES, 'have item') : null;
   }
   /* the item asked about: by its name or nickname (as for prices), else by the words left once the question's own are
      taken out ("when did we last order mince": Beef Mince or Pork Mince), as an order finds it */
@@ -5664,6 +5683,7 @@ function createRoom(host){
   var OH_WHO = '(?:i|we|you|they)', OH_GOT = '(?:order|ordered|reorder|reordered|buy|bought|get|got)';
   var OH_ITEM = new RegExp(ASK_LEAD + '(?:when (?:(?:did|have|do) ' + OH_WHO + ' (?:last |first )?|' + OH_WHO + ' (?:last|first) )' + OH_GOT + '\\b'
     + '|who (?:did|do|have) ' + OH_WHO + ' last ' + OH_GOT + '\\b'
+    + '|have ' + OH_WHO + ' (?:already )?(?:ordered|reordered|bought)\\b'   // v3.11.53: "have we ordered rocket" (asked "Did you mean Rocket?")
     + '|when (?:was|were|is|are) (?:[a-z]+ ){1,4}(?:last )?ordered\\b'
     + '|(?:when (?:was|is)|whens) the last time ' + OH_WHO + ' ' + OH_GOT + '\\b'
     + '|how (?:much|many) (?:[a-z0-9.]+ ){0,4}(?:did|have) ' + OH_WHO + ' ' + OH_GOT + '\\b(?=.*\\blast\\b))');
@@ -5909,7 +5929,7 @@ function createRoom(host){
         var ca = await onOrderAsk(req.text) || await cartAsk(req.text, cs);
         if(ca) return ca;
       } else {
-        var oa = await onOrderAsk(req.text || '');
+        var oa = await onOrderAsk(req.text || '') || await haveAsk(req.text || '');   // v3.11.53: "have we got rocket"
         if(oa) return oa;
       }
       var ohk = ohKind(req.text || '');   // v3.11.51: the orders sent ("when did I last order squid")
@@ -6214,7 +6234,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.52',
+  version: 'v3.11.53',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
