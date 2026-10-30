@@ -740,7 +740,10 @@ var RB_WORDS = {};
   .concat(Object.keys(RB_DAY), Object.keys(RB_STATION), Object.keys(STOP), Object.keys(UNIT_WORDS)).forEach(function(w){ if(w) RB_WORDS[w] = 1; });
 
 /* Times keep their colon as a dot ("9:00" -> "9.00"), which parseClock reads */
-function rbClean(s){ return clean(String(s == null ? '' : s).replace(/(\d):(\d)/g, '$1.$2')).replace(/^(hey pluto|ok pluto|okay pluto|hi pluto|pluto) /, ''); }
+function rbClean(s){
+  return clean(String(s == null ? '' : s).replace(/(\d):(\d)/g, '$1.$2')).replace(/^(hey pluto|ok pluto|okay pluto|hi pluto|pluto) /, '')
+    .replace(/\bstar\b(?= (?:at|from|by|\d))/g, 'start').replace(/\bto star\b/g, 'to start');   // v3.11.50 (his log #458: "get me to Star at 9")
+}
 function rbDayOf(w){ return RB_DAY[w] || (/s$/.test(w) ? RB_DAY[w.slice(0, -1)] : null) || null; }
 function rbNth(n){ var t = n % 100; return n + (t >= 11 && t <= 13 ? 'th' : (['th', 'st', 'nd', 'rd'][n % 10] || 'th')); }
 /* "Wednesday the 14th" */
@@ -825,6 +828,14 @@ function rbIndex(staff, me){
     return { id: s.id, name: s.name, keys: uniq(keys.filter(Boolean)) };
   });
 }
+/* v3.11.50: a name's sounds without its first vowel ("axel" k-s-l, "excellent" k-s-l-n-t); two words sound alike as names when
+   their first two sounds match and one runs on from the other, or only the last differs ("surahs" s-r-s, "suraj" s-r-j) */
+function rbSkel(w){ return sound(w).replace(/^[aeiouy]/, ''); }
+function rbSoundsLike(w, k){
+  var a = rbSkel(w), b = rbSkel(k);
+  if(a.length < 2 || b.length < 2 || a.slice(0, 2) !== b.slice(0, 2)) return false;
+  return a.indexOf(b) === 0 || b.indexOf(a) === 0 || (a.length === b.length && a.slice(0, -1) === b.slice(0, -1));
+}
 function rbMatch(w, idx, learned){
   if(!w || /^\d/.test(w)) return null;
   var base = w.length > 3 && /s$/.test(w) ? w.slice(0, -1) : null;   // "anils"
@@ -835,7 +846,12 @@ function rbMatch(w, idx, learned){
   var scored = idx.map(function(p){
     return { id: p.id, s: Math.max.apply(null, p.keys.map(function(k){ return k.indexOf(' ') < 0 ? wordLike(w, k) : 0; })) };
   }).filter(function(x){ return x.s >= 0.7; }).sort(function(a, b){ return b.s - a.s; });
-  if(!scored.length) return null;
+  if(!scored.length){
+    // v3.11.50 (his log, 24–25 Oct: "excellent" and "access" for Axel, "surahs" for Suraj): a word whose sounds start the
+    // way a staff name's do is asked about ("Did you mean Axel?"), never taken for a new person
+    var alike = idx.filter(function(p){ return p.keys.some(function(k){ return k.indexOf(' ') < 0 && k.length > 2 && rbSoundsLike(w, k); }); });
+    return alike.length ? { ids: alike.map(function(p){ return p.id; }), sure: false, word: w } : null;
+  }
   var close = scored.filter(function(x){ return scored[0].s - x.s < 0.1; });
   if(close.length > 1) return { ids: close.map(function(x){ return x.id; }), sure: false, word: w };
   return { ids: [scored[0].id], sure: scored[0].s >= 0.75, word: w };
@@ -3090,6 +3106,13 @@ function createRoom(host){
       return rbEdit(p.text, reEnv({ ids: ids }));
     }
     if(p.kind === 'rbNew'){
+      // v3.11.50 (his log #479: "I meant axle" got "Sorry, I didn't catch that … Add them?" again): the name he meant instead,
+      // for this change only (never learned: the word wasn't like the name, or it would have been asked about as one)
+      var meant = /^(?:(?:no|nah|sorry|oh)\s+)*(?:i meant|i mean|i said|meant|its|it is|thats|that is)\s+(.+)$/.exec(c) || (no ? /^(?:no|nah)\s+(.+)$/.exec(c) : null);
+      if(meant){
+        var midx = rbIndex(d.staff, d.me), mw = meant[1].split(' ').map(function(w){ return rbMatch(w, midx, {}); }).filter(function(x){ return x && x.sure && x.ids.length === 1; })[0];
+        if(mw){ var mids = {}; mids[clean(p.name)] = mw.ids[0]; return rbEdit(p.text, reEnv({ ids: mids })); }
+      }
       if(!yes && !no && !/\b(add (them|him|her)|yes add)\b/.test(c)) return null;
       if(no){ rbBack(s, p); return rbReaskOrSay(s, ['Left it. Nothing changed.'], 'rb new staff no'); }
       var added = null;
@@ -5969,7 +5992,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.49',
+  version: 'v3.11.50',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
