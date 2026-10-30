@@ -18,9 +18,11 @@
   var MONTHS = { JAN: 1, FEB: 2, MAR: 3, APR: 4, MAY: 5, JUN: 6, JUL: 7, AUG: 8, SEP: 9, OCT: 10, NOV: 11, DEC: 12 };
 
   /* a printed amount as read: "38,00" -> 38.00, "S1,985.06" -> 1985.06, "SI975.76" -> 1975.76, "00" / ".00" -> 0;
-     v3.11.40: "A$145.00" (Michael's Fresh) -> 145 */
+     v3.11.40: "A$145.00" (Michael's Fresh) -> 145; v3.11.52 (his 210514 read as $2 on the phone): "A$ 51.50", "A51.50" */
   function money(t){
-    var s = String(t).trim().replace(/^A\s*[S$]/, '').replace(/^[S$]/, '').replace(/[Il]/g, '1').replace(/O/g, '0');
+    var s = String(t).trim(), cur = /^(A\s*)?[S$]/.test(s);
+    s = s.replace(/^A\s*[S$]?\s*(?=[\dIlO])/, '').replace(/^[S$]\s*/, '').replace(/[Il]/g, '1').replace(/O/g, '0');
+    if(cur && /^\d+ \d{2}$/.test(s)) s = s.replace(' ', '.');   // "A$51 50": one amount (its $ says so), the point read as a space
     if(/^\.?0{1,2}$/.test(s)) return 0;
     if(/^\d{1,3}(,\d{3})+\.\d{2}$/.test(s)) s = s.replace(/,/g, '');
     else if(/^\d+,\d{2}$/.test(s)) s = s.replace(',', '.');    // a comma read for the decimal point
@@ -97,7 +99,12 @@
     for(var p = end; p; p = from[p[0]][p[1]]) got.unshift(p);
     rows.forEach(function(r){ r.desc = []; });
     got.forEach(function(g){ rows[slots[g[1]].k].desc.push(tidy(descs[g[0]].t)); });
-    return rows.map(function(r){ return { description: r.desc.join(' '), unit: r.unit, price: r.nums[0], net: r.nums[1], gst: r.nums[2], total: r.nums[3] }; });
+    var out = rows.map(function(r){ return { description: r.desc.join(' '), unit: r.unit, price: r.nums[0], net: r.nums[1], gst: r.nums[2], total: r.nums[3] }; });
+    /* v3.11.52 (his 83653 of 30 Oct, the names a little above their numbers: the first name wasn't placed, every other one
+       went on the line above its own, the last line had none, and the checks were clean): a name left over and a line
+       left without one means the names slid */
+    out.lost = got.length < n && rows.some(function(r){ return !r.desc.length; });
+    return out;
   }
   /* a printed total: for its label, the first $ amount (read as S) to its right, from its line down */
   function labelled(lines, re){
@@ -151,7 +158,8 @@
         if(!date) date = fdaDate(p);
         var rows = fdaRows(p);
         if(!rows.length) problems.push('Page ' + (pi + 1) + ': no invoice lines read.');
-        rows.forEach(function(r){ lines.push({ page: pi + 1, description: r.description || '(not read)', unit: r.unit, price: r.price, net: r.net, gst: r.gst, total: r.total }); });
+        if(rows.lost) problems.push(NAMES_LOST);   // v3.11.52: every line on the page says so
+        rows.forEach(function(r){ lines.push({ page: pi + 1, description: r.description || '(not read)', unit: r.unit, price: r.price, net: r.net, gst: r.gst, total: r.total, nameDoubt: !!rows.lost }); });
         var tot = labelled(p, /^Total Invoice/i);
         if(tot != null) totals = { net: labelled(p, /^Total Ex GST/i), gst: labelled(p, /^Total GST/i), total: tot };
         var adds = fdaFooter(p);   // v3.11.44: three that add up win
@@ -171,6 +179,8 @@
      AMOUNT column's, and everything else is placed on a row by its height corrected for the tilt of the header row.
      The phone number and email at the top are never read. */
   var MF_UNIT = /^(KG|KGS|BOX|BUNCH|PUNNET|TRAY|PACK|PKT|CTN|BAG|EACH|CASE|TUB|DOZ|DOZEN|BTL|BOTTLE)$/i;
+  // v3.11.52 (his invoices of 30 Oct): said when a reader lost its place pairing names with numbers; each line is flagged too
+  var NAMES_LOST = 'The scan lost its place matching names to numbers, so names may be on the wrong lines: check each line against the paper (tap its numbers to fix them).';
   function median(a){ var s = a.slice().sort(function(x, y){ return x - y; }); return s.length ? s[Math.floor(s.length / 2)] : 0; }
   function mfRows(lines){
     var first = function(re){ return lines.filter(function(l){ return re.test(l.t); })[0]; };
@@ -216,14 +226,23 @@
       if(r) r.texts.push(l); else rows.push({ y: yc(l), amount: null, rate: null, texts: [l] });
     });
     rows.sort(function(a, b){ return a.y - b.y; });
-    return rows.map(function(r){
+    var out = rows.map(function(r){
       var t = r.texts.slice().sort(function(a, b){ return a.x - b.x; }).map(function(l){ return l.t; }), qty = null, m;
       if(t.length > 1 && /^\d+(\.\d+)?$/.test(t[0])) qty = +t.shift();
       else if(t.length && (m = /^(\d+(?:\.\d+)?)\s+(\S.*)$/.exec(t[0]))){ qty = +m[1]; t[0] = m[2]; }
       var desc = t.join(' ').replace(/^(KG)(?=[A-Z][a-z])/i, '$1 ').replace(/\s+/g, ' ').trim();
       var w = (desc.split(' ')[0] || '').toUpperCase();
-      return { description: desc, unit: MF_UNIT.test(w) ? (w === 'KGS' ? 'KG' : w) : 'EACH', qty: qty, price: r.rate, net: r.amount, gst: null, total: r.amount };
+      return { description: desc, unit: MF_UNIT.test(w) ? (w === 'KGS' ? 'KG' : w) : 'EACH', qty: qty, price: r.rate, net: r.amount, gst: null, total: r.amount,
+        merged: mfMerged(desc) };
     });
+    out.amts = amts;   // v3.11.52: the amounts that are rows (never the balance)
+    return out;
+  }
+  /* v3.11.52 (his phone's scan of 210358, 30 Oct: "KG Lemon 6 Buncth Chive", and every name below it on the row above's
+     numbers): two items read as one line, a quantity and a word, or an item's unit word, after its start */
+  function mfMerged(desc){
+    var w = String(desc || '').split(' ');
+    return /[A-Za-z]\s+\d+(?:\.\d+)?\s+[A-Za-z]/.test(String(desc || '')) || w.slice(1).some(function(x){ return MF_UNIT.test(x); });
   }
   var MF = {
     name: 'Michaels Fresh',
@@ -233,16 +252,23 @@
       var number = '', date = '', totals = null, lines = [], problems = [];
       pages.forEach(function(p, pi){
         p.forEach(function(l){
-          var m = /INVOICE\s*NO\.?\s*:?\s*(\d{3,})/i.exec(l.t); if(m && !number) number = m[1];
+          var m = /INVOICE\s*NO[.,]?\s*:?\s*(\d{3,})/i.exec(l.t); if(m && !number) number = m[1];   // v3.11.52: "INVOICE NO, 210514"
           if(!date && (m = /^(?:INVOICE\s+)?DATE\b\s*:?\s*(\S.*)$/i.exec(l.t))) date = readDate(m[1]);
         });
         var rows = mfRows(p);
         if(rows == null){ problems.push('Page ' + (pi + 1) + ': the table\'s RATE and AMOUNT columns weren\'t read.'); return; }
         if(!rows.length) problems.push('Page ' + (pi + 1) + ': no invoice lines read.');
-        rows.forEach(function(r){ lines.push({ page: pi + 1, description: r.description || '(not read)', unit: r.unit, qty: r.qty, price: r.price, net: r.net, gst: null, total: r.total }); });
+        // v3.11.52: two items read as one line put names on other lines' numbers (pairs by order, or by a misjudged height):
+        // every line on the page says its name may be on the wrong line
+        var lost = rows.some(function(r){ return r.merged; });
+        if(lost) problems.push(NAMES_LOST);
+        rows.forEach(function(r){ lines.push({ page: pi + 1, description: r.description || '(not read)', unit: r.unit, qty: r.qty, price: r.price, net: r.net, gst: null, total: r.total, nameDoubt: lost }); });
         var lb = p.filter(function(l){ return /^TOTAL$/i.test(l.t); })[0] || p.filter(function(l){ return /^BALANCE\s+DUE$/i.test(l.t); })[0];
         if(lb){
-          var v = p.filter(function(l){ return l.x > lb.x + 120 && money(l.t) != null && Math.abs(l.y - lb.y) < 60; }).sort(function(a, b){ return Math.abs(a.y - lb.y) - Math.abs(b.y - lb.y); })[0];
+          // v3.11.52 (his 210514, read as $2.00 on the phone): never a line's own amount (the last line's can sit just above
+          // the balance on a small scan); nothing else found: the total isn't read, and that's said
+          var v = p.filter(function(l){ return l.x > lb.x + 120 && money(l.t) != null && Math.abs(l.y - lb.y) < 60 && (rows.amts || []).indexOf(l) < 0; })
+            .sort(function(a, b){ return Math.abs(a.y - lb.y) - Math.abs(b.y - lb.y); })[0];
           if(v) totals = { net: null, gst: null, total: money(v.t) };
         }
       });
@@ -620,7 +646,8 @@
     var lines = r.lines.map(function(l){
       var v = function(x){ return x == null ? null : x; };   // an empty column is null, as a CSV's would be
       return { supplier: sup, number: r.number, date: r.date, page: l.page, description: l.description, unit: l.unit, qtyPrinted: l.qty == null ? null : l.qty,   // v3.11.40: a printed quantity (Michael's Fresh)
-        price: v(l.price), net: v(l.net), gst: v(l.gst), total: v(l.total), note: '', unreadable: l.price == null || l.net == null || l.total == null };
+        price: v(l.price), net: v(l.net), gst: v(l.gst), total: v(l.total), note: '', unreadable: l.price == null || l.net == null || l.total == null,
+        nameDoubt: !!l.nameDoubt };   // v3.11.52
     });
     var invoice = r.totals ? { supplier: sup, number: r.number, date: r.date, pages: ps.length, net: r.totals.net, gst: r.totals.gst, total: r.totals.total } : null;
     if(!invoice) r.problems.push('The printed totals weren\'t read: is the last page in the scan?');

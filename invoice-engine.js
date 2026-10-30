@@ -94,6 +94,8 @@
   function checkLine(l){
     var flags = [], r = { qty: null, qtyFrom: '', weighed: false, ok: false, flags: flags, fix: null };
     var price = l.price, net = l.net, gst = l.gst, total = l.total;
+    // v3.11.52 (his invoices of 30 Oct): a reader that lost its place pairing names with numbers says so, line by line
+    if(l.nameDoubt) flags.push('This name may be on the wrong line: check it against the paper.');
     if(l.unreadable) flags.push('A number couldn\'t be read: check the invoice.');
     if(price == null || net == null || total == null){ flags.push('A number is missing.'); return r; }
     if(gst == null){ var g = (cents(total) - cents(net)) / 100; if(cents(g) === 0 || cents(g) === Math.round(cents(net) / 10)) gst = g; }
@@ -351,11 +353,12 @@
   /* ---------- a line fixed by hand (v3.11.47, his pick of 30 Oct: "tap the numbers") ---------- */
   /* His fix, typed as printed on the paper: the quantity, the price and the total (v = { qty, price, total }: numbers, or
      null for a box left empty). The GST follows: a tenth of the total on a line that had GST, else as read; the net is the
-     total less the GST. The line as read is kept once (read), for Undo and "read as". */
+     total less the GST. The line as read is kept once (read), for Undo and "read as". v3.11.52: numbers typed from the
+     paper settle a name that may have been on the wrong line (nameDoubt), as he's looked; Undo brings the doubt back. */
   function editLine(l, v){
-    var read = l.read || { qtyPrinted: l.qtyPrinted == null ? null : l.qtyPrinted, price: l.price, net: l.net, gst: l.gst, total: l.total, fixed: !!l.fixed, unreadable: !!l.unreadable };
+    var read = l.read || Object.assign({ qtyPrinted: l.qtyPrinted == null ? null : l.qtyPrinted, price: l.price, net: l.net, gst: l.gst, total: l.total, fixed: !!l.fixed, unreadable: !!l.unreadable }, l.nameDoubt ? { nameDoubt: true } : {});
     var taxed = read.gst != null && cents(read.gst) !== 0, gst = v.total != null && taxed ? round(v.total / 11, 2) : read.gst;
-    var out = Object.assign({}, l, { read: read, qtyPrinted: v.qty, price: v.price, total: v.total, gst: gst, fixed: true,
+    var out = Object.assign({}, l, { read: read, qtyPrinted: v.qty, price: v.price, total: v.total, gst: gst, fixed: true, nameDoubt: false,
       net: v.total == null ? null : gst != null ? round(v.total - gst, 2) : v.total });
     out.unreadable = out.price == null || out.net == null || out.total == null;
     return out;
@@ -365,6 +368,7 @@
     if(!l.read) return l;
     var r = l.read, out = Object.assign({}, l, { qtyPrinted: r.qtyPrinted, price: r.price, net: r.net, gst: r.gst, total: r.total, fixed: r.fixed, unreadable: r.unreadable });
     delete out.read;
+    if(r.nameDoubt) out.nameDoubt = true; else delete out.nameDoubt;   // v3.11.52: the doubt as read
     return out;
   }
 
