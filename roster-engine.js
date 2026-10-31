@@ -49,7 +49,7 @@ function endOk(start, end){
   return e !== s && (e > s || e < AFTER_MIDNIGHT);
 }
 
-/* What a bare hour means ("Anil at 4"), owner, 11 Oct: "only Wednesday I
+/* What a bare hour means ("Alex at 4"), owner, 11 Oct: "only Wednesday I
    start in the am, the rest is pm". For him on a Wednesday 6 to 11 is the
    morning; for everyone else, every day, it's the afternoon or evening. 12
    is always noon. One that lands at or after close is asked about, never

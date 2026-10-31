@@ -823,7 +823,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.60';
+const APP_VERSION = 'v3.11.61';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -2390,14 +2390,10 @@ function nextWeekday(name){
   return d;
 }
 
+/* v3.11.61 (his ask, 1 Nov): only the owner here; this page is public, so no staff names. A phone that already has a
+   staff list keeps it (STAFF_VERSION is unchanged); a new copy starts with him and adds the rest on Staff. */
 const staffSeed = [
-  { id:"st1", name:"Rabindra", avail:{wed:true,thu:true,fri:true,sat:true,sun:true} },
-  { id:"st2", name:"Nathan",   avail:{wed:true,thu:true,fri:true,sat:true,sun:true} },
-  { id:"st3", name:"Anil",     avail:{wed:true,thu:false,fri:false,sat:true,sun:true} },
-  { id:"st4", name:"Sushil",   avail:{wed:false,thu:true,fri:true,sat:true,sun:false} },
-  { id:"st5", name:"Axel",     avail:{wed:false,thu:false,fri:true,sat:false,sun:false} },
-  { id:"st6", name:"Morgan",   avail:{wed:false,thu:false,fri:true,sat:true,sun:false} },
-  { id:"st7", name:"Suraj",    avail:{wed:false,thu:false,fri:false,sat:false,sun:false} }
+  { id:"st1", name:"Rabindra", avail:{wed:true,thu:true,fri:true,sat:true,sun:true} }
 ];
 const STAFF_KEY = 'order-chit-staff';
 const STAFF_VER_KEY = 'order-chit-staff-ver';
@@ -7388,16 +7384,16 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.60"></script>
+<script src="move-data.js?v=3.11.61"></script>
 <!-- v3.11.28: the function doc reader. A separate file too: if it fails, only "From management's doc" says so. -->
-<script src="function-reader.js?v=3.11.60"></script>
+<script src="function-reader.js?v=3.11.61"></script>
 <!-- v3.11.30: the invoice rules. A separate file too: if it fails, only bringing in an invoice says so. -->
-<script src="invoice-engine.js?v=3.11.60"></script>
+<script src="invoice-engine.js?v=3.11.61"></script>
 <!-- v3.11.31: the supplier readers for a scanned invoice (Aziz's so far). -->
-<script src="invoice-readers.js?v=3.11.60"></script>
+<script src="invoice-readers.js?v=3.11.61"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.60"></script>
-<script src="voice-brain.js?v=3.11.60"></script>
-<script src="voice.js?v=3.11.60"></script>
+<script src="roster-engine.js?v=3.11.61"></script>
+<script src="voice-brain.js?v=3.11.61"></script>
+<script src="voice.js?v=3.11.61"></script>
 </body>
 </html>

@@ -620,14 +620,14 @@ function tsDayIn(text, today){
 
 /* ================= the roster, read only (v3.9.11) =================
    His questions (11 Oct): "what was last week's roster?" → "Which day, or
-   the whole week?" → "Wednesday: Suraj on pasta at 4 pm, …"; "how many
+   the whole week?" → "Wednesday: Lee on pasta at 4 pm, …"; "how many
    worked on Wednesday?"; "who was on pasta last week?"; this week's and next
    week's too. It only reads: nothing here changes the roster. */
 function addDays(k, n){ var d = keyDate(k); d.setDate(d.getDate() + n); return dateKey(d); }
 var RO_OFFSET = { mon: 0, tue: 1, wed: 2, thu: 3, fri: 4, sat: 5, sun: 6 };
 var RO_STATION_SAY = { KH: 'kitchen hand' };
 var RO_PIZZA = ['Oven', 'Dough', 'Toppings', 'Finisher'];   // v3.9.12: the pizza section (owner)
-/* names: the staff names, lower case, so "is Anil on" and "when is Nathan
+/* names: the staff names, lower case, so "is Alex on" and "when is Sam
    working" count; an item ("is mozz on the order") doesn't */
 function rosterIntent(text, names){
   var c = clean(text).replace(/^(hey pluto|ok pluto|pluto) /, '');
@@ -640,7 +640,7 @@ function rosterIntent(text, names){
   for(var i = 0; i < who.length; i++){
     var n = who[i];
     if(new RegExp('\\b(is|was|does|did) ' + n + ' (on|working|rostered|work)\\b|\\b(when|what days) (is|was|does|did) ' + n + '\\b|\\b' + n + 's (shifts?|days|roster)\\b').test(c)) return true;
-    // v3.11.1 (his log, 13 Oct): "what date is he off" (he = Anil), and his request: someone's hours
+    // v3.11.1 (his log, 13 Oct): "what date is he off" (he = Alex), and his request: someone's hours
     if(new RegExp('\\b(is|was|are) ' + n + ' off\\b|\\b' + n + 's? (days? )?off\\b|\\bhours? (is|does|did|has|will|for) ' + n + '\\b|\\b' + n + 's hours\\b').test(c)) return true;
   }
   return false;
@@ -693,7 +693,7 @@ function canTopic(text){
   return 'other';
 }
 var CAN_SAY = {
-  'roster-write': "Yes. Say 'let's do next week's roster', or a change like 'swap Nathan for Axel on Thursday'.",
+  'roster-write': "Yes. Say 'let's do next week's roster', or a change like 'swap {0} for {1} on Thursday'.",   // v3.11.61: names from his list
   'roster-read': "Yes. Ask me 'who's on tonight?', 'how many worked on Wednesday?' or 'what was last week's roster?'.",
   'timesheet': "Yes. Say 'add today's timesheet', change a day, or ask 'how many hours this week?'. Sending it to accounts is still you, on the Timesheet screen.",
   'send': "I can get an order ready to send, but you tap Send yourself. I can't send messages for you.",
@@ -828,8 +828,9 @@ function rbIndex(staff, me){
     return { id: s.id, name: s.name, keys: uniq(keys.filter(Boolean)) };
   });
 }
-/* v3.11.50: a name's sounds without its first vowel ("axel" k-s-l, "excellent" k-s-l-n-t); two words sound alike as names when
-   their first two sounds match and one runs on from the other, or only the last differs ("surahs" s-r-s, "suraj" s-r-j) */
+/* v3.11.50: a name's sounds without its first vowel; two words sound alike as names when their first two sounds match and
+   one runs on from the other (Google's longer everyday word for a short name), or only the last differs (a name heard with
+   an "s" in place of its last sound) */
 function rbSkel(w){ return sound(w).replace(/^[aeiouy]/, ''); }
 function rbSoundsLike(w, k){
   var a = rbSkel(w), b = rbSkel(k);
@@ -838,7 +839,7 @@ function rbSoundsLike(w, k){
 }
 function rbMatch(w, idx, learned){
   if(!w || /^\d/.test(w)) return null;
-  var base = w.length > 3 && /s$/.test(w) ? w.slice(0, -1) : null;   // "anils"
+  var base = w.length > 3 && /s$/.test(w) ? w.slice(0, -1) : null;   // "sams"
   var hit = idx.filter(function(p){ return p.keys.indexOf(w) > -1 || (base && p.keys.indexOf(base) > -1); });
   if(hit.length) return { ids: uniq(hit.map(function(p){ return p.id; })), sure: true };
   if(learned && learned[w] && idx.some(function(p){ return p.id === learned[w]; })) return { ids: [learned[w]], sure: true };
@@ -847,8 +848,8 @@ function rbMatch(w, idx, learned){
     return { id: p.id, s: Math.max.apply(null, p.keys.map(function(k){ return k.indexOf(' ') < 0 ? wordLike(w, k) : 0; })) };
   }).filter(function(x){ return x.s >= 0.7; }).sort(function(a, b){ return b.s - a.s; });
   if(!scored.length){
-    // v3.11.50 (his log, 24–25 Oct: "excellent" and "access" for Axel, "surahs" for Suraj): a word whose sounds start the
-    // way a staff name's do is asked about ("Did you mean Axel?"), never taken for a new person
+    // v3.11.50 (his log, 24–25 Oct: two everyday words Google heard for one name, an "s" ending for another's): a word whose
+    // sounds start the way a staff name's do is asked about ("Did you mean Max?"), never taken for a new person
     var alike = idx.filter(function(p){ return p.keys.some(function(k){ return k.indexOf(' ') < 0 && k.length > 2 && rbSoundsLike(w, k); }); });
     return alike.length ? { ids: alike.map(function(p){ return p.id; }), sure: false, word: w } : null;
   }
@@ -2070,7 +2071,7 @@ function createRoom(host){
   var RO_DETAIL = /\b(more details?|in detail|full details?|the details|tell me more|more info|which (sections?|stations?)|what (sections?|stations?)|whos on what|who is on what|whos doing what|sections|stations)\b/;
   var roLast = null, roSeq = 0;   // roSeq: which came last, a roster answer or a change (the clock can tie)
   /* v3.11.1: roLast also keeps the day asked about and the one person named,
-     for "and Friday", "remove Sanjay as well" and "what date is he off" */
+     for "and Friday", "remove Pat as well" and "what date is he off" */
   var RO_FOLLOW_MS = 2 * 60 * 1000;
   var RO_END = '21:00';   // owner, 13 Oct: the finish isn't set, "generally assumed to be 9pm"
   function rosterAnswer(text, forceWeek, sess){
@@ -2180,7 +2181,7 @@ function createRoom(host){
         var nS = shifts.length;
         return ans('answer', { say: [hrs + ' ' + wk + ': ' + nS + (nS === 1 ? ' shift' : ' shifts') + (guessed ? (guessed === nS ? ', counted to ' + timeSay(RO_END) : ', ' + guessed + ' of them counted to ' + timeSay(RO_END)) : '') + '.'], log: 'roster hours ' + nS });
       }
-      // v3.11.1 (his log): "how many days is Anil working this week" says the number first
+      // v3.11.1 (his log): "how many days is Alex working this week" says the number first
       if(count && !when.date) return ans('answer', { say: [(you ? "You're working " : pn + "'s working ") + shifts.length + (shifts.length === 1 ? ' day ' : ' days ') + where + ': ' + list + '.'], log: 'roster person ' + shifts.length });
       return ans('answer', { say: [pn + ' ' + where + ': ' + list + '.'], log: 'roster person ' + shifts.length });
     }
@@ -2285,7 +2286,22 @@ function createRoom(host){
   function rbWho(d, id, names){ return id === d.me ? 'you' : (names || {})[id] || (d.names || {})[id] || 'someone'; }
   function rbIs(n){ return n === 'you' ? "you're" : n + "'s"; }
   function rbStaffName(d, id){ var s = (d.staff || []).filter(function(x){ return x.id === id; })[0]; return s ? s.name : rbWho(d, id); }
-  /* a day, earliest first, the same times together: "Anil at 3, Nathan and you at 4" */
+  /* v3.11.61 (his ask, 1 Nov: an undo said "Friday is nobody."): "<day> is (now|still) …" with nobody on it is said as
+     "Nobody's on <day> now.", "Nobody's on <day>.", "Still nobody on <day>." */
+  function rbDayIs(label, d, entries, word){
+    if(RE.dayList({ x: entries || {} }, 'x').length) return label + ' is ' + (word ? word + ' ' : '') + rbDaySay(d, entries) + '.';
+    return word === 'still' ? 'Still nobody on ' + label + '.' : "Nobody's on " + label + (word === 'now' ? ' now.' : '.');
+  }
+  /* v3.11.61 (his ask, 1 Nov: no staff names in this public file): the hints name the first two people on his own
+     staff list (never him), read on the phone; "Sam" and "Alex" when there aren't two */
+  function rbHintNames(){
+    var d = roData(), me = d && d.me;
+    var n = ((d && d.staff) || []).filter(function(s){ return s && s.id !== me && s.name; }).map(function(s){ return String(s.name).trim().split(/\s+/)[0]; });
+    var a = n[0] || 'Sam';
+    return [a, n[1] && n[1] !== a ? n[1] : a !== 'Alex' ? 'Alex' : 'Sam'];
+  }
+  function rbTryLine(){ return "I didn't catch that for the roster. Try 'put " + rbHintNames()[0] + " on Thursday at 4', or 'let's do next week's roster'."; }
+  /* a day, earliest first, the same times together: "Sam at 3, Alex and you at 4" */
   function rbDaySay(d, entries, names){
     var list = RE.dayList({ x: entries || {} }, 'x');
     if(!list.length) return 'nobody';
@@ -2382,7 +2398,7 @@ function createRoom(host){
       if(RB_SWAP.indexOf(tk[i]) < 0) continue;
       var a = nextPU(i + 1);
       if(a < 0) break;
-      // "swap Nathan and Anil", "switch Nathan with Anil" when both are on: an exchange (the plan decides)
+      // "swap Sam and Alex", "switch Sam with Alex" when both are on: an exchange (the plan decides)
       if((tk[a + 1] === 'and' || tk[a + 1] === 'around') && PU(a + 2) && ['swap', 'switch', 'swop', 'trade'].indexOf(tk[i]) > -1) return { kind: 'exchange', a: a, b: a + 2 };
       for(j = a + 1; j < tk.length; j++){
         if(['for', 'with', 'by'].indexOf(tk[j]) > -1 || (tk[j] === 'to' && tk[i] !== 'switch')){
@@ -2455,7 +2471,7 @@ function createRoom(host){
       // the next clause sees the week as this sentence has changed it so far ("put W on, make him start at 4")
       if(ci > 0 && ops.length){ var cur = RE.apply(draft, { op: 'batch', ops: res.pre.concat(ops) }, rbCtx(d)); if(cur.ok) week = cur.week; }
       var k = rbKind(cl);
-      // "Who's on?" with no roster to go by: nothing but names ("Anil and Nathan", "me and Anil") puts them on
+      // "Who's on?" with no roster to go by: nothing but names ("Alex and Sam", "me and Alex") puts them on
       var onlyNames = cl.tk.length && cl.tk.every(function(w, i){ return cl.ty[i] === 'P' || cl.ty[i] === 'U' || /^(and|just|only|also|too|plus|um|uh|er|oh|yeah|ok|okay|so|then|maybe)$/.test(w); });
       if(!k && env.addBare && onlyNames && (cl.people.length || cl.unknown.length)) k = { kind: 'add', who: cl.tk.map(function(w, i){ return i; }).filter(function(i){ return cl.ty[i] === 'P' || cl.ty[i] === 'U'; }) };
       if(!k) continue;
@@ -2622,14 +2638,16 @@ function createRoom(host){
     if(/\b(today|tonight|todays|tonights)\b/.test(c)) date = today;
     else if(/\btomorrows?\b/.test(c)) date = addDays(today, 1);
     else {
-      var tk = c.split(' ');
+      /* v3.11.61 (his log #464: "remove Kim from next week Saturday", said on a Saturday, would ask "Today, or next
+         Saturday?"): "next week" or "this week" anywhere says which */
+      var tk = c.split(' '), nextWk = /\bnext weeks?\b/.test(c), thisWk = /\bthis weeks?\b/.test(c);
       for(var i = 0; i < tk.length && !date; i++){
         var dk = rbDayOf(tk[i]);
         if(!dk || dk === 'mon' || dk === 'tue' || tk[i - 1] === 'last') continue;
         date = today;
         while(dayOf(date) !== dk) date = addDays(date, 1);
-        if(tk[i - 1] === 'next' && mondayOf(date) === mondayOf(today)) date = addDays(date, 7);
-        else if(date === today && tk[i - 1] !== 'this') return { mon: mondayOf(date), day: dk, todayOrNext: true, next: mondayOf(addDays(date, 7)) };
+        if((tk[i - 1] === 'next' || nextWk) && mondayOf(date) === mondayOf(today)) date = addDays(date, 7);
+        else if(date === today && tk[i - 1] !== 'this' && !thisWk && !nextWk) return { mon: mondayOf(date), day: dk, todayOrNext: true, next: mondayOf(addDays(date, 7)) };
       }
     }
     return date ? { mon: mondayOf(date), day: dayOf(date) } : null;
@@ -2659,7 +2677,7 @@ function createRoom(host){
   }
   function rbIssue(plan, text, env, s, d, lead){
     // v3.10.1: the roster's question before this one, so "no" goes back to it (it asked "Add them?" again and again)
-    var is = plan.issue, keep = { text: text, env: env, prev: s && s.asked && !/^rb(New|Pick)$/.test(s.asked.kind) ? s.asked : null };
+    var is = plan.issue, keep = { text: text, env: env, prev: s && s.asked && !/^rb(New|Pick|StaffName)$/.test(s.asked.kind) ? s.asked : null };
     if(is.pick){
       var names = is.ids.map(function(id){ return rbStaffName(d, id); });
       var opts = is.ids.slice(0, 3).map(function(id, i){ return { label: names[i], value: id }; }).concat([{ label: 'Neither', value: 'none' }]);
@@ -2690,8 +2708,8 @@ function createRoom(host){
     if(is.emptyDay) return rbSay('cant', lead.concat(["Nobody's on " + DAY_FULL[is.emptyDay] + ' yet.']), 'rb empty day');
     return rbSay('cant', lead.concat(["I didn't catch that for the roster."]), 'rb issue');
   }
-  /* v3.11.1 (his log, 13 Oct): "remove Sanjay as well" right after Saturday's
-     roster or a change on Saturday went to the orders ("couldn't find sanjay"):
+  /* v3.11.1 (his log, 13 Oct): "remove Pat as well" right after Saturday's
+     roster or a change on Saturday went to the orders ("couldn't find pat"):
      a change needed a day said. The day the conversation is on (2 minutes)
      now counts, and is asked back first ("On Saturday the 17th?"): his choice
      of "check first" was left to Claude, and a wrong-day change is silent. */
@@ -2721,7 +2739,9 @@ function createRoom(host){
     var line1 = (one && s && one === focus ? 'Done. ' : '') + cap(plan.did.join('. ')) + '.';
     var w = rbWarn(r.warnings, d, plan.mon);
     if(w) line1 += ' ' + w;
-    var line2 = one ? (s ? DAY_FULL[one] : rbDateSay(RE.dateOf(plan.mon, one))) + ' is now ' + rbDaySay(d, r.week[one]) + '.' : '';
+    // v3.11.61: a day left empty is said once (the warning "Nobody's on Friday now." already says it)
+    var saidEmpty = one && !RE.dayList(r.week, one).length && (r.warnings || []).some(function(x){ return x.code === 'empty' && x.day === one; });
+    var line2 = one && !saidEmpty ? rbDayIs(s ? DAY_FULL[one] : rbDateSay(RE.dateOf(plan.mon, one)), d, r.week[one], 'now') : '';
     if(!s){
       rbLastEdit = one ? { at: now(), seq: ++roSeq, date: RE.dateOf(plan.mon, one) } : null;
       if(one) extra.show = { title: 'Roster · ' + rbDateSay(RE.dateOf(plan.mon, one)), lines: RE.dayList(r.week, one).map(function(x){ return { text: cap(rbWho(d, x.id)) + ' · ' + rbTime(x.start) + (x.end ? ' – ' + rbTime(x.end) : ''), tone: 'ok' }; }) };
@@ -2741,7 +2761,7 @@ function createRoom(host){
     var d = rbData() || { names: {}, staff: [] }, op = plan.ops[r.at] || {}, day = r.day || op.day;
     var n = r.id ? rbWho(d, r.id) : '', you = r.id === d.me, msg;
     if(r.error === 'notSaved'){
-      var still = plan.days.length === 1 && rbEditable(d, plan.mon) ? ' ' + DAY_FULL[plan.days[0]] + ' is still ' + rbDaySay(d, rbWeekOf(d, plan.mon)[plan.days[0]]) + '.' : '';
+      var still = plan.days.length === 1 && rbEditable(d, plan.mon) ? ' ' + rbDayIs(DAY_FULL[plan.days[0]], d, rbWeekOf(d, plan.mon)[plan.days[0]], 'still') : '';
       msg = "I couldn't save that, so nothing changed." + still;
     }
     else if(r.error === 'notOn') msg = cap(n) + (you ? " aren't" : " isn't") + ' on ' + (day ? DAY_FULL[day] : 'those days') + '. Nothing changed.';
@@ -2795,7 +2815,7 @@ function createRoom(host){
     var back = s.focus && s.focus !== day && (s.days[s.focus] === 'pending' || s.days[s.focus] === 'skipped') ? s.focus : null;
     if(s.days[day] === 'done' || s.days[day] === 'closed'){
       s.focus = day; s.back = back;
-      return rbAsk('rbElse', (lead || []).concat([DAY_FULL[day] + ' is ' + rbDaySay(d, rbWeekOf(d, s.week)[day]) + '.']), 'What should change?',
+      return rbAsk('rbElse', (lead || []).concat([rbDayIs(DAY_FULL[day], d, rbWeekOf(d, s.week)[day])]), 'What should change?',
         [{ label: back ? 'Nothing, back to ' + DAY_FULL[back] : 'Nothing', value: 'no' }], { day: day }, s, 'rb go to ' + day);
     }
     var a = rbPresent(s, d, day, lead);
@@ -2862,7 +2882,7 @@ function createRoom(host){
     return confirming('roster', ['That clears ' + wk.toLowerCase() + "'s roster: everyone off " + daysSay(days) + '.'], 'Clear it?',
       { plan: { mon: mon, ops: days.map(function(x){ return { op: 'clear', day: x }; }), days: days, did: [wk + "'s roster cleared"], pre: [], clearWeek: true }, env: { mon: mon, session: true } }, 'rb confirm clear week');
   }
-  /* v3.11.19 (his log, 18 Oct: "replace someone with Morgan", "add Morgan instead of
+  /* v3.11.19 (his log, 18 Oct: "replace someone with Kim", "add Kim instead of
      someone"): "someone" is the one person on last week's day who has left the staff
      (the read-out calls them that); their place is taken at their start time */
   function rbSomeoneSaid(text, env, d){
@@ -2981,8 +3001,56 @@ function createRoom(host){
   }
   function rbIsStart(c){
     if(/^(whats|what|how|hows|who|whos|when|is|are|was|were|did|do i|do we|does|am i|have i|any|which|show|tell|read|check)\b/.test(c)) return false;
-    return /\b(do|build|make|create|start|set up|plan|sort out|work on|write|new|draft|prepare|organise|organize|begin|lets do)( (a|an|the|my|our|this|next|new|weeks|next weeks|this weeks|a new|the new|up))* rosters?\b/.test(c)
-      && !/\b(add|put|swap|remove|take|change|move)\b/.test(c);
+    if(/\b(add|put|swap|remove|take|change|move)\b/.test(c)) return false;
+    if(/\b(do|build|make|create|start|set up|plan|sort out|work on|write|new|draft|prepare|organise|organize|begin|lets do)( (a|an|the|my|our|this|next|new|weeks|next weeks|this weeks|a new|the new|up))* rosters?\b/.test(c)) return true;
+    /* v3.11.61 (his log #270, #288, 18 Oct: "let's build rust of the next week", "let's build next week setlist", Google's
+       "roster"): building a week is only ever the roster here; not with the prep list, the orders or the timesheet */
+    if(/\b(prep|order|orders|ordering|timesheets?|time sheets?|functions?|invoices?|recipes?)\b/.test(c)) return false;
+    return /\bbuild(ing)?\b.*\b(this|next) weeks?\b|\b(do|build|make)( (a|an|the|my|our|this|next|new|weeks|next weeks|this weeks|up))* rusts?\b/.test(c);
+  }
+  /* v3.11.61: a swap between people ("replace Lee with Kim", "Kim instead of Lee") */
+  var RB_SWAPS = /\b(replace|replacing|swap|swapping|instead of|in for)\b/;
+  /* v3.11.61 (his log #469, #470, 25 Oct): "add a new staff", "can you add a new stuff", "add a staff member",
+     "add someone to the staff list", "add a new staff called Priya". { name: true } when a name follows "called". */
+  var RB_NEW_STAFF = /^(?:(?:so|and|ok|okay|now|um|uh|hey) )*(?:(?:can|could|would|will) you |please |lets |i want to |i need to |id like to )*(?:add|create|make|set up)(?: (?:a|an|the|one|another))? (?:new (?:staff|stuff|worker|employee|person|starter)(?: members?)?|(?:staff|stuff) members?|member of (?:the )?(?:staff|stuff)|(?:someone|somebody|a person) (?:to|on) the (?:staff|stuff)(?: list)?)(?: (?:to|on) the (?:staff|stuff)(?: list)?)?( (?:called|named) .+?)?(?: please)?$/;
+  function rbNewStaffSaid(c){ var m = RB_NEW_STAFF.exec(c); return m ? { name: !!m[1] } : null; }
+  function rbCalled(text){ var m = /\b(?:called|named)\s+(.+?)[\s.!?,]*(?:please)?[\s.!?]*$/i.exec(String(text || '')); return m ? m[1] : ''; }
+  function rbStaffNameAsk(s){
+    return rbAsk('rbStaffName', [], "What's their name?", [], { prev: s && s.asked ? s.asked : null }, s, 'rb new staff: name?', { expect: 'text' });
+  }
+  /* the name he said: 1 to 3 words, said back before it's added (his pick, 1 Nov: "Ask the name"); null when what he
+     said isn't a name but something else (a question, a command), so it's taken as that */
+  function rbStaffNameGot(text, d, s, p){
+    var raw = String(text || '').trim().replace(/[.!?,]+$/, '').replace(/^(?:(?:hey |ok |okay )?pluto[\s,]+)/i, '')
+      .replace(/^(?:(?:um|uh|oh|ok|okay|so|yeah|yes)[\s,]+)*(?:(?:it'?s|it is|his name is|her name is|their name is|the name is|name is|names|they'?re called|he'?s called|she'?s called|called|add)\s+)?/i, '').trim();
+    var c2 = clean(raw), words = raw.split(/\s+/).filter(Boolean);
+    var prev = p ? p.prev || null : s && s.asked ? s.asked : null;
+    function none(line, log){ if(s){ s.asked = prev; rbKeep(s); } return rbReaskOrSay(s, [line], log); }
+    if(!c2 || /^(no|nah|nope|cancel|never mind|nevermind|forget it|stop|leave it|nothing)\b/.test(c2)) return none('Okay. Nothing added.', 'rb new staff: none');
+    if(words.length > 3 || /^(what|whats|who|whos|how|when|where|why|is|are|can|could|add|put|take|remove|read|show|tell|check|lets)\b/.test(c2) && words.length > 1) return null;
+    if(/\d/.test(raw) || !words.every(function(w){ return /^[A-Za-z][A-Za-z'\-]*$/.test(w); }) || RB_YES.test(c2) || rbDayOf(c2))
+      return none("Sorry, I didn't catch a name. Nothing added.", 'rb new staff: no name');
+    var name = words.map(function(w){ return w.charAt(0).toUpperCase() + w.slice(1); }).join(' ');
+    var have = (d.staff || []).filter(function(st){ return clean(st.name) === clean(name); })[0];
+    if(have) return none(have.name + "'s already on the staff list.", 'rb new staff: on the list');
+    return rbAsk('rbNew', [], 'Add ' + name + ' to the staff list?', [{ label: 'Yes, add ' + name, value: 'yes' }, { label: 'No', value: 'no' }],
+      { name: name, text: null, prev: prev }, s, 'rb new staff: add?');
+  }
+  /* v3.11.61: a name written with a capital (Google writes names so) that isn't on the staff list, a day, a month, a
+     station or "I"; never the first word, which always has one. Only where the roster's own rule (rbNewNames) would
+     take it as a new name too: never in a sentence about a list or an order, or a word of a product or prep item */
+  function rbStranger(text, d){
+    var words = String(text || '').replace(/^\s*(?:(?:hey|ok|okay)\s+)?pluto\b[\s,]*/i, '').split(/\s+/).filter(Boolean);
+    if(words.length > 12) return null;
+    var itemWords = null;
+    try{ itemWords = catWords(catalogue(host.data(), taught())); }catch(e){ itemWords = null; }
+    var maybeNew = rbNewNames(text, itemWords), find = rbFinder(d);
+    for(var i = 1; i < words.length; i++){
+      var w = words[i].replace(/[^A-Za-z'\-]/g, '').replace(/'s$/, ''), k = clean(w);
+      if(!/^[A-Z][a-z]{2,}$/.test(w) || !k || !maybeNew[k] || RB_WORDS[k] || rbDayOf(k) || RB_STATION[k] || MONTHS.indexOf(w) > -1 || find(k)) continue;
+      return k;
+    }
+    return null;
   }
   function rbIsContinue(c){ return /\b(continue|resume|carry on|keep going|get back to|go back to|back to|pick up|finish off|finish)\b.*\brosters?\b/.test(c) && !/\blater\b/.test(c); }
   function rbIsPause(c){
@@ -3058,6 +3126,10 @@ function createRoom(host){
       }
     }
     if(asked){ var a = await rbAnswer(asked, req, sess, d); if(a) return a; }
+    // v3.11.61 (his log #469, #470, 25 Oct: "add a new staff", "can you add a new stuff"): the name asked, said back, added on his yes
+    var nsw = c && choice == null && host.addStaff ? rbNewStaffSaid(c) : null;
+    if(nsw) return nsw.name ? rbStaffNameGot(rbCalled(text), d, live ? sess : null, null) || rbStaffNameAsk(live ? sess : null)
+      : rbStaffNameAsk(live ? sess : null);
     if(live){
       if(c){
         var dIn = rbDayIn(c);
@@ -3076,18 +3148,24 @@ function createRoom(host){
     var marker = !!(rbDayIn(c) || /\b(today|tonight|tomorrow)\b/.test(c) || parseClock(c) || rbRel(c) || /\brosters?\b|\brostered\b|\bshifts?\b/.test(c));
     var verb = RO_WRITE.test(c) || /\b(swap|replace|instead of|in for|off|starts|finishes)\b/.test(c);
     if(/^(whats|what|how|hows|who|whos|when|is|are|was|were|did|do i|have i|any|which|show|tell|read|check)\b/.test(c)) return null;
-    /* v3.11.1: no day said ("remove Sanjay as well", "remove Sanjay for now"), a
+    /* v3.11.1: no day said ("remove Pat as well", "remove Pat for now"), a
        clear change to someone on the staff takes the day the conversation is on,
        asked back first. Only a sure name and a change word ("cuts me off" isn't one). */
     var noDay = !rbDayIn(c) && !/\b(today|tonight|tomorrow)\b|\b(this|next|last) weeks?\b/.test(c) && !rbRel(c);
     var ctxDay = noDay && sure && RO_WRITE.test(c) ? rbCtxDay(d) : null;
-    if(!(((sure || me) && marker && verb) || ((sure || me || any) && /\brosters?\b/.test(c) && verb) || (/\brosters?\b/.test(c) && RO_WRITE.test(c)) || ctxDay)) return null;
+    /* v3.11.61 (his log #286, 18 Oct: "replace Lee with Kim" said fresh was "no cue"): a swap between people needs
+       no day said; it's asked ("Which day?"). And (#472, 25 Oct: "next week can you put Chris at 4") a name written with
+       a capital that isn't on the staff list, in a change with a day, a time or a week: "I don't have Chris … Add them?" */
+    var swap = RB_SWAPS.test(c);
+    var stranger = !sure && !me && !any && /\b(add|put|get|swap|replace|book|schedule)\b/.test(c)
+      && (marker || /\b(this|next) weeks?\b/.test(c)) && rbStranger(text, d);
+    if(!(((sure || me) && (marker || swap) && verb) || ((sure || me || any) && /\brosters?\b/.test(c) && verb) || (/\brosters?\b/.test(c) && RO_WRITE.test(c)) || ctxDay || stranger)) return null;
     // an order sentence that happens to sound like a name stays an order
     var cat = catalogue(host.data(), taught());
     if(!sure && !me && parse(text, cat).items.some(function(it){ return it.exact && it.exact.length; })) return null;
     if(ctxDay && !/\brosters?\b/.test(c)){
       var ec = rbEdit(text, { mon: ctxDay.mon, day: null, base: 'draft', session: false, last: null, fix: {}, ctxDay: ctxDay.day });
-      return ec || rbSay('cant', ["I didn't catch that for the roster. Try 'put Anil on Thursday at 4', or 'let's do next week's roster'."], 'rb not understood');
+      return ec || rbSay('cant', [rbTryLine()], 'rb not understood');
     }
     var when = rbWhen(c, d);
     if(when && when.todayOrNext){
@@ -3095,7 +3173,7 @@ function createRoom(host){
         { text: text, env: { mon: when.mon, day: null, base: 'draft', session: false, last: null, fix: { day: when.day } }, next: when.next }, null, 'rb today or next');
     }
     var e2 = rbEdit(text, { mon: when ? when.mon : rbNextMon(d), day: null, base: 'draft', session: false, last: null, fix: when ? { day: when.day } : {} });
-    return e2 || rbSay('cant', ["I didn't catch that for the roster. Try 'put Anil on Thursday at 4', or 'let's do next week's roster'."], 'rb not understood');
+    return e2 || rbSay('cant', [rbTryLine()], 'rb not understood');
   }
   /* his answer to a roster question; null when it isn't one */
   async function rbAnswer(p, req, s, d){
@@ -3156,19 +3234,23 @@ function createRoom(host){
       var ids = {}; ids[p.word] = pick;
       return rbEdit(p.text, reEnv({ ids: ids }));
     }
+    if(p.kind === 'rbStaffName') return choice == null ? rbStaffNameGot(text, d, s, p) : null;   // v3.11.61
     if(p.kind === 'rbNew'){
-      // v3.11.50 (his log #479: "I meant axle" got "Sorry, I didn't catch that … Add them?" again): the name he meant instead,
+      // v3.11.50 (his log #479: "I meant <the name>" got "Sorry, I didn't catch that … Add them?" again): the name he meant instead,
       // for this change only (never learned: the word wasn't like the name, or it would have been asked about as one)
       var meant = /^(?:(?:no|nah|sorry|oh)\s+)*(?:i meant|i mean|i said|meant|its|it is|thats|that is)\s+(.+)$/.exec(c) || (no ? /^(?:no|nah)\s+(.+)$/.exec(c) : null);
-      if(meant){
+      // v3.11.61: a new staff member on their own ("add a new staff"): "no, it's Christine" is the name said again
+      if(!p.text && meant && choice == null) return rbStaffNameGot(String(text).replace(/^\s*(?:(?:no|nah|sorry|oh)[\s,]+)*(?:i meant|i mean|i said|meant|it'?s|it is|that'?s|that is)?\s*/i, ''), d, s, p);
+      if(meant && p.text){
         var midx = rbIndex(d.staff, d.me), mw = meant[1].split(' ').map(function(w){ return rbMatch(w, midx, {}); }).filter(function(x){ return x && x.sure && x.ids.length === 1; })[0];
         if(mw){ var mids = {}; mids[clean(p.name)] = mw.ids[0]; return rbEdit(p.text, reEnv({ ids: mids })); }
       }
       if(!yes && !no && !/\b(add (them|him|her)|yes add)\b/.test(c)) return null;
-      if(no){ rbBack(s, p); return rbReaskOrSay(s, ['Left it. Nothing changed.'], 'rb new staff no'); }
+      if(no){ rbBack(s, p); return rbReaskOrSay(s, [p.text ? 'Left it. Nothing changed.' : 'Left it. Nothing added.'], 'rb new staff no'); }
       var added = null;
       try{ added = host.addStaff ? host.addStaff(p.name) : null; }catch(e){ added = null; }
-      if(!added || !added.ok) return rbReaskOrSay(s, ["I couldn't add " + p.name + ' to the staff list. Nothing changed.'], 'rb new staff failed');
+      if(!added || !added.ok){ rbBack(s, p); return rbReaskOrSay(s, ["I couldn't add " + p.name + ' to the staff list. Nothing changed.'], 'rb new staff failed'); }
+      if(!p.text){ rbBack(s, p); return rbReaskOrSay(s, ['Added ' + p.name + ' to the staff list.', "They're free all five days: change that on Staff in The Pass."], 'rb new staff added'); }
       return rbEdit(p.text, reEnv({}), ['Added ' + p.name + ' to the staff list.']) || rbSay('answer', ['Added ' + p.name + ' to the staff list.'], 'rb new staff');
     }
     if(p.kind === 'rbAmPm'){
@@ -3194,6 +3276,9 @@ function createRoom(host){
       return rbEdit(p.text, e3);
     }
     if(p.kind === 'rbWhichDay'){
+      /* v3.11.61 (replaying his log #342's talk: "get Lee to start at 4 on Saturday" said while "Which day?" waited was
+         taken as "Saturday" for the change before): a longer sentence with its own change word is a new change */
+      if(choice == null && n > 4 && /\b(add|put|get|set|change|move|swap|replace|remove|take|start|starts|starting|finish|finishes|finishing)\b/.test(c)) return null;
       var cd = p.env && p.env.ctxDay, wd = choice || rbDayIn(c), byCtx = !!cd && wd === cd;
       if(!wd && cd && choice == null && (yesNo(text) === 'yes' || (RB_YES.test(c) && n <= 4))){ wd = cd; byCtx = true; }
       if(!wd && cd && choice == null && (yesNo(text) === 'no' || (RB_NO.test(c) && n <= 3))){
@@ -3427,6 +3512,14 @@ function createRoom(host){
     ['function', 'functions'].forEach(put2);                 // v3.11.22: his functions, read by voice
     ['invoice', 'invoices', 'spend', 'spent', 'spending'].forEach(put2);   // v3.11.38: "how much did we spend this week"
     ['cart', 'basket', 'trolley'].forEach(put2);             // v3.11.51: "what's in the cart"
+    /* v3.11.61 (his log, 1 Nov: "put Alex on Thursday at 4", "take Alex off Friday", "replace Lee with Kim" said
+       to a fresh "Hey Pluto" got "I can't do that yet": nothing in them was this room's word). The staff's first names
+       (never his own: he says "me"), so a change or a question about someone reaches this room. They stay on the
+       phone: Pluto's router keeps the menu there and sends it nowhere. A name that's an everyday word is a cue. */
+    var ro = roData();
+    ((ro && ro.staff) || []).forEach(function(st){ if(st && st.id !== ro.me){ put2(st.name); put2(String(st.name || '').split(/\s+/)[0]); } });
+    ['new staff', 'new stuff', 'staff list', 'staff member', 'build'].forEach(put2);   // "add a new staff"; "let's build next week setlist"
+    if(cues.indexOf('staff') < 0) cues.push('staff');   // a cue, not its own word: "the staff meeting" is the calendar's
     /* v3.11.60 (his log, every heard log replayed, 1 Nov): what this room reads but Pluto's router never sent here.
        Google's "prep list" that line 98 already reads ("add salad dressing to the breath list", "what else is on the
        Breathless", "… to the purpose"); "recipe" ("show me the recipe for custard": his is "Vanilla Custard"); "ordering"
@@ -4121,7 +4214,7 @@ function createRoom(host){
         var ru = rd && RE && rbEditable(rd, o.mon) ? RE.commit(rbWeekOf(rd, o.mon), { op: 'undo', rec: o.rec }, rbCtx(rd), rbSaver(o.mon)) : null;
         if(!ru || !ru.ok){ skipped.push(joinAnd(dn) + "'s roster"); continue; }
         roUndone = true;
-        said.push(cap(joinAnd(rbUndoSay(rd, ru.changes))) + '. ' + ru.days.map(function(x){ return DAY_FULL[x] + ' is ' + rbDaySay(rd, ru.week[x]) + '.'; }).join(' '));
+        said.push(cap(joinAnd(rbUndoSay(rd, ru.changes))) + '. ' + ru.days.map(function(x){ return rbDayIs(DAY_FULL[x], rd, ru.week[x]); }).join(' '));
       }
       else if(o.k === 'fnItem'){   // v3.11.22: only if it's still what the change made it
         var fu = host.setFunctionItem ? await host.setFunctionItem(o.fid, o.itemId, o.before, o.after) : null;
@@ -6144,7 +6237,7 @@ function createRoom(host){
       // v3.11.1 (his log, 13 Oct): "and Friday", "check Saturday as well" right after a roster answer
       var roF = roFollowDay(req.text || '', lastR);
       if(roF) return roF;
-      /* v3.11.1 (owner, 13 Oct): "how many hours is Anil doing this week" is the
+      /* v3.11.1 (owner, 13 Oct): "how many hours is Alex doing this week" is the
          roster, not his own timesheet ("how many hours" alone still is) */
       var roT = roPronoun(req.text || ''), rdH = roData(), other = rdH ? roPersonIn(roT, rdH) : null;
       if(other === (rdH && rdH.me)) other = null;
@@ -6156,7 +6249,7 @@ function createRoom(host){
         if(/\b(he|she|hes|shes|they|theyre|his|her|their|him|them)\b/.test(clean(roT))) return ans('answer', { say: ['Who do you mean? Say their name.'], log: 'hours who' });
       }
       var tsk = tsIntent(req.text || '');   // v3.9.6: his timesheet
-      if(!tsk && tsRecent() && !other){     // v3.9.10: "remove the Sunday" right after a timesheet answer (v3.11.1: not "is Anil off on Sunday")
+      if(!tsk && tsRecent() && !other){     // v3.9.10: "remove the Sunday" right after a timesheet answer (v3.11.1: not "is Alex off on Sunday")
         tsk = tsFollow(req.text || '');
         if(tsk && parse(req.text || '', (await fresh()).cat).items.some(function(it){ return it.exact && it.exact.length; })) tsk = null;
       }
@@ -6173,7 +6266,7 @@ function createRoom(host){
       var rm = await readMore(req.text || '', lastR);   // v3.11.1: "is there more?", "read them all"
       if(rm) return rm;
       var roN = roNames(roData());
-      if(rosterWrite(req.text || '', roN)) return cant(RE && host.setRosterDays ? "I didn't catch that for the roster. Try 'put Anil on Thursday at 4', or 'let's do next week's roster'." : "I can't change the roster from here.", 'roster write');
+      if(rosterWrite(req.text || '', roN)) return cant(RE && host.setRosterDays ? rbTryLine() : "I can't change the roster from here.", 'roster write');
       var rdA = roDetailAgain(req.text || '');   // v3.10.1: "more details" after a roster answer
       if(rdA) return rdA;
       if(rosterIntent(roT, roN)) return rosterAnswer(roT);   // v3.9.11: read only (v3.11.1: "he" is who was just asked about)
@@ -6239,7 +6332,7 @@ function createRoom(host){
            with a misheard name ("can you add pearly garlic" → "Did you mean …?") */
         if(!target && (about || !c1.verb)){
           if(mode === 'pluto' && topic === 'other') return notmine('can other');
-          return ans('answer', { say: [CAN_SAY[topic]], log: 'can ' + topic });
+          return ans('answer', { say: [CAN_SAY[topic].replace(/\{(\d)\}/g, function(m, i){ return rbHintNames()[+i]; })], log: 'can ' + topic });
         }
       }
       return await run(c1, req, mode);
@@ -6439,7 +6532,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.60',
+  version: 'v3.11.61',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,

@@ -747,8 +747,9 @@ function roomStart(){
   window.PlutoRoom = { call: roomCall, hello: ROOM_CALLS.hello, menu: ROOM_CALLS.menu, handle: ROOM_CALLS.handle,
                        confirm: ROOM_CALLS.confirm, undo: ROOM_CALLS.undo, reset: function(){ room.reset(); }, open: function(){} };
   // the Almo tab changed the lists, a word was taught, or his data was brought in
+  // (v3.11.61: or the staff list, whose first names are in the menu)
   window.addEventListener('storage', function(e){
-    if(!e.key || /^order-chit-(suppliers|prep-items|recipes|voice-words|copy-role)$/.test(e.key)){ roomFresh(); roomTell(); }
+    if(!e.key || /^order-chit-(suppliers|prep-items|recipes|voice-words|copy-role|staff)$/.test(e.key)){ roomFresh(); roomTell(); }
   });
   var m = room.menu();
   roomMenuSent = JSON.stringify(m);
