@@ -31,19 +31,32 @@
   /* handwriting glued to the front of a printed (all-capitals) name: "TooSPECK" -> "SPECK" */
   function tidy(s){ return String(s).replace(/^[A-Za-z]*[a-z][A-Za-z]*?(?=[A-Z]{2,})/, '').trim(); }
 
-  /* a page's lines with their centre: { t, x, y }; v3.11.46: and their width and height (w, h) */
+  /* a page's lines with their centre: { t, x, y }; v3.11.46: and their width and height (w, h);
+     v3.11.56: and the slope of the line's own top edge (s: down per across; a photo that leans tilts every line) */
   function linesOf(page){
     var out = [], len = function(a, b){ return Math.sqrt((a[0] - b[0]) * (a[0] - b[0]) + (a[1] - b[1]) * (a[1] - b[1])); };
     ((page && page.blocks) || []).forEach(function(b){ (b.lines || []).forEach(function(l){
       var c = l.corners || [];
       if(c.length !== 4) return;
-      out.push({ t: String(l.text || '').trim(), x: (c[0][0] + c[1][0] + c[2][0] + c[3][0]) / 4, y: (c[0][1] + c[1][1] + c[2][1] + c[3][1]) / 4, w: len(c[0], c[1]), h: len(c[0], c[3]) });
+      out.push({ t: String(l.text || '').trim(), x: (c[0][0] + c[1][0] + c[2][0] + c[3][0]) / 4, y: (c[0][1] + c[1][1] + c[2][1] + c[3][1]) / 4, w: len(c[0], c[1]), h: len(c[0], c[3]),
+        s: c[1][0] !== c[0][0] ? (c[1][1] - c[0][1]) / (c[1][0] - c[0][0]) : 0 });
     }); });
     return out;
+  }
+  /* v3.11.56: how much the page leans: the middle slope of its longer lines (a word or two can sit crooked), never past
+     about 6 degrees; 0 when there's no slope to read (an older reading) */
+  function leanOf(lines){
+    var s = lines.filter(function(l){ return l.t.length >= 6 && isFinite(l.s); }).map(function(l){ return l.s; });
+    return Math.max(-0.1, Math.min(0.1, median(s)));
   }
 
   /* ---------- Aziz (Food Distributors Australia) ---------- */
   function fdaRows(lines){
+    /* v3.11.56 (his 83653 of 30 Oct, a photo leaning 0.65 degrees: each name sat up to 16 px above its own numbers, and
+       the window below allowed only 8 px, so every name went on the line above): heights are read as if the page
+       were straight (each line raised by its distance across times the lean), and the window is a share of a row */
+    var lean = leanOf(lines);
+    lines = lines.map(function(l){ return { t: l.t, x: l.x, y: l.y - lean * l.x }; });
     var units = lines.filter(function(l){ return UNIT.test(l.t); }).sort(function(a, b){ return a.y - b.y; });
     if(!units.length) return [];
     var unitX = units.reduce(function(a, l){ return a + l.x; }, 0) / units.length;
@@ -84,7 +97,7 @@
     for(i = 0; i < n; i++){ cost.push([]); from.push([]); for(j = 0; j < m; j++){ cost[i].push(Infinity); from[i].push(null); } }
     for(i = 0; i < n; i++) for(j = 0; j < m; j++){
       var off = descs[i].y - slots[j].y;
-      if(off < -8 || off > lineH * 1.6) continue;
+      if(off < -Math.max(8, lineH * 0.4) || off > lineH * 1.6) continue;   // v3.11.56: 8 px was a fifth of a row on a sharp photo
       var best = DROP * i + SKIP * j + Math.abs(off - lineH * 0.8) * 0.3, arg = null;
       for(i2 = 0; i2 < i; i2++) for(j2 = 0; j2 < j; j2++){
         if(cost[i2][j2] === Infinity) continue;
@@ -197,46 +210,92 @@
     var amts = lines.filter(function(l){ return inTable(l) && money(l.t) != null && Math.abs(l.x - hA.x) < half; }).sort(function(a, b){ return yc(a) - yc(b); });
     var gap = amts.length > 1 ? median(amts.slice(1).map(function(a, i){ return yc(a) - yc(amts[i]); })) : 60;
     amts = amts.filter(function(a){ return yc(a) < bottom - gap * 0.5; });   // never the balance's own amount
-    var rows = amts.map(function(a){ return { y: yc(a), amount: money(a.t), rate: null, texts: [] }; });
     var rates = lines.filter(function(l){ return inTable(l) && money(l.t) != null && Math.abs(l.x - hR.x) < Math.min(half, 300); });
     var texts = lines.filter(function(l){ return inTable(l) && l.x < hR.x - 100 && !/^(QTY|ITEM|RATE|AMOUNT)\b/i.test(l.t) && l.t; });
-    // a column's usual height offset from its row (each column sits a little differently), then the nearest row
-    var place = function(list, put){
-      var near = function(v){ return rows.reduce(function(b, r){ return !b || Math.abs(r.y - v) < Math.abs(b.y - v) ? r : b; }, null); };
-      var off = rows.length ? median(list.map(function(l){ return yc(l) - near(yc(l)).y; })) : 0, left = [];
-      list.forEach(function(l){ var r = rows.length ? near(yc(l) - off) : null; if(r && Math.abs(yc(l) - off - r.y) < gap * 0.5) put(r, l); else left.push(l); });
-      return left;
-    };
-    // the item lines grouped into printed rows (a row's words can come as two lines)
-    var trows = [];
-    texts.slice().sort(function(a, b){ return yc(a) - yc(b); }).forEach(function(l){
-      var last = trows[trows.length - 1];
-      if(last && yc(l) - yc(last[0]) < gap * 0.5) last.push(l); else trows.push([l]);
-    });
-    // as many of each as there are amounts: paired top to bottom (a small tilt misjudged can't shift a row);
-    // otherwise (something not read) each by its height
-    if(rates.length === rows.length) rates.slice().sort(function(a, b){ return yc(a) - yc(b); }).forEach(function(l, k){ rows[k].rate = money(l.t); });
-    else place(rates, function(r, l){ if(r.rate == null) r.rate = money(l.t); });
-    var orphans = [];
-    if(trows.length === rows.length) trows.forEach(function(g, k){ rows[k].texts = g.slice(); });
-    else orphans = place(texts, function(r, l){ r.texts.push(l); });
-    // words on no amount's row: a line whose amount wasn't read; kept with its numbers empty (the checks flag it)
-    orphans.sort(function(a, b){ return yc(a) - yc(b); }).forEach(function(l){
-      var r = rows.filter(function(x){ return x.amount == null && Math.abs(x.y - yc(l)) < gap * 0.5; })[0];
-      if(r) r.texts.push(l); else rows.push({ y: yc(l), amount: null, rate: null, texts: [l] });
-    });
-    rows.sort(function(a, b){ return a.y - b.y; });
-    var out = rows.map(function(r){
-      var t = r.texts.slice().sort(function(a, b){ return a.x - b.x; }).map(function(l){ return l.t; }), qty = null, m;
-      if(t.length > 1 && /^\d+(\.\d+)?$/.test(t[0])) qty = +t.shift();
-      else if(t.length && (m = /^(\d+(?:\.\d+)?)\s+(\S.*)$/.exec(t[0]))){ qty = +m[1]; t[0] = m[2]; }
-      var desc = t.join(' ').replace(/^(KG)(?=[A-Z][a-z])/i, '$1 ').replace(/\s+/g, ' ').trim();
-      var w = (desc.split(' ')[0] || '').toUpperCase();
-      return { description: desc, unit: MF_UNIT.test(w) ? (w === 'KGS' ? 'KG' : w) : 'EACH', qty: qty, price: r.rate, net: r.amount, gst: null, total: r.amount,
-        merged: mfMerged(desc) };
-    });
+    /* v3.11.56 (his phone's scan of 210358, 30 Oct: "KG Lemon 6 Buncth Chive", two items read as one line, and every name
+       below it on the row above's numbers): a line holding two items is tried as two, one row apart, the second a row
+       down or the first a row up (the joined line's height can't say which). The rows' own sums decide: a quantity
+       times its rate is its amount. The way with the most sums that work, and none broken, is kept; as read when
+       nothing is better (then flagged as before). */
+    var tries = [{ texts: texts, split: 0 }].concat(mfSplits(texts, gap)), best = null;
+    tries.forEach(function(tr){ var o = fill(tr.texts), s = mfSums(o); if(!best || s > best.s) best = { o: o, s: s, split: tr.split }; });
+    var out = best.o;
+    // split, but the other way works as well: which line went where isn't known (flagged)
+    out.doubt = !!best.split && tries.some(function(tr){ return tr.split && tr.split !== best.split && mfSums(fill(tr.texts)) === best.s; });
+    out.split = best.split;
     out.amts = amts;   // v3.11.52: the amounts that are rows (never the balance)
     return out;
+    function fill(texts){
+      var rows = amts.map(function(a){ return { y: yc(a), amount: money(a.t), rate: null, texts: [] }; });
+      // a column's usual height offset from its row (each column sits a little differently), then the nearest row
+      var place = function(list, put){
+        var near = function(v){ return rows.reduce(function(b, r){ return !b || Math.abs(r.y - v) < Math.abs(b.y - v) ? r : b; }, null); };
+        var off = rows.length ? median(list.map(function(l){ return yc(l) - near(yc(l)).y; })) : 0, left = [];
+        list.forEach(function(l){ var r = rows.length ? near(yc(l) - off) : null; if(r && Math.abs(yc(l) - off - r.y) < gap * 0.5) put(r, l); else left.push(l); });
+        return left;
+      };
+      // the item lines grouped into printed rows (a row's words can come as two lines)
+      var trows = [];
+      texts.slice().sort(function(a, b){ return yc(a) - yc(b); }).forEach(function(l){
+        var last = trows[trows.length - 1];
+        if(last && yc(l) - yc(last[0]) < gap * 0.5) last.push(l); else trows.push([l]);
+      });
+      // as many of each as there are amounts: paired top to bottom (a small tilt misjudged can't shift a row);
+      // otherwise (something not read) each by its height
+      if(rates.length === rows.length) rates.slice().sort(function(a, b){ return yc(a) - yc(b); }).forEach(function(l, k){ rows[k].rate = money(l.t); });
+      else place(rates, function(r, l){ if(r.rate == null) r.rate = money(l.t); });
+      var orphans = [];
+      if(trows.length === rows.length) trows.forEach(function(g, k){ rows[k].texts = g.slice(); });
+      else orphans = place(texts, function(r, l){ r.texts.push(l); });
+      // words on no amount's row: a line whose amount wasn't read; kept with its numbers empty (the checks flag it)
+      orphans.sort(function(a, b){ return yc(a) - yc(b); }).forEach(function(l){
+        var r = rows.filter(function(x){ return x.amount == null && Math.abs(x.y - yc(l)) < gap * 0.5; })[0];
+        if(r) r.texts.push(l); else rows.push({ y: yc(l), amount: null, rate: null, texts: [l] });
+      });
+      rows.sort(function(a, b){ return a.y - b.y; });
+      var out = rows.map(function(r){
+        var t = r.texts.slice().sort(function(a, b){ return a.x - b.x; }).map(function(l){ return l.t; }), qty = null, m;
+        if(t.length > 1 && /^\d+(\.\d+)?$/.test(t[0])) qty = +t.shift();
+        else if(t.length && (m = /^(\d+(?:\.\d+)?)\s+(\S.*)$/.exec(t[0]))){ qty = +m[1]; t[0] = m[2]; }
+        var desc = t.join(' ').replace(/^(KG)(?=[A-Z][a-z])/i, '$1 ').replace(/\s+/g, ' ').trim();
+        var w = (desc.split(' ')[0] || '').toUpperCase();
+        return { description: desc, unit: MF_UNIT.test(w) ? (w === 'KGS' ? 'KG' : w) : 'EACH', qty: qty, price: r.rate, net: r.amount, gst: null, total: r.amount,
+          merged: mfMerged(desc) };
+      });
+      return out;
+    }
+  }
+  /* v3.11.56: the ways to read lines holding two items as two (none: []): every such line split where the second item
+     starts (its quantity, or its unit word after the first item's words), the second half a row down or the first half
+     a row up. split: 1 down, 2 up. Up to two such lines on a page; more is left as read (and flagged). */
+  var MF_SPLIT_QTY = /^(.*?[A-Za-z])\s+(\d+(?:\.\d+)?\s+[A-Za-z].*)$/;
+  function mfSplitAt(t){
+    var m = MF_SPLIT_QTY.exec(t);
+    if(m) return [m[1], m[2]];
+    var w = String(t).split(/\s+/);
+    for(var i = 1; i < w.length; i++) if(MF_UNIT.test(w[i]) && !/^\d/.test(w[i - 1])) return [w.slice(0, i).join(' '), w.slice(i).join(' ')];
+    return null;
+  }
+  function mfSplits(texts, gap){
+    var two = texts.filter(function(l){ return mfMerged(l.t) && mfSplitAt(l.t); });
+    if(!two.length || two.length > 2) return [];
+    return [1, 2].map(function(way){
+      var out = [];
+      texts.forEach(function(l){
+        if(two.indexOf(l) < 0){ out.push(l); return; }
+        var p = mfSplitAt(l.t), dy = way === 1 ? [0, gap] : [-gap, 0];
+        out.push({ t: p[0], x: l.x, y: l.y + dy[0] }, { t: p[1], x: l.x, y: l.y + dy[1] });
+      });
+      return { texts: out, split: way };
+    });
+  }
+  /* the rows' sums: each with a quantity, a rate and an amount where quantity × rate is the amount counts 1; one where
+     it isn't counts −2 (a broken sum is stronger evidence than a sum that works by chance) */
+  function mfSums(rows){
+    return rows.reduce(function(a, r){
+      if(r.qty == null || r.price == null || r.net == null) return a;
+      return a + (Math.abs(round2(r.qty * r.price) - r.net) < 0.015 ? 1 : -2);
+    }, 0);
   }
   /* v3.11.52 (his phone's scan of 210358, 30 Oct: "KG Lemon 6 Buncth Chive", and every name below it on the row above's
      numbers): two items read as one line, a quantity and a word, or an item's unit word, after its start */
@@ -260,7 +319,7 @@
         if(!rows.length) problems.push('Page ' + (pi + 1) + ': no invoice lines read.');
         // v3.11.52: two items read as one line put names on other lines' numbers (pairs by order, or by a misjudged height):
         // every line on the page says its name may be on the wrong line
-        var lost = rows.some(function(r){ return r.merged; });
+        var lost = rows.some(function(r){ return r.merged; }) || !!rows.doubt;   // v3.11.56: or split, but either way works
         if(lost) problems.push(NAMES_LOST);
         rows.forEach(function(r){ lines.push({ page: pi + 1, description: r.description || '(not read)', unit: r.unit, qty: r.qty, price: r.price, net: r.net, gst: null, total: r.total, nameDoubt: lost }); });
         var lb = p.filter(function(l){ return /^TOTAL$/i.test(l.t); })[0] || p.filter(function(l){ return /^BALANCE\s+DUE$/i.test(l.t); })[0];
@@ -654,5 +713,5 @@
     return { ok: lines.length > 0, reader: sup, why: lines.length ? '' : 'No invoice lines were read from the scan.', parsed: { invoice: invoice, lines: lines, prices: [], problems: r.problems } };
   }
 
-  return { read: read, money: money, tidy: tidy, readDate: readDate, linesOf: linesOf };
+  return { read: read, money: money, tidy: tidy, readDate: readDate, linesOf: linesOf, mfSums: mfSums, mfSplitAt: mfSplitAt, leanOf: leanOf };
 });
