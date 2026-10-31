@@ -705,6 +705,10 @@ body:has(.cart-head){align-items:flex-start;}   /* the page grows with the list 
 .pn-strip span{min-width:0;overflow-wrap:anywhere;}
 .pn-x{flex:none;border:0;background:none;color:var(--muted);font-size:16px;font-weight:700;line-height:1;padding:0 4px;cursor:pointer;}
 .pn-clear{flex:none;border:1px solid #E3C99A;background:#fff;color:#8A5A16;border-radius:999px;font-size:11.5px;font-weight:700;padding:3px 9px;cursor:pointer;white-space:nowrap;}
+/* v3.11.58: notes about staff on Build Roster (the product notes' strip), and a dot on a day that has one */
+.rstaff .sn-strip{margin:0 0 8px;}
+.rday-tab{position:relative;}
+.sn-dot{position:absolute;top:4px;right:6px;width:6px;height:6px;border-radius:50%;background:#D99A2B;}
 .pl-fold{display:flex;justify-content:space-between;align-items:baseline;margin-top:16px;}
 .pl-q{font-size:13.5px;font-weight:700;margin-top:8px;}
 .pl-acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;align-items:center;}
@@ -819,7 +823,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.57';
+const APP_VERSION = 'v3.11.58';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -2691,6 +2695,60 @@ let pnArmed = '';
 function pnStripHTML(pid){
   return pnFor(pid).map(n => `<div class="pn-strip"><span>${escapeHtml(pnDay(n.at))}: ${escapeHtml(n.text)}</span>${pnArmed === n.id
     ? `<button class="pn-clear" data-pn-clear="${escapeHtml(n.id)}">Clear note?</button>` : `<button class="pn-x" data-pn-arm="${escapeHtml(n.id)}" title="clear note">&times;</button>`}</div>`).join('');
+}
+
+/* v3.11.58 (his idea and picks of 31 Oct, ../Pluto/design/staff-notes-mockup.html): notes about staff. "Remember Sam says
+   he's not available next week", said to Pluto, is put on that person here, for the days it names (from, to: "YYYY-MM-DD";
+   none: every week). Build Roster shows it on the person on each day it covers (his pick A: the strip, its date, ×), and
+   the roster talk says the week's notes once, at the start (his pick A). It only reminds: it never takes anyone off or
+   changes a day. Kept on this phone only (never the orders Worker, never in the roster published to staff); Move my data
+   carries it like every order-chit- item. One note: { id, sid (the staff member), name (as then), text, at, from, to }. */
+const SN_KEY = 'order-chit-staff-notes', SN_MAX = 100;
+function snDate(k){ return typeof k === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(k) ? k : ''; }
+// the days a note covers, in order, or none
+function snSpan(from, to){ from = snDate(from); to = snDate(to) || from; return from && to ? (from <= to ? { from, to } : { from: to, to: from }) : { from: '', to: '' }; }
+function snAll(){
+  let l = null;
+  try{ l = JSON.parse(localStorage.getItem(SN_KEY) || '[]'); }catch(e){ l = null; }
+  return (Array.isArray(l) ? l : []).filter(n => n && typeof n.id === 'string' && n.sid != null && String(n.sid) && typeof n.text === 'string' && n.text && isFinite(n.at))
+    .map(n => Object.assign({ id: n.id, sid: String(n.sid), name: String(n.name || ''), text: String(n.text).slice(0, 300), at: +n.at }, snSpan(n.from, n.to)));
+}
+function snKeep(l){ try{ localStorage.setItem(SN_KEY, JSON.stringify(l.slice(-SN_MAX))); return true; }catch(e){ return false; } }
+// the notes covering a date (a note with no days covers every date), newest first: one person's, or everyone's
+function snOn(date, sid){ return snAll().filter(n => (sid == null || n.sid === String(sid)) && (!n.from || (date >= n.from && date <= n.to))).sort((a, b) => b.at - a.at); }
+// a note put on someone (or put back by an undo, with its own id and time): the note as kept, or null
+function snAdd(n){
+  if(!n || n.sid == null || !String(n.sid) || !String(n.text || '').trim()) return null;
+  const l = snAll();
+  if(l.length >= SN_MAX) return null;
+  const x = Object.assign({ id: String(n.id || ('sn' + Date.now().toString(36) + uid())), sid: String(n.sid), name: String(n.name || '').slice(0, 60),
+    text: String(n.text).replace(/\s+/g, ' ').trim().slice(0, 300), at: isFinite(n.at) && n.at ? +n.at : Date.now() }, snSpan(n.from, n.to));
+  if(l.some(y => y.id === x.id)) return null;
+  l.push(x); l.sort((a, b) => a.at - b.at);
+  return snKeep(l) ? x : null;
+}
+// a note taken out: the note it was (for an undo), or null
+function snRemove(id){
+  const l = snAll(), x = l.find(n => n.id === id);
+  if(!x) return null;
+  return snKeep(l.filter(n => n !== x)) ? x : null;
+}
+// changed by Pluto's voice or Notes screen: as pnEdit (a time said by voice, never ahead of now)
+function snEdit(id, text, at){
+  const l = snAll(), x = l.find(n => n.id === id), t = String(text || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+  if(!x || !t) return null;
+  x.text = t;
+  if(at != null && isFinite(at) && +at > 0 && +at <= Date.now() + 60000){ x.at = +at; l.sort((a, b) => a.at - b.at); }
+  return snKeep(l) ? x : null;
+}
+// the date of a day on Build Roster ('this' or 'next' week; 'wed'…'sun')
+const SN_OFFSET = { wed: 2, thu: 3, fri: 4, sat: 5, sun: 6 };
+function rosterDateOf(which, day){ return shiftDateKey(rosterMonday(which), SN_OFFSET[day] || 0); }
+// the strip on a person's card (his pick A); the × takes two taps, as on a product
+let snArmed = '';
+function snStripHTML(sid, date){
+  return snOn(date, sid).map(n => `<div class="pn-strip sn-strip"><span>${escapeHtml(pnDay(n.at))}: ${escapeHtml(n.text)}</span>${snArmed === n.id
+    ? `<button class="pn-clear" data-sn-clear="${escapeHtml(n.id)}">Clear note?</button>` : `<button class="pn-x" data-sn-arm="${escapeHtml(n.id)}" title="clear note">&times;</button>`}</div>`).join('');
 }
 
 function sentTimeLabel(at){
@@ -5045,14 +5103,19 @@ function renderRosterBuild(){
   const weekTabs = [['this','This week'],['next','Next week']].map(([k,lbl]) =>
     `<button type="button" class="toggle-btn rweek-btn ${rosterWeek===k?'active':''}" data-rweek="${k}">${lbl}<span class="rweek-range">${rosterWeekRange(k)}</span></button>`).join('');
   const dayTabs = [['wed','Wed'],['thu','Thu'],['fri','Fri'],['sat','Sat'],['sun','Sun']];
-  const tabs = dayTabs.map(([k,lbl])=>`<button class="rday-tab ${rosterDay===k?'active':''}" data-rday="${k}">${lbl}</button>`).join('');
+  // v3.11.58: a dot on a day with a note about someone on the staff list
+  const snDot = k => snOn(rosterDateOf(rosterWeek, k)).some(n => state.staff.some(st => String(st.id) === n.sid));
+  const tabs = dayTabs.map(([k,lbl])=>`<button class="rday-tab ${rosterDay===k?'active':''}" data-rday="${k}">${lbl}${snDot(k) ? '<i class="sn-dot"></i>' : ''}</button>`).join('');
   const entries = roster[rosterDay] || {};
+  const dayDate = rosterDateOf(rosterWeek, rosterDay);
   const isOn = st => !!(entries[st.id] && entries[st.id].start);
   const canWork = st => !!(st.avail && st.avail[rosterDay]);
+  const hasNote = st => snOn(dayDate, st.id).length > 0;
   /* Anyone with a shift that day is always listed, available or not. A cover
-     shift used to sit behind "show all", so it looked like it had vanished. */
-  const listed = state.staff.filter(st => canWork(st) || isOn(st));
-  const offStaff = state.staff.filter(st => !canWork(st) && !isOn(st));
+     shift used to sit behind "show all", so it looked like it had vanished.
+     v3.11.58: so is anyone with a note that day (his pick A). */
+  const listed = state.staff.filter(st => canWork(st) || isOn(st) || hasNote(st));
+  const offStaff = state.staff.filter(st => !canWork(st) && !isOn(st) && !hasNote(st));
 
   function staffBlock(st){
     const e = entries[st.id] || {};
@@ -5068,6 +5131,7 @@ function renderRosterBuild(){
           <span class="rstaff-name">${escapeHtml(st.name)}${badge}</span>
           ${scheduled?`<button class="rstaff-clear" data-rclear="${st.id}">clear</button>`:''}
         </div>
+        ${snStripHTML(st.id, dayDate)}
         <div class="rstaff-controls">
           ${timeFieldHTML('Start','data-rstart',st.id,e.start||'')}
           ${scheduled?timeFieldHTML('End','data-rend',st.id,e.end||''):''}
@@ -5704,6 +5768,13 @@ function attachHandlers(){
   });
   document.querySelectorAll('[data-rday]').forEach(el=>{
     el.addEventListener('click', ()=>{ rosterDay = el.dataset.rday; rosterShowAll = false; render(); });
+  });
+  // v3.11.58: a note about someone: × arms it, "Clear note?" clears it
+  document.querySelectorAll('[data-sn-arm]').forEach(el=>{
+    el.addEventListener('click', ()=>{ snArmed = el.dataset.snArm; rerenderKeepScroll(); });
+  });
+  document.querySelectorAll('[data-sn-clear]').forEach(el=>{
+    el.addEventListener('click', ()=>{ snArmed = ''; if(snRemove(el.dataset.snClear)) showToast('Note cleared'); rerenderKeepScroll(); });
   });
   /* Every edit goes to whichever week is on screen. */
   const rosterDayObj = ()=>{
@@ -7317,16 +7388,16 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.57"></script>
+<script src="move-data.js?v=3.11.58"></script>
 <!-- v3.11.28: the function doc reader. A separate file too: if it fails, only "From management's doc" says so. -->
-<script src="function-reader.js?v=3.11.57"></script>
+<script src="function-reader.js?v=3.11.58"></script>
 <!-- v3.11.30: the invoice rules. A separate file too: if it fails, only bringing in an invoice says so. -->
-<script src="invoice-engine.js?v=3.11.57"></script>
+<script src="invoice-engine.js?v=3.11.58"></script>
 <!-- v3.11.31: the supplier readers for a scanned invoice (Aziz's so far). -->
-<script src="invoice-readers.js?v=3.11.57"></script>
+<script src="invoice-readers.js?v=3.11.58"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.57"></script>
-<script src="voice-brain.js?v=3.11.57"></script>
-<script src="voice.js?v=3.11.57"></script>
+<script src="roster-engine.js?v=3.11.58"></script>
+<script src="voice-brain.js?v=3.11.58"></script>
+<script src="voice.js?v=3.11.58"></script>
 </body>
 </html>

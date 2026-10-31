@@ -2036,6 +2036,13 @@ function createRoom(host){
     if(a && a.status === 'answer'){
       var d = roData(), w = d ? roWhen(text, d, sess) : null;
       roLast = { text: String(text || ''), sess: sess || null, at: now(), seq: ++roSeq, date: w && w.date || null, who: d ? roPersonIn(text, d) : null };
+      /* v3.11.58: "who's on Saturday?" says the notes about anyone for that day; a question about one person, that
+         person's for the days asked. Not inside a roster talk (said once at its start). */
+      var who = roLast.who, kind = /^roster (day|person|off)/.exec(a.log || '');
+      if(w && !sess && kind && (kind[1] === 'day' || who)){
+        var sn = snNotes(w.date ? [w.date] : snWeek(w.mon), kind[1] === 'day' ? null : who);
+        if(sn.length){ a.say = (a.say || []).concat([snLine(sn)]); a.log += '; notes ' + sn.length; }
+      }
     }
     return a;
   }
@@ -2870,22 +2877,24 @@ function createRoom(host){
     var mon = /\bthis weeks?\b/.test(c) ? d.week : RE.buildWeekFor(tsToday());
     if(!rbEditable(d, mon)) mon = rbNextMon(d);
     var range = rbDateSay(addDays(mon, 2)) + ' to ' + rbDateSay(addDays(mon, 6));
+    // v3.11.58 (his pick A): the week's notes about staff, said once, at the start
+    var sn = snNotes(snWeek(mon)), snSaid = sn.length ? [snLine(sn)] : [], snLog = sn.length ? '; notes ' + sn.length : '';
     var s = rbSession();
     if(s && s.week === mon && !s.finished && RE.DAYS.some(function(x){ return s.days[x] !== 'pending'; })){
       if(rbDayIn(c)){ s.paused = false; return rbGoTo(s, d, rbDayIn(c), []); }   // v3.11.19: "… for Thursday"
       var at = RE.firstUnfinished(s), done = RE.DAYS.filter(function(x){ return s.days[x] === 'done'; });
-      if(!at) return rbWeekDone(s, d, ["You've done every day of " + range + '.']);
-      return rbAsk('rbResume', [], "You've started " + range + (done.length ? ', with ' + daysSay(done) + ' done' : '') + '. Carry on from ' + DAY_FULL[at] + ', or start again?',
-        [{ label: 'Carry on', value: 'carry' }, { label: 'Start again', value: 'again' }], {}, s, 'rb resume ' + mon);
+      if(!at) return rbWeekDone(s, d, ["You've done every day of " + range + '.'].concat(snSaid));
+      return rbAsk('rbResume', snSaid, "You've started " + range + (done.length ? ', with ' + daysSay(done) + ' done' : '') + '. Carry on from ' + DAY_FULL[at] + ', or start again?',
+        [{ label: 'Carry on', value: 'carry' }, { label: 'Start again', value: 'again' }], {}, s, 'rb resume ' + mon + snLog);
     }
     s = RE.newSession(mon, 'day', now());
-    if(!rbRefOf(d, mon)) return rbPresent(s, d, 'wed', ['Sure, sir. ' + range + ". I don't have last week's roster, so let's go day by day."]);
+    if(!rbRefOf(d, mon)) return rbPresent(s, d, 'wed', ['Sure, sir. ' + range + ". I don't have last week's roster, so let's go day by day."].concat(snSaid));
     // v3.11.19 (his log, 18 Oct: "let's make next week's roster for Thursday"): a day said goes straight to it
     var dayAsk = rbDayIn(c);
-    if(dayAsk) return rbPresent(s, d, dayAsk, ['Sure, sir. ' + range + '.']);
+    if(dayAsk) return rbPresent(s, d, dayAsk, ['Sure, sir. ' + range + '.'].concat(snSaid));
     // v3.11.19 (his log: "stop saying that on every command"): the dates once; asked again, the short question (RB_MODE_SHORT)
-    return rbAsk('rbMode', ['Sure, sir. ' + range + '.'], 'Day by day, or copy last week and just tell me the changes?',
-      [{ label: 'Day by day', value: 'day' }, { label: 'Copy last week', value: 'copy' }], { short: RB_MODE_SHORT }, s, 'rb start ' + mon);
+    return rbAsk('rbMode', ['Sure, sir. ' + range + '.'].concat(snSaid), 'Day by day, or copy last week and just tell me the changes?',
+      [{ label: 'Day by day', value: 'day' }, { label: 'Copy last week', value: 'copy' }], { short: RB_MODE_SHORT }, s, 'rb start ' + mon + snLog);
   }
   function rbContinue(text, d){
     var s = rbSession();
@@ -5654,6 +5663,30 @@ function createRoom(host){
     try{ return new Date(at).toLocaleDateString('en-AU', { day: 'numeric', month: 'long', timeZone: 'Australia/Sydney' }); }catch(e){ return 'an earlier day'; }
   }
   function pnQuoted(s){ s = String(s || '').trim(); return '"' + s + (/[.!?]$/.test(s) ? '' : '.') + '"'; }
+  /* ---------- v3.11.58: notes about staff (his idea and picks of 31 Oct, ../Pluto/design/staff-notes-mockup.html) ----------
+     A note he told Pluto about someone on the staff list ("remember Sam says he's not available next week") is kept on
+     this phone with the days it's for (index.html snAll…). The roster talk says the week's notes once, at the start (his
+     pick A); "who's on Saturday?" and a question about one person say the notes for those days. It only repeats what he
+     noted, and when: it never takes anyone off or changes a day. A note about someone no longer on the list isn't said. */
+  function snNotes(dates, sid){
+    if(!host.staffNotes || !dates.length) return [];
+    var all = [], d = roData(), names = (d && d.names) || {};
+    try{ all = host.staffNotes() || []; }catch(e){ return []; }
+    return all.filter(function(n){
+      return n && n.text && (sid == null ? names[n.sid] : n.sid === String(sid)) && (!n.from || dates.some(function(x){ return x >= n.from && x <= n.to; }));
+    }).sort(function(a, b){ return a.at - b.at; });
+  }
+  // "You noted on 31 October: "…" And: "…"" (three at most, the rest on Build Roster), or ''
+  function snLine(l){
+    if(!l.length) return '';
+    var out = l.slice(0, 3).map(function(n, i){
+      var day = pnWhen(n.at);
+      return (!i ? 'You noted on ' + day + ': ' : day === pnWhen(l[i - 1].at) ? 'And: ' : 'And on ' + day + ': ') + pnQuoted(n.text);
+    });
+    if(l.length > 3) out.push((l.length - 3 === 1 ? 'One more is' : (l.length - 3) + ' more are') + ' on Build Roster.');
+    return out.join(' ');
+  }
+  function snWeek(mon){ return RE.DAYS.map(function(x){ return addDays(mon, RO_OFFSET[x]); }); }
   function noteAsk(a, ordered){
     if(a.status !== 'done' || !ordered.length || !host.productNotes) return a;
     var all = [];
@@ -6341,7 +6374,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.57',
+  version: 'v3.11.58',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,

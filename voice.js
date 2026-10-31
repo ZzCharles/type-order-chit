@@ -85,6 +85,8 @@ var host = {
   productNotes: function(){ return typeof pnAll === 'function' ? pnAll() : []; },
   addProductNote: function(n){ return typeof pnAdd === 'function' ? pnAdd(n) : null; },
   removeProductNote: function(id){ return typeof pnRemove === 'function' ? pnRemove(id) : null; },
+  // v3.11.58 (his idea and picks of 31 Oct): notes about staff, kept on this phone (index.html snAll…), read only here
+  staffNotes: function(){ return typeof snAll === 'function' ? snAll() : []; },
   /* v3.11.38 (his asks, 24 Oct): prices by voice, read only. The kept prices and matches (Prices), the prices-only
      suppliers' names, and the Invoices screen's weekly totals as this phone keeps them; the rules are invoice-engine.js. */
   prices: function(){
@@ -660,6 +662,44 @@ function roomProductNotes(r){
   return { v: 1, status: 'answer', say: [], keep: false, data: data,
     log: 'product notes ' + op + ': ' + (!data.ok ? data.why : data.notes ? data.notes.length : data.items ? data.items.length : 'done') };
 }
+/* v3.11.58 (his idea and picks of 31 Oct, ../Pluto/design/staff-notes-mockup.html): Pluto puts his notes about staff
+   here and reads them back. { want: "staff-notes", op } is answered with data, never words:
+     "list"   every note, newest first: { id, sid, item (the person's name now), gone (not on the staff list), text, at, from, to }
+     "match"  who on the staff list a note names (whole names, said with a capital: "Will" the person, never "will"): { people: [{ sid, name }] }
+     "add"    { sid, name, text, at, from, to, id? } (id and at are kept when an undo puts one back): { note }
+     "remove" { id }: { note } (as it was, for Pluto's undo)
+     "edit"   { id, text, at? }: { note }
+   Kept on this phone only; never logged beyond counts; not in the heard log (no sentence). */
+var SN_OPS = { list: 1, match: 1, add: 1, remove: 1, edit: 1 };
+function snStaff(){ return (state.staff || []).filter(function(s){ return s && s.id != null && String(s.name || '').trim(); }); }
+function roomSnShape(n){
+  var st = snStaff().filter(function(s){ return String(s.id) === n.sid; })[0];
+  return { id: n.id, sid: n.sid, item: st ? st.name : n.name, gone: !st, text: n.text, at: n.at, from: n.from, to: n.to };
+}
+function snNamed(text){
+  var raw = String(text || '').replace(/['’]/g, ''), low = raw.toLowerCase(), me = String(host.me || '').trim().toLowerCase();
+  return snStaff().filter(function(s){
+    var n = String(s.name).toLowerCase().replace(/['’]/g, '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+    if(!n || n === me) return false;
+    var re = new RegExp('(^|[^a-z0-9])' + n.replace(/ /g, '\\s+') + '(?:s)?(?![a-z0-9])', 'g'), m;
+    while((m = re.exec(low))){ var at = m.index + m[1].length; if(raw[at] !== raw[at].toLowerCase()) return true; }
+    return false;
+  }).map(function(s){ return { sid: String(s.id), name: s.name }; });
+}
+function roomStaffNotes(r){
+  var op = SN_OPS[r.op] ? r.op : 'list', data, x;
+  if(op === 'list') data = { ok: true, notes: snAll().sort(function(a, b){ return b.at - a.at; }).map(roomSnShape) };
+  else if(op === 'match') data = { ok: true, people: snNamed(r.text).slice(0, 5) };
+  else if(op === 'add'){
+    var on = snStaff().some(function(s){ return String(s.id) === String(r.sid); });
+    x = on ? snAdd({ id: r.id, sid: String(r.sid), name: r.name, text: r.text, at: r.at, from: r.from, to: r.to }) : null;
+    data = x ? { ok: true, note: roomSnShape(x) } : { ok: false, why: !on ? 'gone' : snAll().length >= SN_MAX ? 'full' : 'bad' };
+  }
+  else if(op === 'remove'){ x = snRemove(String(r.id || '')); data = x ? { ok: true, note: roomSnShape(x) } : { ok: false, why: 'gone' }; }
+  else { x = snEdit(String(r.id || ''), r.text, r.at); data = x ? { ok: true, note: roomSnShape(x) } : { ok: false, why: 'gone' }; }
+  return { v: 1, status: 'answer', say: [], keep: false, data: data,
+    log: 'staff notes ' + op + ': ' + (!data.ok ? data.why : data.notes ? data.notes.length : data.people ? data.people.length : 'done') };
+}
 var ROOM_CALLS = {
   hello: function(){ return room.hello(); },
   menu: function(){ return room.menu(); },
@@ -670,6 +710,7 @@ var ROOM_CALLS = {
     if(r.want === 'invoices') return roomHeld() || roomInvoices();            // v3.11.39
     if(r.want === 'function-save') return roomHeld() || await roomFunctionSave(r);   // v3.11.42
     if(r.want === 'product-notes') return roomHeld() || roomProductNotes(r);         // v3.11.54
+    if(r.want === 'staff-notes') return roomHeld() || roomStaffNotes(r);             // v3.11.58
     var a = roomHeld() || await room.handle(Object.assign({}, r, { mode: 'pluto' }));
     if(r.text) logIt({ at: Date.now(), heard: String(r.text), alts: (r.alts || []).map(String), via: 'pluto' }, a || {});
     return a;
