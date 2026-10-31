@@ -3427,6 +3427,14 @@ function createRoom(host){
     ['function', 'functions'].forEach(put2);                 // v3.11.22: his functions, read by voice
     ['invoice', 'invoices', 'spend', 'spent', 'spending'].forEach(put2);   // v3.11.38: "how much did we spend this week"
     ['cart', 'basket', 'trolley'].forEach(put2);             // v3.11.51: "what's in the cart"
+    /* v3.11.60 (his log, every heard log replayed, 1 Nov): what this room reads but Pluto's router never sent here.
+       Google's "prep list" that line 98 already reads ("add salad dressing to the breath list", "what else is on the
+       Breathless", "… to the purpose"); "recipe" ("show me the recipe for custard": his is "Vanilla Custard"); "ordering"
+       and an amount's unit ("add three boxes of bouvety dough", "add temporal flour to the ordering") as cues, so a
+       command with one reaches this room, which asks "Did you mean …?" when the name is only close. */
+    ['breath list', 'breathless', 'prayer list', 'press list', 'purpose'].forEach(put2);
+    ['recipe', 'recipes'].forEach(put2);
+    ['ordering', 'boxes', 'kilos', 'kilo', 'tins', 'packets', 'punnets', 'bunches', 'cartons', 'trays'].forEach(function(w){ if(cues.indexOf(w) < 0 && strong.indexOf(w) < 0) cues.push(w); });
     cues = cues.filter(function(c){ return strong.indexOf(c) < 0; });
     return { room: 'almo', label: 'Almo', contract: 1, help: 'your prep list, orders, timesheet and functions', busy: 'Checking the list\u2026',
       strong: strong, cues: cues,
@@ -5642,7 +5650,11 @@ function createRoom(host){
   /* "is the rocket on the order?", "have we got mozzarella in the cart?", "did I put basil on the Aziz order?": read
      (before, "have we got …" added one) */
   var ON_ORDER_Q = /^(?:(?:and|so|ok|okay|um|uh|hey|also) )*(?:(?:have|did|do) (?:we|i|you) (?:got|get|have|put|add|added)|have you got|is there|are there|is|are)\b.*\b(?:on|in) (?:the|my|our|todays) (?:[a-z]+ ){0,3}order(?: (?:yet|now|already|please|for (?:today|tomorrow)))*$/;
+  /* v3.11.60 (his log #484, 25 Oct: "could you check if there's any gnocchi ordered" was not mine): "… ordered" is "on the order" */
+  var ORDERED_Q = new RegExp(ASK_LEAD + '(?:(?:if|whether) )?(?:theres|there is|there are|is there|are there|have we got|have we|weve got|weve|we have|we got) (?:any |some )?(.+?) (?:ordered|on order)(?: (?:yet|already|today|now|for tomorrow))?$');
   async function onOrderAsk(text){
+    var om = ORDERED_Q.exec(clean(text));
+    if(om) text = 'is there ' + om[1] + ' on the order';
     if(!ON_ORDER_Q.test(clean(text))) return null;
     var f = await fresh(), cat = f.cat, sids = parse(text, cat).sids || [], it = askItem(text, cat);
     if(!it) return null;
@@ -5978,7 +5990,9 @@ function createRoom(host){
     if(r && FN_DISH_Q.test(c) && !FN_LIST_W.test(c) && !FN_ROSTER_W.test(c) && fnDishSaid(c, r.dishes)) return 'dish';
     return null;
   }
-  var FN_DISH_Q = /^(?:(?:and|so|ok|okay|also|then|um|uh)\s+)*(?:how many|how much|whats? about|what about)\b/;
+  /* v3.11.60 (his log #424, #426, #439, 23–24 Oct, each right after a function answer: "are we sending polenta's", "and any
+     tiramisu", "are we sending any polenta on that"): those ask about its dishes too */
+  var FN_DISH_Q = /^(?:(?:and|so|ok|okay|also|then|um|uh)\s+)*(?:how many|how much|whats? about|what about|are we (?:sending|doing|making|serving|giving|having|taking)|is there|are there|any)\b/;
   /* a dish of these names said ("polenta" is Polenta Chips), the way fnDishIn finds one */
   function fnDishSaid(c, labels){
     return (labels || []).some(function(l){
@@ -6425,7 +6439,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.59',
+  version: 'v3.11.60',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
