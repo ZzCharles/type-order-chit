@@ -1610,6 +1610,48 @@ function createRoom(host){
     put(UNDO_KEY, l.slice(-10));
     return id;
   }
+  /* v3.11.59: two things done as one ("… to the order and the prep list"): one undo takes back both. -> the joined id, or the second's */
+  function rememberBoth(id1, id2, label){
+    var l = undoList(), a = l.filter(function(x){ return x.id === id1; })[0], b = l.filter(function(x){ return x.id === id2; })[0];
+    if(!a || !b) return id2;
+    b.ops = a.ops.concat(b.ops); b.label = label;
+    put(UNDO_KEY, l.filter(function(x){ return x !== a; }));
+    return id2;
+  }
+  /* ---------- v3.11.59 (his log #545, 31 Oct: "can you add roasted red peppers to the ordering and prep list" put it on
+     the Aziz order only): an add that names both lists does both, the order first, then the prep list. An item only on
+     an order list goes on today's prep list (he named the prep list: "Prep list, today", never asked). Said as two lines;
+     one undo takes back both. If the order part asks or can't be done, that's answered first, as for the order alone. */
+  var BOTH_LISTS = /\b((?:the |my )?(?:order|orders|ordering)(?: list)?) (?:and|&) ((?:the |my )?(?:prep|trip|purple)(?: list)?)\b|\b((?:the |my )?(?:prep|trip|purple)(?: list)?) (?:and|&) ((?:the |my )?(?:order|orders|ordering)(?: list)?)\b|\b(?:both|the two) lists\b/;
+  var BOTH_ADD = /^(?:(?:and|so|ok|okay|also|please) )*(?:(?:can|could|would|will) you (?:please |also )?)?(?:add|put|chuck|throw|pop|stick)\b/;
+  function bothLists(text){
+    var c = clean(text), m = BOTH_LISTS.exec(c);
+    if(!m || !BOTH_ADD.test(c)) return null;
+    var whole = m[0], order = m[1] || m[4], prep = m[2] || m[3];
+    if(!order){ order = 'the order'; prep = 'the prep list'; }
+    return { order: c.replace(whole, order), prep: c.replace(whole, prep) };
+  }
+  async function addBoth(req, both){
+    var r0 = Object.assign({}, req, { alts: [], reply: null });
+    var a1 = await handle(Object.assign({}, r0, { text: both.order }));
+    if(!a1 || (a1.status !== 'done' && a1.status !== 'cant')) return a1;      // asked, or a yes wanted: the order's own answer
+    var a2 = await handle(Object.assign({}, r0, { text: both.prep }));
+    if(a1.status === 'done' && a2 && a2.status === 'ask' && pending && pending.kind === 'oneoff' && a2.ask && (pending.options || []).some(function(o){ return o.value === 'yes'; }))
+      a2 = await handle(Object.assign({}, r0, { text: '', reply: { to: a2.ask.id, choice: 'yes' } }));
+    if(!a2) return a1;
+    var log = 'both lists: ' + a1.log + ' | ' + a2.log;
+    if(a1.status === 'cant'){
+      // on no order list ("pesto"): the prep list's answer, said as such; on neither, the order's "I couldn't find …"
+      if(a1.log !== 'missing' || a2.status === 'cant') return a1;
+      return Object.assign({}, a2, { say: ["It isn't on any order list."].concat(a2.say || []), log: log });
+    }
+    var out = Object.assign({}, a2, { say: (a1.say || []).concat(a2.say || []), log: log });
+    if(a2.status === 'done' && a1.action && a2.action)
+      out.action = { id: rememberBoth(a1.action.id, a2.action.id, a1.action.label + ' and ' + a2.action.label), label: a1.action.label + ' and ' + a2.action.label, undo: true };
+    else if(a2.status !== 'ask' && a2.status !== 'confirm'){ out.status = 'done'; out.action = a1.action; }   // nothing to add there ("already on it"): the order's change stands
+    else if(!a2.action && a1.action) out.action = a1.action;
+    return out;
+  }
 
   /* ---------- fresh data ---------- */
   /* v3.11.11 (his log, 15 Oct: the first answer after a wake took about 5 s,
@@ -6055,6 +6097,8 @@ function createRoom(host){
       if(req.reply && req.reply.choice != null && !req.text){ pending = null; return cant('That one expired. Ask me again.', 'ask expired'); }
       pending = null;
       if(isClose(req.text || '')) return notmine('close');
+      var both = bothLists(req.text || '');   // v3.11.59: "add … to the ordering and prep list"
+      if(both) return await addBoth(req, both);
       var fnr = fnRoute(req.text || '');   // v3.11.22: the functions, read only
       if(fnr === 'write') return cant('I can\u2019t do that by voice yet: only a function\u2019s head count, dietary, mezze boards, tiramisu and plates. Use Functions in The Pass for the rest.', 'fn write');
       if(fnr === 'detail') return await fnDetailChange(req.text || '');   // v3.11.24
@@ -6062,6 +6106,13 @@ function createRoom(host){
       if(fnr === 'follow') return await fnAnswer(req.text || '', fnRecent());
       if(fnr === 'dish') return await fnAnswer(req.text || '', { kind: 'portion', ids: fnRecent().ids });   // v3.11.26
       if(fnr === 'portion') return await fnChange(req.text || '');
+      /* v3.11.59 (his log #532, 31 Oct: "can you tell me what's on my card", Google's other guesses "… my cart", "… my
+         car"): "card" or "car" is the cart when one of the other guesses says cart, and it's then a cart question */
+      if(!CART_WORD.test(clean(req.text || '')) && /\b(?:cards?|car)\b/.test(clean(req.text || ''))
+         && (req.alts || []).some(function(x){ return CART_WORD.test(clean(typeof x === 'string' ? x : (x && x.s) || '')); })){
+        var asCart = String(req.text).replace(/\b(?:cards?|car)\b/i, 'cart');
+        if(CART_READ.test(clean(asCart))) req = Object.assign({}, req, { text: asCart });
+      }
       // v3.11.51: "what's in the cart"; "cart" is the order for everything else
       if(CART_WORD.test(clean(req.text || ''))){
         var cs = req.text;
@@ -6374,7 +6425,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.58',
+  version: 'v3.11.59',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
