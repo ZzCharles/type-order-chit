@@ -1082,6 +1082,7 @@ function catalogue(data, taught){
   });
   /* taught words point at a product or a prep item by id */
   Object.keys(taught || {}).forEach(function(heard){
+    if(cmdOnly(heard)) return;   // v3.11.62: "add" learned for Mozzarella on his phone
     var to = taught[heard];
     entries.forEach(function(e){
       var match = (e.kind === 'order' && to === e.id) || (e.kind === 'prep' && to === e.id);
@@ -1145,6 +1146,14 @@ var SOFT = { after: 1, that: 1, then: 1, could: 1, can: 1, would: 1, will: 1, sh
   to: 1, want: 1, wanna: 1, i: 1, im: 1, we: 1, me: 1, us: 1, gonna: 1, going: 1, lets: 1, maybe: 1, now: 1, so: 1, ok: 1,
   okay: 1, um: 1, uh: 1, actually: 1, mate: 1, chef: 1, quickly: 1, yeah: 1, right: 1, well: 1, oh: 1, next: 1, first: 1,
   firstly: 1, finally: 1, sorry: 1, oops: 1, think: 1, guess: 1, do: 1 };
+/* v3.11.62 (his log #565, 1 Nov: "no can you add 5 cherry tomatoes" took Mozzarella off the order, as his phone had
+   learned "add" for it): a learned word made only of command words, small words, amounts or units ("add", "can you
+   add", "two boxes") never stands for an item (the Voice screen still lists it, to forget) */
+var CMD_WORD = (function(){ var o = {}; VERBS.forEach(function(v){ if(v.w.length === 1){ o[v.w[0]] = 1; o[stem(v.w[0])] = 1; } }); return o; })();   // one-word commands only ("time" of "same as last time" isn't one)
+function cmdOnly(key){
+  var ws = String(key || '').split(' ').filter(Boolean);
+  return !ws.length || ws.every(function(w){ return CMD_WORD[w] || SOFT[w] || STOP[w] || REFS[w] || CONJ[w] || UNIT_WORDS[w] || WORD_OF_N[w] || /^[0-9]/.test(w); });
+}
 function scan(t, cat){
   var segs = [], i = 0, clause = 0, start = 0, splitOff = -1, lead = true, hadVerb = false;
   function verbAt(i){
@@ -1214,6 +1223,14 @@ function parse(text, cat){
   /* v3.9.3: "no, make that one kilo", "no I meant 6 kilo" are corrections, not
      "take it off" ("no speck" still is) */
   if(t.length > 1 && /^(no|nah|nope|sorry|oops)$/.test(t[0].r) && /^(make|set|change|i|meant|mean|its|it|actually)$/.test(t[1].r)) t = t.slice(1);
+  /* v3.11.62 (his log #565, 1 Nov: "no can you add 5 cherry tomatoes" took Mozzarella off; "no, can you add 2 boxes of
+     mozzarella" took the mozzarella off): a "no" before a request ("can you", "please", "add", "put", "order", "get")
+     is "not that", never "take off". "no more X", "no X" and "no need for X" still take X off. */
+  else {
+    var noLead = false;   // ("no, can you add …" with a comma is two clauses already: the "no" has nothing to take off)
+    while(t.length > 1 && /^(no|nah|nope|sorry|oops)$/.test(t[0].r) && /^(no|nah|nope|sorry|oops|can|could|would|will|please|lets|let|add|put|order|get|grab|chuck|throw|bung|include)$/.test(t[1].r)){ t = t.slice(1); noLead = true; }
+    if(noLead) t = stripEdges(t).t;
+  }
   var cmd = { text: String(text || ''), verb: null, verbWords: '', list: null, sids: [], items: [], refs: false,
               looseQty: null, and: se.and, question: false, tickWords: false, empty: !t.length, nTok: t.length, nHit: 0,
               moreWord: t.some(function(x){ return x.r === 'another' || x.r === 'more'; }) };
@@ -3160,9 +3177,8 @@ function createRoom(host){
     var stranger = !sure && !me && !any && /\b(add|put|get|swap|replace|book|schedule)\b/.test(c)
       && (marker || /\b(this|next) weeks?\b/.test(c)) && rbStranger(text, d);
     if(!(((sure || me) && (marker || swap) && verb) || ((sure || me || any) && /\brosters?\b/.test(c) && verb) || (/\brosters?\b/.test(c) && RO_WRITE.test(c)) || ctxDay || stranger)) return null;
-    // an order sentence that happens to sound like a name stays an order
-    var cat = catalogue(host.data(), taught());
-    if(!sure && !me && parse(text, cat).items.some(function(it){ return it.exact && it.exact.length; })) return null;
+    // an order sentence that happens to sound like a name stays an order (v3.11.62: "add me five punnets of cherry tomato" too)
+    if(!sure && rbItemSaid(text, d)) return null;
     if(ctxDay && !/\brosters?\b/.test(c)){
       var ec = rbEdit(text, { mon: ctxDay.mon, day: null, base: 'draft', session: false, last: null, fix: {}, ctxDay: ctxDay.day });
       return ec || rbSay('cant', [rbTryLine()], 'rb not understood');
@@ -3381,8 +3397,25 @@ function createRoom(host){
      orders or the prep list, and no staff name for sure, is the orders' */
   function rbOrderSaid(text, d){
     var find = rbFinder(d), named = rbClean(text).split(' ').some(function(w){ var m = find(w); return m && m.sure && !RB_WORDS[w]; });
-    if(named || /\b(me|myself)\b/.test(rbClean(text))) return false;
-    try{ return parse(text, catalogue(host.data(), taught())).items.some(function(it){ return it.exact && it.exact.length; }); }catch(e){ return false; }
+    if(named) return false;
+    return rbItemSaid(text, d);   // v3.11.62: "me" no longer makes an order sentence the roster's
+  }
+  /* v3.11.62 (his log #565, 1 Nov: "can you also add me five ponets of cherry tomato" was asked "Did you mean <a staff
+     name>?"; "add me 2 punnets of cherry tomatoes" too): a sentence naming an order or prep item is the lists', "me" or
+     not. An item: named exactly, or two words of his items' names said (station and roster words don't count), or one
+     with an amount and its unit. A staff name is never offered for it: names are for roster talk. */
+  function rbItemSaid(text, d){
+    var cat, c;
+    try{ cat = catalogue(host.data(), taught()); c = parse(text, cat); }catch(e){ return false; }
+    var known = catWords(cat), st = {};
+    Object.keys(RB_STATION).forEach(function(w){ st[w] = 1; });
+    ((d && d.stations) || []).forEach(function(x){ clean(x).split(' ').forEach(function(w){ st[w] = 1; st[stem(w)] = 1; }); });
+    return c.items.some(function(it){
+      var own = (it.stems || []).filter(function(w){ return !st[w] && !RB_WORDS[w] && !rbDayOf(w) && !STOP[w] && !UNIT_WORDS[w]; });
+      if(it.exact && it.exact.length) return own.length > 0;   // "put me on dough at 4": a station, even if an item is called that
+      var ws = own.filter(function(w){ return known[w]; });
+      return ws.length >= 2 || (ws.length === 1 && !!(it.qty && it.qty.unit));
+    });
   }
   /* v3.11.19: names someone on the staff for sure */
   function rbAboutRosterName(c, d){
@@ -4062,6 +4095,19 @@ function createRoom(host){
         .concat(ticks.map(function(t){ return itemSay(t.e.name) + (t.done ? ' ticked off' : ' unticked'); }))
         .concat(removes.map(function(r){ return itemSay(r.e.name) + ' off prep'; }));
       return confirming('again', [count + ' changes: ' + joinAnd(rb) + '.'], 'Do all of them?', { cmd: cmd, flag: 'okMany' }, 'many ' + count);
+    }
+    /* v3.11.62 (his log #565, 1 Nov: "no can you add 5 cherry tomatoes", said to "Did you mean <a name>?", took
+       Mozzarella off the Aziz order): a new request said in answer to a question never takes a line off, zeroes or
+       sets it on its own: it's read back first and needs a plain yes (silence or "no" leaves it). Adds and ticks go
+       ahead as said (a tick only marks prep done). The answer itself (cmd.fromAsk: a pick, an amount asked for) is as before. */
+    if(inReply() && !cmd.fromAsk && !cmd.okReply){
+      var risky = orderChanges.filter(function(c){ return c.before !== c.after && (c.v === 'remove' || c.v === 'set' || c.after < c.before); }).map(function(c){
+        var sup = supSay(c.e.sname), nm = label(c.e);
+        if(c.after === 0) return 'take ' + nm + ' off the ' + sup + ' order (it has ' + amount(c.before, c.e.unit) + ')';
+        if(c.after < c.before) return 'take ' + amountOf(r2(c.before - c.after), c.e.unit, nm) + ' off the ' + sup + ' order, leaving ' + amount(c.after, c.e.unit);
+        return 'make ' + nm + ' ' + amount(c.after, c.e.unit) + ' on the ' + sup + ' order (it has ' + amount(c.before, c.e.unit) + ')';
+      }).concat(removes.map(function(r){ return 'take ' + itemSay(r.e.name) + ' off the prep list'; }));
+      if(risky.length) return confirming('again', ['That would ' + joinAnd(risky) + '.'], 'Go ahead?', { cmd: cmd, flag: 'okReply' }, 'reply confirm ' + risky.length);
     }
 
     // orders: straight away, saved on the phone
@@ -4856,8 +4902,9 @@ function createRoom(host){
       var oc = choice != null ? choice : matchOption(text, p.options);
       pending = null;
       if(oc == null || oc === 'none'){
-        var om = parse(text, (await fresh()).cat);   // a new sentence starts over; anything else drops the question
-        if(text && (om.verb || om.items.some(function(it){ return it.exact && it.exact.length; }))) return await handle(Object.assign({}, req, { reply: null }));
+        // a new sentence starts over; anything else drops the question (v3.11.62: after a "no", only one with its own verb)
+        var ohCut = noCut(text), om = parse(ohCut != null ? ohCut : text, (await fresh()).cat);
+        if(text && (om.verb || (ohCut == null && om.items.some(function(it){ return it.exact && it.exact.length; })))) return await handle(Object.assign({}, req, { reply: null }));
         return ans('answer', { say: ['Left it.'], log: 'history which dropped' });
       }
       var oh = ohList(), ocat = (await fresh()).cat, opids = String(oc).split(','), oen = entryById(ocat, 'p:' + opids[0]);
@@ -4879,7 +4926,7 @@ function createRoom(host){
     }
     if(p.kind === 'ofwhat'){                                      // v3.9.13: "5 kilos of what?"
       pending = null;
-      var ow = parse(text, (await fresh()).cat);
+      var ow = parse(noCut(text) || text, (await fresh()).cat);   // v3.11.62: "no, mozzarella" names it; the "no" never takes it off
       if(!ow.items.length) return ans('answer', { say: ['Left it. Nothing changed.'], log: 'ofwhat dropped' });
       if(!ow.verb) ow.verb = p.verb;
       if(!ow.items[0].qty) ow.items[0].qty = p.q;
@@ -4889,9 +4936,10 @@ function createRoom(host){
     if(p.kind === 'howmany' || p.kind === 'unit'){
       var ns = numbersIn(choice != null ? choice : text);
       if(!ns.length){
-        var maybe = parse(text, (await fresh()).cat);
+        // v3.11.62: "no, forget it" leaves it; after a "no", only a request with its own verb is taken as one
+        var hmCut = noCut(text), maybe = parse(hmCut != null ? hmCut : text, (await fresh()).cat);
         pending = null;
-        if(maybe.verb || maybe.items.length) return run(maybe, req, mode);
+        if(maybe.verb || (hmCut == null && maybe.items.length)) return run(maybe, req, mode);
         return ans('answer', { say: ['Left it. Nothing changed.'], log: 'howmany dropped' });
       }
       /* v3.9.3: "6 kilo" to "How many packets?" isn't 6 packets: it asks
@@ -5011,7 +5059,7 @@ function createRoom(host){
       return ans('answer', { say: ['Left it. Nothing changed.'], log: 'ask dropped' });
     }
     pending = null;
-    if(p.kind === 'teen') return run(parse(p.fixText(choice), (await fresh()).cat), req, mode);
+    if(p.kind === 'teen'){ var tc = parse(p.fixText(choice), (await fresh()).cat); tc.okReply = true; return run(tc, req, mode); }   // v3.11.62: his own sentence, the number picked: no read-back
     if(choice === 'no' || choice === 'none'){
       return ans('answer', { say: [p.kind === 'item' ? 'Try saying it again.' : 'Left it. Nothing changed.'], log: 'ask ' + p.kind + ' ' + choice });
     }
@@ -6184,7 +6232,24 @@ function createRoom(host){
   }
 
   /* ---------- the contract's functions ---------- */
+  /* v3.11.62 (his log #565, 1 Nov): a sentence said in answer to one of this room's questions (req.reply) and taken as a
+     new request, not as the answer, is marked for the whole turn (every handler it reaches, a nested handle() too):
+     its leading "no" answers the question, and change() reads back anything that takes a line off, zeroes or sets
+     it, before a plain yes. Answers themselves (cmd.fromAsk) are as before. */
+  var replyTurn = null;   // { on, at }: on = this turn answers a question
+  function inReply(){ return !!(replyTurn && replyTurn.on); }
   async function handle(req){
+    var mine = !replyTurn || now() - replyTurn.at > 30000, turn = mine ? { on: !!(req && req.reply), at: now() } : null;
+    if(mine) replyTurn = turn;
+    try{ return await handle1(req); }
+    finally{ if(mine && replyTurn === turn) replyTurn = null; }
+  }
+  // the question's answer handlers cut a leading "no" off a new request said instead (v3.11.62)
+  function noCut(text){
+    var c = clean(text), m = /^(?:(?:no|nope|nah|not that|not that one|wrong|neither|sorry|oops)\b[ ,]*)+/.exec(c);
+    return m && yesNo(text) !== 'yes' && m[0].length < c.length ? c.slice(m[0].length).trim() : null;
+  }
+  async function handle1(req){
     req = req || {};
     if(req.text) req = Object.assign({}, req, { text: heardFix(req.text) });   // v3.11.1: "beef means", "cran ski"
     var mode = req.mode === 'tab' ? 'tab' : 'pluto';
@@ -6203,6 +6268,10 @@ function createRoom(host){
       }
       if(req.reply && req.reply.choice != null && !req.text){ pending = null; return cant('That one expired. Ask me again.', 'ask expired'); }
       pending = null;
+      /* v3.11.62 (his log #565): said in answer to a question but not its answer ("no can you add 5 cherry tomatoes" to
+         "Did you mean <a name>?"), the "no" was for the question: the rest is the new request */
+      var cutNo = inReply() ? noCut(req.text || '') : null;
+      if(cutNo) req = Object.assign({}, req, { text: cutNo });
       if(isClose(req.text || '')) return notmine('close');
       var both = bothLists(req.text || '');   // v3.11.59: "add … to the ordering and prep list"
       if(both) return await addBoth(req, both);
@@ -6259,7 +6328,8 @@ function createRoom(host){
       /* v3.10.1 (replaying his log): a tap on an old card's "No", or a bare yes
          or no with no question open, said "I couldn't find no on the orders" */
       if(/^(yes|yeah|yep|yup|no|nope|nah)( please| thanks| thank you)?$/.test(clean(req.text || ''))) return ans('answer', { say: ['Okay. Nothing changed.'], log: 'yes or no to nothing' });
-      var fx = await fixLast(req.text || '', req, mode);   // v3.11.10: "no, I meant the order"
+      // v3.11.62: never in answer to a question ("no, I meant X" to "Did you mean <a name>?" is about the question, not the last add)
+      var fx = inReply() ? null : await fixLast(req.text || '', req, mode);   // v3.11.10: "no, I meant the order"
       if(fx) return fx;
       var rd = await redoLast(req.text || '', req, mode);  // v3.11.10: "put that back" after an undo
       if(rd) return rd;
@@ -6532,7 +6602,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.61',
+  version: 'v3.11.62',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
