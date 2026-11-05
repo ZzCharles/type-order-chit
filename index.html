@@ -670,6 +670,29 @@ a.btn-block{display:block;}
 .cart-head b{font-size:15.5px;font-weight:800;color:var(--ink);}
 .cart-un{color:#8A5A16;font-weight:700;}
 body:has(.cart-head){align-items:flex-start;}   /* the page grows with the list (it's one screen tall otherwise), so the header floats all the way down */
+/* v3.11.63 (his notes of 1 and 5 Nov; his picks of 6 Nov, ../Pluto/design/pass-notes-mockup.html): this week's orders on top of
+   Ordering, "N not priced yet" a tap, the "Not priced yet" screen, a price on Edit Product, and the week's spend on top of
+   Invoices, black with white text (his ask: "so that it stands out and easy to read") */
+.week-head{position:sticky;top:8px;z-index:6;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:11px 15px;margin-bottom:12px;font-size:13px;color:var(--ink-soft);box-shadow:0 6px 18px rgba(38,35,25,.10);}
+.week-head b{font-size:15.5px;font-weight:800;color:var(--ink);}
+.week-sub{font-size:11.5px;color:var(--muted);margin-top:3px;}
+.cart-un-tap{background:none;border:none;padding:0;margin:0;font:inherit;color:#8A5A16;font-weight:800;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;cursor:pointer;}
+.spend-head{position:sticky;top:8px;z-index:6;background:#000;color:#fff;border-radius:14px;padding:12px 16px 14px;margin-bottom:12px;box-shadow:0 8px 22px rgba(0,0,0,.25);}
+.spend-label{font-size:12.5px;font-weight:600;letter-spacing:.3px;color:#fff;}
+.spend-total{font-size:30px;font-weight:800;letter-spacing:-0.6px;line-height:1.15;margin-top:3px;color:#fff;}
+body:has(.week-head),body:has(.spend-head){align-items:flex-start;}
+.up-name{font-size:15px;font-weight:700;}
+.up-why{font-size:12.5px;color:#8A5A16;margin-top:3px;line-height:1.4;}
+.up-fix{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:10px;}
+.up-fix[hidden],.ep-now[hidden]{display:none;}
+.up-fix input,.form-card .up-fix input{width:86px;flex:0 0 auto;margin:0;font-family:inherit;font-size:14px;padding:8px 10px;border:1px solid var(--line);border-radius:11px;background:#fff;color:var(--ink);}
+.up-fix .chip{margin:0;}
+.up-per{font-size:13px;color:var(--ink-soft);}
+.up-fix .btn{margin-left:auto;}
+.ep-price{margin-top:16px;padding:12px;border-radius:12px;background:#F7F5EC;border:1px dashed #D9D4C2;}
+.ep-price label{margin-top:0;}
+.ep-now{font-size:13px;color:var(--ink-soft);margin-top:2px;line-height:1.45;}
+.ep-now b{font-size:15px;color:var(--ink);}
 .cb-off .cb-name,.cb-off .cb-amt{color:var(--muted);}
 .iv-ovi{font-size:12.5px;padding:8px 0;border-bottom:1px solid #F5F3EA;}
 .iv-ovi:last-child{border-bottom:none;}
@@ -823,7 +846,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.62';
+const APP_VERSION = 'v3.11.63';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -2995,6 +3018,7 @@ function goto(view){
   if(view.name !== 'plPaste' && view.name !== 'plCheck'){ state.plText = ''; state.plRead = null; state.plPicks = null; state.plOpen = {}; }   // v3.11.32
   if(view.name !== 'invPrices'){ state.psEdit = ''; state.psText = null; }   // v3.11.34
   if(view.name !== 'invHist' || view.fid !== state.view.fid){ state.prEdit = null; state.prDraft = null; }   // v3.11.35
+  if(view.name !== 'invHist') state.histFrom = null;   // v3.11.63: a price history opened from Edit Product goes back there
   state.view = view; animate(render);   // v3.11.45: no history step per screen (the phone's Back goes one level up: upBack)
 }
 function findSupplier(id){ return state.suppliers.find(s=>s.id===id); }
@@ -3068,6 +3092,7 @@ function render(){
   else if(v.name === "addSupplier") html += renderAddSupplier();
   else if(v.name === "addProduct") html += renderAddProduct(v.id);
   else if(v.name === "editProduct") html += renderEditProduct(v.id, v.pid);
+  else if(v.name === "unpriced") html += renderUnpriced(v.id);   // v3.11.63
   else if(v.name === "supplierSettings") html += renderSupplierSettings(v.id);
   else if(v.name === "roster") html += renderRoster();
   else if(v.name === "staff") html += renderStaff();
@@ -3438,12 +3463,13 @@ function renderInvoices(){
 
   return `
     <div class="crumb"><button data-goto="home">&larr; Home</button> / Invoices</div>
+    <div class="spend-head"><div class="spend-label">This week’s spend</div><div class="spend-total">$${totalWeek.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
     <div class="staff-legend" style="display:block;">Week beginning ${new Date(weekKey+'T00:00:00').toLocaleDateString('en-AU',{weekday:'long',day:'numeric',month:'short'})} &middot; resets Tuesday midnight</div>
     ${banner}
     ${invBringHTML()}
     ${supplierRows}
     ${orphanRows}
-    <div class="grand-total-card">Weekly spend: $${totalWeek.toFixed(2)}</div>
+
     <div class="add-row"><button class="btn btn-ghost" data-goto="addSupplier">+ Add Supplier</button></div>
     ${hasAny ? `<div class="add-row"><button class="btn btn-danger" id="inv-clear">Clear this week</button></div>` : ''}
     <div class="sync-line">Chef key saved on this phone. <button data-chef-reset="1">Change it</button></div>
@@ -3710,7 +3736,9 @@ function renderInvMatch(){
     <div class="oi-actions"><button class="btn btn-ghost" data-goto="invCheck">Cancel</button><button class="btn" id="inv-domatch">${pick.re ? 'Change' : 'Match'}</button></div>`;
 }
 function renderInvHist(pid){
-  const back = state.invRead ? `<button data-goto="invCheck">&larr; Back to the invoice</button>` : `<button data-goto="invPrices">&larr; Prices</button>`;
+  const hf = state.histFrom && state.histFrom.pid === pid ? state.histFrom : null;   // v3.11.63: opened from Edit Product
+  const back = state.invRead ? `<button data-goto="invCheck">&larr; Back to the invoice</button>`
+    : hf ? `<button data-edit-product="${escapeHtml(hf.pid)}" data-supplier="${escapeHtml(hf.sid)}">&larr; Edit product</button>` : `<button data-goto="invPrices">&larr; Prices</button>`;
   if(typeof InvoiceEngine === 'undefined') return `<div class="crumb">${back}</div><div class="empty">The invoice rules didn’t load. Reload The Pass.</div>`;
   const prices = invLoad(INV_PRICES_KEY, []), h = InvoiceEngine.historyOf(prices, pid, 10);   // v3.11.33: 10 (was 5): more suppliers per item now
   const sups = {}; h.forEach(x => { sups[x.rec.supplier] = 1; });
@@ -5229,6 +5257,7 @@ function renderList(){
 
   return `
     <div class="crumb"><button data-goto="home">&larr; Home</button> / Ordering</div>
+    ${weekHeadHTML()}
     ${waiting}
     ${rows}
     <div class="add-row"><button class="btn" data-goto="addSupplier">+ Add Supplier</button></div>
@@ -5333,8 +5362,126 @@ function cartHeadHTML(s){
   if(!items.length) return '';
   const r = InvoiceEngine.cartTotal({ items: items.map(p => ({ productId: p.id, qty: p.qty, unit: p.unit })), prices: invLoad(INV_PRICES_KEY, []), supplierId: s.id });
   const n = r.items + ' item' + (r.items === 1 ? '' : 's') + ' on this order';
-  if(!r.priced) return `<div class="cart-head">${n} · <span class="cart-un">no prices kept yet</span></div>`;
-  return `<div class="cart-head">About <b>${invMoney(r.total)}</b> · ${n}${r.unpriced ? ` · <span class="cart-un">${r.unpriced} not priced yet</span>` : ''}</div>`;
+  // v3.11.63 (his notes of 1 and 5 Nov): "N not priced yet" opens those items, to price them
+  const tap = t => `<button class="cart-un-tap" data-goto="unpriced" data-supplier="${escapeHtml(s.id)}">${t} &rsaquo;</button>`;
+  if(!r.priced) return `<div class="cart-head">${n} · ${tap('no prices kept yet')}</div>`;
+  return `<div class="cart-head">About <b>${invMoney(r.total)}</b> · ${n}${r.unpriced ? ` · ${tap(r.unpriced + ' not priced yet')}` : ''}</div>`;
+}
+/* v3.11.63 (his note, 1 Nov: "a header within the ordering tab to show this week total order"; his pick A of
+   ../Pluto/design/pass-notes-mockup.html): what he's sent since Wednesday (the week Invoices uses), each order at its
+   supplier's kept prices before GST (InvoiceEngine.weekOrdered), so "about". It floats like a supplier's order head.
+   What's in a cart counts once it's sent. Here only: never a message, an email or Pluto. */
+function weekHeadHTML(){
+  if(typeof InvoiceEngine === 'undefined') return '';
+  const from = getCurrentWeekStart(), units = {};
+  state.suppliers.forEach(s => (s.products || []).forEach(p => { units[p.id] = p.unit; }));
+  const r = InvoiceEngine.weekOrdered({ orders: readOrderHistory(), from: from, prices: invLoad(INV_PRICES_KEY, []), units: units });
+  const since = 'since ' + invDayLabel(from);
+  if(!r.orders) return `<div class="week-head">This week: nothing sent yet<div class="week-sub">${escapeHtml(since)}</div></div>`;
+  const sent = r.orders + ' order' + (r.orders === 1 ? '' : 's') + ' sent ' + since;
+  const un = r.unpriced ? ` · <span class="cart-un">${r.unpriced} item${r.unpriced === 1 ? '' : 's'} not priced yet</span>` : '';
+  if(!r.priced) return `<div class="week-head">This week: <b>${escapeHtml(sent)}</b><div class="week-sub"><span class="cart-un">no prices kept for them yet</span></div></div>`;
+  return `<div class="week-head">This week: about <b>${invMoney(r.total)}</b> ordered<div class="week-sub">${escapeHtml(sent)}${un}</div></div>`;
+}
+/* v3.11.63: a unit as The Pass's prices read it (InvoiceEngine's MEASURE): kg or L, or '' for a box, a bunch, each… */
+function upMeasure(u){ u = String(u || '').toLowerCase(); return /^(kg|kgs)$/.test(u) ? 'kg' : /^(l|lt|ltr|litre|litres)$/.test(u) ? 'L' : ''; }
+function upPer(u){ return u === 'each' ? 'each' : 'per ' + u; }
+function upOne(u){ return u === 'each' ? 'item' : u; }
+function upBy(u){ return u === 'each' ? 'one at a time' : 'by the ' + u; }
+function upPricePer(rec, u){ return rec.billing === 'weight' ? 'per ' + (upMeasure(u) || 'kg') : rec.pack && rec.pack.amount > 0 ? 'a pack of ' + rec.pack.amount + ' ' + rec.pack.unit : upPer(u || 'each'); }
+function upFrom(rec){ return rec.via === 'typed' ? 'typed by you' : rec.via === 'list' ? 'from a price list' : rec.edited ? 'changed by hand' : 'from an invoice'; }
+/* v3.11.63 (his notes, 1 Nov: "tap on that one not priced yet and that would be leading me to which item is not priced
+   yet"; 5 Nov: "…tap that one and insert price for those"; his pick: a list he can fix): the order's items that couldn't
+   be priced, each with why and what would price it: a price (before GST, per his unit, or per kg with the box's size:
+   InvoiceEngine.typedPrice, kept as today's, "typed by you"), how many kg in the box he orders by (setBoxSize), or how
+   many kg in the supplier's pack (setPack). Saved one at a time; the screen stays until all are priced. */
+function renderUnpriced(id){
+  const s = findSupplier(id);
+  const crumb = `<div class="crumb"><button data-goto="supplier" data-supplier="${escapeHtml(id || '')}">&larr; ${escapeHtml(s ? s.name : 'Back')}</button></div>`;
+  if(!s || typeof InvoiceEngine === 'undefined') return crumb + `<div class="empty">Nothing to price here.</div>`;
+  const prices = invLoad(INV_PRICES_KEY, []), items = s.products.filter(p => p.qty > 0);
+  const r = InvoiceEngine.cartTotal({ items: items.map(p => ({ productId: p.id, qty: p.qty, unit: p.unit })), prices: prices, supplierId: s.id });
+  const left = r.lines.filter(l => l.cost == null);
+  const head = `<div class="recipe-head"><div class="recipe-eyebrow">${escapeHtml(s.name)} · this order</div><h2 class="recipe-title">Not priced yet</h2></div>`;
+  if(!left.length) return crumb + head + `<div class="empty">${items.length ? 'Everything on this order is priced: about ' + invMoney(r.total) + '.' : 'Nothing on this order.'}</div>`;
+  const rows = left.map(l => {
+    const p = items.find(x => x.id === l.productId), u = String(p.unit || 'each'), m = upMeasure(u), cur = InvoiceEngine.currentPrice(prices, s.id, p.id);
+    const save = need => `<button class="btn" data-up-save="${escapeHtml(p.id)}" data-supplier="${escapeHtml(s.id)}" data-need="${need}">Save</button>`;
+    let why = '', fix = '';
+    if(l.need === 'price'){
+      why = 'No price kept yet. You order it ' + upBy(m || u) + '.';
+      fix = m ? `<div class="up-fix"><input data-up-price inputmode="decimal" placeholder="$ 0.00"><span class="up-per">per ${m}</span>${save('price')}</div>`
+        : `<div class="up-fix"><input data-up-price inputmode="decimal" placeholder="$ 0.00"><button type="button" class="chip cat-chip chip-on" data-bill="pack">${escapeHtml(upPer(u))}</button><button type="button" class="chip cat-chip" data-bill="weight">per kg</button>${save('price')}</div>
+          <div class="up-fix" data-size-wrap hidden><input data-up-size inputmode="decimal" placeholder="0"><span class="up-per">kg in one ${escapeHtml(upOne(u))}</span></div>`;
+    } else if(l.need === 'box'){
+      why = invMoney(cur.price) + ' per kg, but you order it ' + upBy(u) + ', and how many kg are in one ' + upOne(u) + ' isn’t known.';
+      fix = `<div class="up-fix"><input data-up-size inputmode="decimal" placeholder="0"><span class="up-per">kg in one ${escapeHtml(upOne(u))}</span>${save('box')}</div>`;
+    } else if(l.need === 'pack'){
+      why = invMoney(cur.price) + ' a pack, but you order it ' + upBy(m) + ', and the pack’s size isn’t known.';
+      fix = `<div class="up-fix"><input data-up-size inputmode="decimal" placeholder="0"><span class="up-per">${m} in a pack</span>${save('pack')}</div>`;
+    } else {
+      why = l.why.charAt(0).toUpperCase() + l.why.slice(1) + '.';
+      fix = `<div class="up-fix"><button class="cb-link" data-goto="invHist" data-fid="${escapeHtml(p.id)}">Its price history</button></div>`;
+    }
+    return `<div class="card" data-bill-row${m && l.need === 'price' ? ' data-bill-fixed="weight"' : ''}><div class="up-name">${escapeHtml(p.name)}</div><div class="up-why">${escapeHtml(why)}</div>${fix}</div>`;
+  }).join('');
+  return crumb + head + `<div class="rd-note" style="margin-bottom:10px">${left.length} item${left.length === 1 ? '' : 's'}. Prices are before GST, as on invoices.</div>${rows}
+    <div class="rd-note">A price you type is kept as today’s price, marked “typed by you”, in the item’s price history. The next invoice still checks it as usual.</div>`;
+}
+function unpricedSave(el){
+  if(typeof InvoiceEngine === 'undefined') return;
+  const row = el.closest('[data-bill-row]'), sid = el.dataset.supplier, pid = el.dataset.upSave, need = el.dataset.need;
+  const s = findSupplier(sid), p = s && s.products.find(x => x.id === pid);
+  if(!row || !p) return;
+  const sizeIn = row.querySelector('[data-up-size]'), sizeWrap = sizeIn && sizeIn.closest('[data-size-wrap]');
+  const sizeVal = sizeIn && !(sizeWrap && sizeWrap.hidden) ? sizeIn.value.trim() : '', m = upMeasure(p.unit);
+  if(need === 'price'){
+    const pin = row.querySelector('[data-up-price]'), on = row.querySelector('[data-bill].chip-on');
+    const billing = on ? on.dataset.bill : (row.dataset.billFixed || 'pack');
+    const t = InvoiceEngine.typedPrice({ supplier: sid, productId: pid, price: pin ? pin.value.trim() : '', billing: billing,
+      pack: billing === 'weight' && !m && sizeVal ? { amount: sizeVal, unit: 'kg' } : null, date: addDaysKey(0), at: Date.now() });
+    if(!t.ok){ showToast(t.why); return; }
+    const prices = invLoad(INV_PRICES_KEY, []); prices.push(t.rec);
+    if(!invSave(INV_PRICES_KEY, prices.slice(-5000))) return;
+    render(); showToast('Kept: ' + p.name + ', ' + invMoney(t.rec.price) + ' ' + upPricePer(t.rec, p.unit));
+    return;
+  }
+  const amt = InvoiceEngine.num(sizeVal);
+  if(!(amt > 0)){ showToast(need === 'box' ? 'Type how many kg in one ' + upOne(p.unit) : 'Type how many ' + (m || 'kg') + ' in a pack'); return; }
+  const r = need === 'box' ? InvoiceEngine.setBoxSize(invLoad(INV_PRICES_KEY, []), invLoad(INV_MATCHES_KEY, []), sid, pid, { amount: amt, unit: 'kg' })
+    : InvoiceEngine.setPack(invLoad(INV_PRICES_KEY, []), invLoad(INV_MATCHES_KEY, []), sid, pid, { amount: amt, unit: m || 'kg' });
+  if(!r.changed){ showToast('Nothing to change'); return; }
+  if(!invSave(INV_PRICES_KEY, r.prices) || !invSave(INV_MATCHES_KEY, r.matches)) return;
+  render(); showToast('Kept: ' + p.name + ', ' + amt + ' ' + (need === 'box' ? 'kg in one ' + upOne(p.unit) : (m || 'kg') + ' in a pack'));
+}
+/* v3.11.63 (his note, 1 Nov: "on edit item add an option for pricing as well when you press on the pencil icon"; his pick
+   "as shown"): the item's price now at this supplier, where it came from, its history, and a new one typed here (before
+   GST; empty keeps it). It's kept for the supplier the item is saved under (the Supplier chips above). */
+function epPriceHTML(sid, p){
+  if(typeof InvoiceEngine === 'undefined') return '';
+  const cur = InvoiceEngine.currentPrice(invLoad(INV_PRICES_KEY, []), sid, p.id), u = String(p.unit || 'each'), m = upMeasure(u);
+  const now = cur ? `<div class="ep-now" id="ep-now"><b>${invMoney(cur.price)}</b> ${escapeHtml(upPricePer(cur, u))} · ${escapeHtml(cur.date ? invDayLabel(cur.date) : 'undated')} · ${escapeHtml(upFrom(cur))} &nbsp;<button type="button" class="cb-link" data-ep-hist="${escapeHtml(p.id)}" data-supplier="${escapeHtml(sid)}">History</button></div>`
+    : `<div class="ep-now" id="ep-now">No price kept yet.</div>`;
+  const kg = !m && cur && cur.billing === 'weight';
+  const bill = m ? `<span class="up-per">per ${m}</span>`
+    : `<button type="button" class="chip cat-chip${kg ? '' : ' chip-on'}" data-bill="pack">${escapeHtml(upPer(u))}</button><button type="button" class="chip cat-chip${kg ? ' chip-on' : ''}" data-bill="weight">per kg</button>`;
+  const size = m ? '' : `<div class="up-fix" data-size-wrap${kg ? '' : ' hidden'}><input id="ep-size" data-up-size inputmode="decimal" placeholder="0" value="${kg && cur.pack && cur.pack.amount > 0 ? escapeHtml(String(cur.pack.amount)) : ''}"><span class="up-per">kg in one ${escapeHtml(upOne(u))}</span></div>`;
+  return `<div class="ep-price" data-bill-row${m ? ' data-bill-fixed="weight"' : ''}>
+      <label id="ep-price-at">Price at ${escapeHtml((findSupplier(sid) || {}).name || '')}</label>
+      ${now}
+      <div class="up-fix"><input id="ep-price" inputmode="decimal" placeholder="$ 0.00">${bill}</div>
+      ${size}
+      <div class="rd-note">Before GST. Leave it empty to keep the price as it is.</div>
+    </div>`;
+}
+function epPriceRead(sid, pid){
+  const f = document.getElementById('ep-price');
+  if(!f || !f.value.trim() || typeof InvoiceEngine === 'undefined') return null;
+  const row = f.closest('[data-bill-row]'), on = row && row.querySelector('[data-bill].chip-on');
+  const billing = on ? on.dataset.bill : ((row && row.dataset.billFixed) || 'pack');
+  const sz = document.getElementById('ep-size'), wrap = sz && sz.closest('[data-size-wrap]');
+  const size = billing === 'weight' && sz && !(wrap && wrap.hidden) && sz.value.trim() ? { amount: sz.value.trim(), unit: 'kg' } : null;
+  return InvoiceEngine.typedPrice({ supplier: sid, productId: pid, price: f.value.trim(), billing: billing, pack: size, date: addDaysKey(0), at: Date.now() });
 }
 function renderSupplier(id){
   const s = findSupplier(id);
@@ -5477,6 +5624,7 @@ function renderEditProduct(supplierId, pid){
       <label>Increment per tap</label>
       <input id="ep-inc" value="${formatQty(p.inc||1)}" inputmode="decimal">
       ${categoryChipsHTML(p.cat || '')}
+      ${epPriceHTML(supplierId, p)}
       <div class="form-actions">
         <button class="btn" data-goto="supplier" data-supplier="${supplierId}">Cancel</button>
         <button class="btn" data-save-edit="${pid}" data-supplier="${supplierId}">Save</button>
@@ -5666,7 +5814,20 @@ function attachHandlers(){
       render();
     });
   }
-  document.querySelectorAll('[data-ep-sup]').forEach(el => el.addEventListener('click', ()=>{ document.querySelectorAll('[data-ep-sup]').forEach(x => x.classList.toggle('chip-on', x === el)); }));   // v3.11.33
+  document.querySelectorAll('[data-ep-sup]').forEach(el => el.addEventListener('click', ()=>{ document.querySelectorAll('[data-ep-sup]').forEach(x => x.classList.toggle('chip-on', x === el));
+    // v3.11.63: the price goes to the supplier the item is saved under; the price "now" was the first one's
+    const at = document.getElementById('ep-price-at'), now = document.getElementById('ep-now'), sv = document.querySelector('[data-save-edit]');
+    if(at) at.textContent = 'Price at ' + ((findSupplier(el.dataset.epSup) || {}).name || '');
+    if(now && sv) now.hidden = el.dataset.epSup !== sv.dataset.supplier;
+  }));   // v3.11.33
+  // v3.11.63: per box or per kg (Edit Product, "Not priced yet"): per kg for an item ordered by the box asks the box's size
+  document.querySelectorAll('[data-bill]').forEach(el => el.addEventListener('click', ()=>{
+    const row = el.closest('[data-bill-row]'); if(!row) return;
+    row.querySelectorAll('[data-bill]').forEach(x => x.classList.toggle('chip-on', x === el));
+    const wrap = row.querySelector('[data-size-wrap]'); if(wrap) wrap.hidden = el.dataset.bill !== 'weight';
+  }));
+  document.querySelectorAll('[data-up-save]').forEach(el => el.addEventListener('click', ()=> unpricedSave(el)));
+  document.querySelectorAll('[data-ep-hist]').forEach(el => el.addEventListener('click', ()=>{ state.histFrom = { sid: el.dataset.supplier, pid: el.dataset.epHist }; goto({ name: 'invHist', fid: el.dataset.epHist }); }));
   document.querySelectorAll('[data-unit-chip]').forEach(el=>{
     el.addEventListener('click', ()=>{
       const t = document.getElementById('np-unit') || document.getElementById('ep-unit');
@@ -5684,6 +5845,10 @@ function attachHandlers(){
       if(!p) return;
       const name = document.getElementById('ep-name').value.trim();
       if(!name){ showToast('Product name required'); return; }
+      // v3.11.63 (his note #581): a price typed here, for the supplier it's saved under; a bad one stops the save
+      const epTo = (() => { const b = document.querySelector('[data-ep-sup].chip-on'); return (b && findSupplier(b.dataset.epSup)) || s; })();
+      const epRec = epPriceRead(epTo.id, p.id);
+      if(epRec && !epRec.ok){ showToast(epRec.why); return; }
       p.name = name;
       p.unit = document.getElementById('ep-unit').value.trim() || 'kg';
       let inc = parseFloat(document.getElementById('ep-inc').value);
@@ -5695,8 +5860,9 @@ function attachHandlers(){
       if(to !== s){ s.products = s.products.filter(x => x !== p); to.products.push(p); }
       plUnmark(p.id);   // looked at: no longer NEW
       saveData();
+      if(epRec){ const pr = invLoad(INV_PRICES_KEY, []); pr.push(epRec.rec); invSave(INV_PRICES_KEY, pr.slice(-5000)); }   // v3.11.63
       goto({name:'supplier', id: to.id});
-      showToast(to !== s ? 'Moved to ' + to.name + (p.qty > 0 ? ', with its ' + formatQty(p.qty) + ' ' + p.unit + ' on the order' : '') : 'Product updated');
+      showToast((to !== s ? 'Moved to ' + to.name + (p.qty > 0 ? ', with its ' + formatQty(p.qty) + ' ' + p.unit + ' on the order' : '') : 'Product updated') + (epRec ? ', price ' + invMoney(epRec.rec.price) + ' ' + upPricePer(epRec.rec, p.unit) : ''));
     });
   }
   document.querySelectorAll('[data-staff-day]').forEach(el=>{
@@ -7384,16 +7550,16 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.62"></script>
+<script src="move-data.js?v=3.11.63"></script>
 <!-- v3.11.28: the function doc reader. A separate file too: if it fails, only "From management's doc" says so. -->
-<script src="function-reader.js?v=3.11.62"></script>
+<script src="function-reader.js?v=3.11.63"></script>
 <!-- v3.11.30: the invoice rules. A separate file too: if it fails, only bringing in an invoice says so. -->
-<script src="invoice-engine.js?v=3.11.62"></script>
+<script src="invoice-engine.js?v=3.11.63"></script>
 <!-- v3.11.31: the supplier readers for a scanned invoice (Aziz's so far). -->
-<script src="invoice-readers.js?v=3.11.62"></script>
+<script src="invoice-readers.js?v=3.11.63"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.62"></script>
-<script src="voice-brain.js?v=3.11.62"></script>
-<script src="voice.js?v=3.11.62"></script>
+<script src="roster-engine.js?v=3.11.63"></script>
+<script src="voice-brain.js?v=3.11.63"></script>
+<script src="voice.js?v=3.11.63"></script>
 </body>
 </html>

@@ -262,18 +262,21 @@
       out.items++;
       var rec = currentPrice(o.prices, o.supplierId, it.productId), measure = MEASURE[String(it.unit || '').toLowerCase()], cost = null, why = '';
       var pk = rec && rec.pack && rec.pack.amount > 0 ? rec.pack : null;
-      if(!rec || !(rec.price > 0)) why = 'no price kept';
+      /* v3.11.63: need = what he could type to price it, for the "Not priced yet" screen: 'price' (none kept), 'box' (how
+         many kg in the box he orders by: setBoxSize), 'pack' (how many kg in the supplier's pack: setPack), '' (none) */
+      var need = '';
+      if(!rec || !(rec.price > 0)){ why = 'no price kept'; need = 'price'; }
       else if(rec.billing === 'weight'){
         if(measure) cost = it.qty * rec.price;
         else if(pk) cost = it.qty * pk.amount * rec.price;
-        else why = 'priced per kg, ordered by the ' + (it.unit || 'each') + ': its size isn\'t known';
+        else { why = 'priced per kg, ordered by the ' + (it.unit || 'each') + ': its size isn\'t known'; need = 'box'; }
       } else {
         if(!measure) cost = it.qty * rec.price;
         else if(pk && pk.unit === measure) cost = it.qty / pk.amount * rec.price;
-        else why = 'priced per pack, ordered by the ' + measure + ': the pack\'s size isn\'t known';
+        else { why = 'priced per pack, ordered by the ' + measure + ': the pack\'s size isn\'t known'; need = pk ? '' : 'pack'; }
       }
       if(cost != null){ out.priced++; sum += cents(cost); } else out.unpriced++;
-      out.lines.push({ productId: it.productId, cost: cost == null ? null : cents(cost) / 100, why: why });
+      out.lines.push({ productId: it.productId, cost: cost == null ? null : cents(cost) / 100, why: why, need: need });
     });
     out.total = sum / 100;
     return out;
@@ -545,8 +548,61 @@
       perBase: perBase(price, pack, weighed ? 'weight' : 'pack'), date: date, note: note, edited: true }) };
   }
 
+  /* ---------- v3.11.63: his notes of 1 and 5 Nov (../Pluto/design/pass-notes-mockup.html, his picks of 6 Nov) ---------- */
+  /* a price he types (the "Not priced yet" screen, or Edit Product's price): kept as that day's price, "typed by you", and
+     so the current one. c = { supplier, productId, price, billing: 'pack'|'weight', pack: { amount, unit } | null, date:
+     'YYYY-MM-DD', at } -> { ok, rec } | { ok: false, why } */
+  function typedPrice(c){
+    c = c || {};
+    var price = typeof c.price === 'number' ? c.price : num(c.price);
+    if(!(price > 0)) return { ok: false, why: 'Type the price' };
+    if(!c.supplier || !c.productId) return { ok: false, why: 'No item to price' };
+    var date = String(c.date || '').trim();
+    if(day(date) !== day(date)) return { ok: false, why: 'That date isn’t a date' };
+    var weighed = c.billing === 'weight', pack = null, a = c.pack ? c.pack.amount : null;
+    if(a != null && String(a).trim() !== ''){
+      a = typeof a === 'number' ? a : num(a);
+      if(!(a > 0) || !/^(kg|L|each)$/.test(c.pack.unit)) return { ok: false, why: 'That size isn’t a size' };
+      pack = { amount: round(a, 4), unit: c.pack.unit };
+    }
+    return { ok: true, rec: { supplier: c.supplier, productId: c.productId, pack: pack, billing: weighed ? 'weight' : 'pack', price: round(price, 4),
+      perBase: perBase(price, pack, weighed ? 'weight' : 'pack'), date: date, at: Number(c.at) || 0, source: 'typed by you', via: 'typed', printed: '' } };
+  }
+  /* how many kg (or L) are in the box he orders by, for an item that supplier prices per kg (its box size wasn't known, so
+     the order couldn't be priced). That supplier's per-kg records for the item with no size gain it, and so do its per-kg
+     matches, so later invoices carry it too. Per-pack prices are setPack's. -> { prices, matches, changed } */
+  function setBoxSize(prices, matches, supplier, productId, size){
+    var ok = !!size && size.amount > 0 && /^(kg|L)$/.test(size.unit), p = ok ? { amount: round(size.amount, 4), unit: size.unit } : null, changed = 0;
+    function open(x){ return ok && x && x.supplier === supplier && x.productId === productId && x.billing === 'weight' && !x.skip && !(x.pack && x.pack.amount > 0); }
+    var out = (prices || []).map(function(r){ if(!open(r)) return r; changed++; return Object.assign({}, r, { pack: { amount: p.amount, unit: p.unit } }); });
+    return { prices: out, matches: (matches || []).map(function(m){ return open(m) ? Object.assign({}, m, { pack: { amount: p.amount, unit: p.unit } }) : m; }), changed: changed };
+  }
+  /* what he's sent this week (his pick A: one line on top of Ordering), each order at its supplier's current kept prices
+     before GST, as cartTotal works out an order. o = { orders (the order history), from: 'YYYY-MM-DD' (the week's first
+     day, Wednesday), prices, units: { productId: its unit now } } -> { total, orders, items, priced, unpriced }. An item
+     no longer in The Pass (no unit) is never guessed: not priced. */
+  function weekOrdered(o){
+    o = o || {};
+    var from = day(o.from), units = o.units || {}, out = { total: 0, orders: 0, items: 0, priced: 0, unpriced: 0 }, sum = 0;
+    (o.orders || []).forEach(function(e){
+      if(!e || !e.sup || !(day(e.day) >= from)) return;
+      out.orders++;
+      var known = [], gone = 0;
+      Object.keys(e.items || {}).forEach(function(id){
+        if(!(Number(e.items[id]) > 0)) return;
+        if(Object.prototype.hasOwnProperty.call(units, id)) known.push({ productId: id, qty: Number(e.items[id]), unit: units[id] }); else gone++;
+      });
+      var r = cartTotal({ items: known, prices: o.prices, supplierId: e.sup });
+      out.items += r.items + gone; out.priced += r.priced; out.unpriced += r.unpriced + gone;
+      sum += cents(r.total);
+    });
+    out.total = sum / 100;
+    return out;
+  }
+
   return { COLS: COLS, cents: cents, money: money, num: num, csvRows: csvRows, readCSV: readCSV, checkLine: checkLine, checkInvoice: checkInvoice,
     readPack: readPack, perBase: perBase, nameKey: nameKey, findMatch: findMatch, suggest: suggest, priceRecord: priceRecord, priceChange: priceChange, currentPrice: currentPrice, cartTotal: cartTotal, historyOf: historyOf,
     orderedVsInvoiced: orderedVsInvoiced, sentOrders: sentOrders, editLine: editLine, undoEdit: undoEdit, credits: credits, compareSuppliers: compareSuppliers, hasContact: hasContact,
-    looseKey: looseKey, readPriceList: readPriceList, listRecord: listRecord, samePrice: samePrice, setPack: setPack, editPrice: editPrice, suppliersFor: suppliersFor, cheaperElsewhere: cheaperElsewhere };
+    looseKey: looseKey, readPriceList: readPriceList, listRecord: listRecord, samePrice: samePrice, setPack: setPack, editPrice: editPrice, suppliersFor: suppliersFor, cheaperElsewhere: cheaperElsewhere,
+    typedPrice: typedPrice, setBoxSize: setBoxSize, weekOrdered: weekOrdered };
 });
