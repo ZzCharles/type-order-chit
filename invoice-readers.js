@@ -23,7 +23,9 @@
     var s = String(t).trim(), cur = /^(A\s*)?[S$]/.test(s);
     s = s.replace(/^A\s*[S$]?\s*(?=[\dIlO])/, '').replace(/^[S$]\s*/, '').replace(/[Il]/g, '1').replace(/O/g, '0');
     if(cur && /^\d+ \d{2}$/.test(s)) s = s.replace(' ', '.');   // "A$51 50": one amount (its $ says so), the point read as a space
-    if(/^\.?0{1,2}$/.test(s)) return 0;
+    // v3.11.66 (Sydney Freezers): ".000" (a zero read twice: nothing else it can be) is 0; "$.30" is 0.30
+    if(/^\.?0{1,3}$/.test(s)) return 0;
+    if(/^\.\d{2}$/.test(s)) s = '0' + s;
     if(/^\d{1,3}(,\d{3})+\.\d{2}$/.test(s)) s = s.replace(/,/g, '');
     else if(/^\d+,\d{2}$/.test(s)) s = s.replace(',', '.');    // a comma read for the decimal point
     return /^\d+\.\d{2}$/.test(s) ? +s : null;
@@ -693,14 +695,163 @@
       return result(number, date, totals, lines, problems);
     }
   };
-  var READERS = [FDA, MF, DS, HP, TP];
+  /* ---------- v3.11.66: Sydney Freezers (his photos of two of their invoices, 30 Oct and 6 Nov 2026) ----------
+     The same Countrywide paper as Aziz's (so Aziz's reader once claimed it, and read nothing): "Tax Invoice: N" at the
+     top; the date in the box under "Date" ("19 NOV 2026"; never the "Deliv Date"); a table Qty · Description · Code ·
+     Unit · Unit Ex GST · Net Total Ex GST · Total GST · Total Amount, each line's numbers level with its name's first
+     line; a long name runs on to the next line with no quantity and no numbers ("…3KG" / "ACMECO"); "UNIT" is the
+     unit (each). The footer: "Fuel Levy:" (its amount before GST), "Total Ex GST:", "Total GST:" (read like "$.30"),
+     "Total Invoice:". Never the outstanding or previous balance, the last credit, "N Items", codes, the customer, phones
+     or the bank details. Its reader comes before Aziz's, whose layout it shares. */
+  var SF_FOOT = /^(\**\s*Thank\s*you|\d+\s*Items?\b|Fuel\s*Levy|Total\s*Ex\s*GST|Total\s*GST|Total\s*Invoice|Your\s*Last\s*Credit|Continued)/i,
+    SF_LABEL = /^(Fuel\s*Levy|Total\s*Ex\s*GST|Total\s*GST|Total\s*Invoice)/i;
+  function sfUnit(t){ return /^UNITS?$/i.test(t) ? 'EACH' : unitOf(t); }
+  /* the footer's amounts right of its labels, top to bottom: the three where the first two add up to the third are the
+     totals (net, GST, total), when exactly one three does, whichever way the photo leans (as footAdds); with the amount
+     just above them (the levy's, printed over Total Ex GST), or null */
+  function sfFoot(k, labels){
+    if(!labels.length) return null;
+    var right = Math.min.apply(null, labels.map(labelEnd));
+    var top = Math.min.apply(null, labels.map(k.yc)) - k.th * 1.5, bot = Math.max.apply(null, labels.map(k.yc)) + k.th * 1.5;
+    var vals = k.ws.filter(function(w){ return w.x > right && money(w.t) != null && k.yc(w) > top && k.yc(w) < bot; })
+      .sort(function(a, b){ return k.yc(a) - k.yc(b); }).map(function(w){ return money(w.t); });
+    var found = [];
+    for(var i = 0; i + 2 < vals.length; i++) if(vals[i + 2] > 0 && Math.abs(vals[i] + vals[i + 1] - vals[i + 2]) < 0.005) found.push(i);
+    if(found.length !== 1) return null;
+    var f = found[0];
+    return { totals: { net: vals[f], gst: vals[f + 1], total: vals[f + 2] }, before: f > 0 ? vals[f - 1] : null };
+  }
+  /* the amount printed right of a footer label, only one nearer it than any other label (a levy cut off by the photo's
+     edge must never take the next label's amount) */
+  function sfBeside(k, lb, labels){
+    var right = labelEnd(lb), mine = function(w){ return labels.every(function(o){ return o === lb || Math.abs(k.yc(w) - k.yc(lb)) <= Math.abs(k.yc(w) - k.yc(o)); }); };
+    var c = k.ws.filter(function(w){ return w.x > right && money(w.t) != null && Math.abs(k.yc(w) - k.yc(lb)) < k.th * 1.5 && mine(w); })
+      .sort(function(a, b){ return Math.abs(k.yc(a) - k.yc(lb)) - Math.abs(k.yc(b) - k.yc(lb)); })[0];
+    return c ? money(c.t) : null;
+  }
+  function sfTable(k){
+    var hD = k.ws.filter(function(w){ return /^Description$/i.test(w.t); })[0];
+    if(!hD) return null;
+    var hA = head(k, /^Amount$/i, hD), hC = head(k, /^Code$/i, hD, function(w){ return w.x > hD.x; }), hQ = head(k, /^Qty$/i, hD, function(w){ return w.x < hD.x; });
+    if(!hA || !hC) return null;
+    // the tilt from the headings' first line ("Qty", "Description", "Code", the "Total" over "Amount"): their second line
+    // ("Ex GST", "Amount") sits a line lower, so a slope from one to the other would be wrong
+    var hT = k.ws.filter(function(w){ return /^Total$/i.test(w.t) && Math.abs(w.x - hA.x) < Math.max(hA.w || 0, k.th * 3) && w.y < hA.y - k.th * 0.5 && hA.y - w.y < k.th * 3; })[0];
+    tilt(k, [hQ, hD, hC, hT].filter(Boolean));
+    var inT = zone(k, [hQ, hD, hC, hT].filter(Boolean), SF_FOOT);
+    var t = k.ws.filter(inT);
+    var cutC = hC.x - (hC.w || 0) / 2 - k.th * 0.3;
+    var cutQ = hQ ? (hQ.x + (hQ.w || 0) / 2 + hD.x - (hD.w || 0) / 2) / 2 : hD.x - (hD.w || 0) / 2 - k.th * 0.5;
+    // the four columns' places, from their headings: "Unit" (over "Ex GST"), "Net Total", the "GST" under "Total", "Amount"
+    var hN = head(k, /^Net$/i, hD, function(w){ return w.x > hC.x && w.x < hA.x; });
+    var nX = hN ? hN.line.x : null, nR = hN ? hN.line.x + (hN.line.w || 0) / 2 : null;
+    var hP = hN ? k.ws.filter(function(w){ return /^Unit$/i.test(w.t) && w.x > hC.x && w.x < hN.x && Math.abs(w.y - hD.y) < k.th * 4; }).sort(function(a, b){ return b.x - a.x; })[0] : null;
+    var hG = nR != null ? k.ws.filter(function(w){ return /^GST$/i.test(w.t) && w.x > nR && w.x < hA.x - (hA.w || 0) / 2 && Math.abs(w.y - hD.y) < k.th * 4; }).sort(function(a, b){ return b.x - a.x; })[0] : null;
+    var cols = [hP ? hP.x : null, nX, hG ? hG.x : null, hA.x];
+    var nums = t.filter(function(w){ return w.x > cutC && money(w.t) != null; });
+    var rows = bands(k, nums).map(function(b){ return { y: b.y, ws: b.ws, qty: null, unit: '', d: [] }; });
+    // a heading not read: that column's place from the lines that read all four
+    var four = rows.filter(function(r){ return r.ws.length === 4; });
+    cols = cols.map(function(x, i){ return x != null ? x : four.length ? median(four.map(function(r){ return r.ws[i].x; })) : null; });
+    var gaps = rows.slice(1).map(function(r, i){ return r.y - rows[i].y; });
+    var tol = Math.max(k.th * 0.5, Math.min(k.th * 1.2, gaps.length ? Math.min.apply(null, gaps) / 2 : k.th));
+    var nearRow = function(y){ var best = null; rows.forEach(function(r){ if(Math.abs(r.y - y) < tol && (!best || Math.abs(r.y - y) < Math.abs(best.y - y))) best = r; }); return best; };
+    // the quantities (left of the names): a quantity on no line's numbers is a line whose numbers weren't read
+    bands(k, t.filter(function(w){ return w.x < cutQ && isNum(w.t); })).forEach(function(b){
+      var r = nearRow(b.y);
+      if(r && r.qty == null) r.qty = +b.ws[0].t;
+      else if(!r) rows.push({ y: b.y, ws: [], qty: +b.ws[0].t, unit: '', d: [] });
+    });
+    rows.sort(function(a, b){ return a.y - b.y; });
+    var firstNum = cols[0] != null ? cols[0] - k.th : Infinity;
+    bands(k, t.filter(function(w){ return w.x > cutC && w.x < firstNum && sfUnit(w.t); })).forEach(function(b){ var r = nearRow(b.y); if(r && !r.unit) r.unit = sfUnit(b.ws[0].t); });
+    // the names: level with a line's numbers, its first line; below one with no quantity or numbers of its own, its next
+    bands(k, t.filter(function(w){ return w.x > cutQ && w.x < cutC; })).forEach(function(b){
+      var r = nearRow(b.y);
+      if(!r) r = rows.filter(function(x){ return x.y < b.y; }).pop();
+      if(r) r.d.push(b);
+    });
+    return rows.map(function(r){
+      var v = [null, null, null, null];
+      if(r.ws.length === 4) v = r.ws.slice();
+      else r.ws.forEach(function(w){
+        var best = -1;
+        cols.forEach(function(x, i){ if(x != null && (best < 0 || Math.abs(w.x - x) < Math.abs(w.x - cols[best]))) best = i; });
+        if(best >= 0 && (!v[best] || Math.abs(w.x - cols[best]) < Math.abs(v[best].x - cols[best]))) v[best] = w;
+      });
+      var m = v.map(function(w){ return w ? money(w.t) : null; });
+      return { description: textOf([].concat.apply([], r.d.map(function(b){ return b.ws; }))), unit: r.unit || 'EACH', qty: r.qty, price: m[0], net: m[1], gst: m[2], total: m[3] };
+    });
+  }
+  /* the date in the box under "Date" (a heading word, never "Deliv Date"), as "19 NOV 2026" or "19/11/2026" */
+  var SF_DATE = /(\d{1,2})\s*([0O][A-Z]{2}|[A-Z]{3})\s*(\d{4})/, SF_DATE2 = /(\d{1,2}[\/.-][\dOIL]{1,2}[\/.-]\d{2,4})/;
+  function sfDate(k){
+    var hs = k.ws.filter(function(w){ return /^Date:?$/i.test(w.t) && !/deliv|due/i.test(w.line.t); });
+    for(var i = 0; i < hs.length; i++){
+      var h = hs[i];
+      var under = k.lines.filter(function(l){ return l !== h.line && l.y > h.y + k.th * 0.3 && l.y < h.y + k.th * 2.5 && h.x >= l.x - (l.w || 0) / 2 - k.th && h.x <= l.x + (l.w || 0) / 2 + k.th; })
+        .sort(function(a, b){ return a.y - b.y; });
+      for(var j = 0; j < under.length; j++){
+        var s = under[j].t.toUpperCase(), m = SF_DATE.exec(s), d = m ? readDate(m[1] + m[2] + m[3]) : '';
+        if(!d && (m = SF_DATE2.exec(s))) d = readDate(m[1]);
+        if(d) return d;
+      }
+    }
+    return '';
+  }
+  var SF = {
+    name: 'Sydney Freezers',
+    detect: function(pages){ return named(pages, /SYDNEY\s*FREEZ/i); },
+    read: function(pages){
+      var number = '', date = '', totals = null, lines = [], problems = [], levy = null, levyUnread = false;
+      pages.forEach(function(p, pi){
+        var k = kit(p);
+        if(!number) p.forEach(function(l){ var m = /Tax\s*Invoice\s*:?\s*(\d{3,})/i.exec(l.t); if(m && !number) number = m[1]; });
+        if(!date) date = sfDate(k);
+        var rows = sfTable(k);
+        if(rows == null) problems.push('Page ' + (pi + 1) + ': the table\'s Description, Code and Total Amount columns weren\'t read.');
+        else if(!rows.length) problems.push('Page ' + (pi + 1) + ': no invoice lines read.');
+        (rows || []).forEach(function(r){ r.page = pi + 1; r.description = r.description || '(not read)'; lines.push(r); });
+        var labels = p.filter(function(l){ return SF_LABEL.test(l.t); });
+        var foot = sfFoot(k, labels), t = foot ? foot.totals : null;
+        if(!t){
+          var lb = function(re){ return labels.filter(function(l){ return re.test(l.t); })[0]; }, inv = lb(/^Total\s*Invoice/i), ex = lb(/^Total\s*Ex\s*GST/i), g = lb(/^Total\s*GST/i);
+          if(inv && sfBeside(k, inv, labels) != null) t = { net: ex ? sfBeside(k, ex, labels) : null, gst: g ? sfBeside(k, g, labels) : null, total: sfBeside(k, inv, labels) };
+        }
+        if(t) totals = t;
+        var lv = labels.filter(function(l){ return /^Fuel\s*Levy/i.test(l.t); })[0];
+        // the levy is printed above Total Ex GST: when the three totals were found in order, it's the amount just above them
+        var exL = labels.filter(function(l){ return /^Total\s*Ex\s*GST/i.test(l.t); })[0];
+        if(lv){ var a = foot && exL && k.yc(lv) < k.yc(exL) ? foot.before : sfBeside(k, lv, labels); if(a != null){ levy = { page: pi + 1, amount: a }; levyUnread = false; } else if(!levy) levyUnread = true; }
+      });
+      if(levy){
+        /* printed before GST: its GST is what the totals leave after the items (none, or a tenth of it), only when the
+           totals' net leaves exactly the levy; printed with GST (as Two Providores print theirs): net and GST both
+           from the totals when they come back to it exactly; else its GST isn't known, said */
+        var l = { page: levy.page, description: 'Fuel Levy', unit: 'EACH', qty: null, price: levy.amount, net: levy.amount, gst: null, total: null };
+        // a line's GST not read is its total less its net (what the checks would work out too)
+        var gstOf = function(x){ return x.gst != null ? x.gst : x.net != null && x.total != null ? round2(x.total - x.net) : null; };
+        var known = lines.every(function(x){ return x.net != null && gstOf(x) != null; });
+        if(totals && totals.net != null && totals.gst != null && known){
+          var net = round2(totals.net - lines.reduce(function(s, x){ return s + x.net; }, 0)), gst = round2(totals.gst - lines.reduce(function(s, x){ return s + gstOf(x); }, 0));
+          var tenth = gst >= 0 && (gst === 0 || Math.abs(gst * 100 - net * 10) <= 1), c = function(v){ return Math.round(v * 100); };
+          if(tenth && c(net) === c(levy.amount)){ l.gst = gst; l.total = round2(net + gst); }
+          else if(tenth && net > 0 && c(net + gst) === c(levy.amount)){ l.price = net; l.net = net; l.gst = gst; l.total = levy.amount; }
+        }
+        if(l.total == null) problems.push('The fuel levy\'s GST couldn\'t be worked out from the totals: check it.');
+        lines.push(l);
+      } else if(levyUnread) problems.push('The fuel levy\'s amount wasn\'t read: check it.');
+      return result(number, date, totals, lines, problems);
+    }
+  };
+  var READERS = [SF, FDA, MF, DS, HP, TP];   // v3.11.66: Sydney Freezers first (Aziz's reader would claim its paper)
 
   /* the scan's pages -> { ok, reader, parsed: { invoice, lines, prices, problems } (InvoiceEngine.readCSV's shape), why } */
   function read(pages){
     var ps = (Array.isArray(pages) ? pages : []).map(linesOf);
     if(!ps.length || ps.every(function(p){ return !p.length; })) return { ok: false, why: 'No words were read from the scan: try again in better light, flat.' };
     var reader = READERS.filter(function(r){ return r.detect(ps); })[0];
-    if(!reader) return { ok: false, why: 'The Pass can\'t read this supplier\'s invoices yet (so far: Aziz, Michael\'s Fresh, Dick Stone, Highland Poultry and Two Providores). Paste a Claude chat\'s CSV instead.' };
+    if(!reader) return { ok: false, why: 'The Pass can\'t read this supplier\'s invoices yet (so far: Aziz, Michael\'s Fresh, Dick Stone, Highland Poultry, Two Providores and Sydney Freezers). Paste a Claude chat\'s CSV instead.' };
     var r = reader.read(ps), sup = reader.name;
     var lines = r.lines.map(function(l){
       var v = function(x){ return x == null ? null : x; };   // an empty column is null, as a CSV's would be

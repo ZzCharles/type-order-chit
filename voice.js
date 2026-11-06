@@ -114,6 +114,8 @@ var host = {
     (state.suppliers || []).forEach(function(s){ sup[s.id] = s.name; });
     j('order-chit-price-suppliers', []).forEach(function(s){ if(s && s.id && !sup[s.id]) sup[s.id] = s.name; });
     return { engine: typeof InvoiceEngine !== 'undefined' ? InvoiceEngine : null, prices: j('order-chit-prices', []), matches: j('order-chit-inv-matches', []),
+      // v3.11.66: the items kept for prices only (names, for finding them by voice)
+      items: j('order-chit-price-items', []).filter(function(x){ return x && x.id; }).map(function(x){ return { id: x.id, name: x.name, supplierId: x.supplierId }; }),
       names: sup, retired: function(id){ return typeof retiredName === 'function' ? retiredName(id) : ''; },
       invoices: j('order-chit-invoices', {}), week: typeof getCurrentWeekStart === 'function' ? getCurrentWeekStart() : '', today: addDaysKey(0) };
   },

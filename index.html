@@ -854,7 +854,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.65';
+const APP_VERSION = 'v3.11.66';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -3443,7 +3443,7 @@ function renderInvoices(){
     `).join('');
     return `
       <div class="card">
-        <div class="invoice-header"><span class="supplier-name">${escapeHtml(retiredName(sid) || 'Removed supplier')}</span></div>
+        <div class="invoice-header"><span class="supplier-name">${escapeHtml(invPriceSup(sid) ? invPriceSup(sid).name : retiredName(sid) || 'Removed supplier')}</span></div>
         ${entriesHtml}
         <div class="invoice-supplier-total">Supplier total: $${supplierTotal.toFixed(2)}</div>
       </div>
@@ -3527,6 +3527,15 @@ function invLoad(key, empty){ const v = readStoredJSON(key); return v == null ? 
 function invSave(key, v){ try{ localStorage.setItem(key, JSON.stringify(v)); return true; }catch(e){ showToast('The phone’s storage is full: not kept.'); return false; } }
 function invProducts(supplierId){
   const s = findSupplier(supplierId);
+  /* v3.11.66 (his ask, 6 Nov, with a supplier's invoice: "it should be able to reply when I ask"): a prices-only supplier
+     has no list of its own, so any product of his, or any item kept for prices only, can be its line (the way a price
+     list's lines are matched); each says where it's from */
+  if(!s && invPriceSup(supplierId)){
+    const out = [];
+    state.suppliers.forEach(x => (x.products || []).forEach(p => out.push({ id: p.id, name: p.name, unit: p.unit, home: x.name })));
+    invLoad(PRICE_ITEMS_KEY, []).forEach(x => out.push({ id: x.id, name: x.name, unit: x.unit || 'each', priceOnly: true, home: invSupName(x.supplierId) }));
+    return out;
+  }
   return ((s && s.products) || []).map(p => ({ id: p.id, name: p.name, unit: p.unit }))
     .concat(invLoad(PRICE_ITEMS_KEY, []).filter(x => x.supplierId === supplierId).map(x => ({ id: x.id, name: x.name, unit: x.unit || 'each', priceOnly: true })));
 }
@@ -3537,11 +3546,18 @@ function invProductName(pid){
 }
 function invSupplierFor(printed){
   const k = InvoiceEngine.nameKey(printed), m = invLoad(INV_SUPPLIERS_KEY, {});
-  if(m[k] && findSupplier(m[k])) return m[k];
+  if(m[k] && invSupKnown(m[k])) return m[k];   // v3.11.66: or a prices-only supplier
   // v3.11.40: or his supplier's name with only spaces and marks apart ("Michaels Fresh" printed, "Michael's Fresh" his)
   const s = state.suppliers.find(x => InvoiceEngine.nameKey(x.name) === k) || (InvoiceEngine.looseKey(printed) ? state.suppliers.find(x => InvoiceEngine.looseKey(x.name) === InvoiceEngine.looseKey(printed)) : null);
-  return s ? s.id : '';
+  if(s) return s.id;
+  // v3.11.66: or a prices-only supplier's name (prices kept, no order list)
+  const lk = InvoiceEngine.looseKey(printed), ps = lk ? invLoad(PRICE_SUPPLIERS_KEY, []).find(x => InvoiceEngine.looseKey(x.name) === lk) : null;
+  return ps ? ps.id : '';
 }
+/* v3.11.66: a prices-only supplier by its id (null for one of his order-list suppliers, or one that's gone); an invoice
+   can be kept under either kind */
+function invPriceSup(id){ return id && !findSupplier(id) ? invLoad(PRICE_SUPPLIERS_KEY, []).find(x => x.id === id) || null : null; }
+function invSupKnown(id){ return !!(findSupplier(id) || invPriceSup(id)); }
 function invWeekStart(dateKey){
   const d = new Date(String(dateKey) + 'T12:00:00');
   if(isNaN(d)) return getCurrentWeekStart();
@@ -3558,7 +3574,7 @@ function invNiceName(desc){
 function invBringHTML(){
   if(typeof InvoiceEngine === 'undefined') return '';
   const kept = invLoad(INV_KEPT_KEY, []).slice(0, 5);
-  const rows = kept.map(k => `<div class="iv-kept" data-goto="invKept" data-fid="${escapeHtml(k.id)}"><div><div class="iv-k1">${escapeHtml((findSupplier(k.supplierId) || {}).name || k.printedSupplier || 'Supplier')} · ${escapeHtml(k.number || '')}</div><div class="iv-k2">${escapeHtml(invDayLabel(k.date))} · ${k.lines.length} line${k.lines.length === 1 ? '' : 's'}${k.credits ? ' · credits ' + invMoney(k.credits) : ''}</div></div><div class="iv-k3">${invMoney(k.total)} &rsaquo;</div></div>`).join('');
+  const rows = kept.map(k => `<div class="iv-kept" data-goto="invKept" data-fid="${escapeHtml(k.id)}"><div><div class="iv-k1">${escapeHtml((findSupplier(k.supplierId) || invPriceSup(k.supplierId) || {}).name || k.printedSupplier || 'Supplier')} · ${escapeHtml(k.number || '')}</div><div class="iv-k2">${escapeHtml(invDayLabel(k.date))} · ${k.lines.length} line${k.lines.length === 1 ? '' : 's'}${k.credits ? ' · credits ' + invMoney(k.credits) : ''}</div></div><div class="iv-k3">${invMoney(k.total)} &rsaquo;</div></div>`).join('');
   return `
     <div class="form-card">
       <div class="fd-title">Bring in an invoice</div>
@@ -3637,7 +3653,7 @@ function invLineHTML(z, st){
   if(m && m.skip) extra += `<div class="cb-sub">Not a product: no price kept <button class="cb-link cb-chg-p" data-inv-rematch="${z.i}">Change</button></div>`;
   if(p.over && p.over[z.i] && !l.added) extra += `<div class="cb-fixed">Changed for this invoice only</div>`;   // v3.11.57
   // v3.11.40 (his phone, 24 Oct): matching waits for the supplier: before it, there are no products of his to offer
-  if(!m) extra += findSupplier(p.supplierId) ? `<button class="cb-matchbtn" data-inv-match="${z.i}">${l.added ? 'Pick its product' : 'Match this once'}</button>` : `<div class="cb-sub">Pick the supplier at the top first, then match this.</div>`;
+  if(!m) extra += invSupKnown(p.supplierId) ? `<button class="cb-matchbtn" data-inv-match="${z.i}">${l.added ? 'Pick its product' : 'Match this once'}</button>` : `<div class="cb-sub">Pick the supplier at the top first, then match this.</div>`;
   else if(ch && ch.dir === 'new') extra += `<div class="cb-chg done">First price</div>`;
   else if(ch && ch.dir === 'same') extra += `<div class="cb-chg done">Price unchanged</div>`;
   else if(z.needsChoice){
@@ -3656,14 +3672,14 @@ function renderInvCheck(){
   const r = st.r, p = st.p, chk = st.chk;
   if(!r.lines.length) return back + `<div class="move-why">No invoice lines found. ${escapeHtml(r.problems.join(' '))} Is it the CSV from the prompt?</div><div class="oi-actions"><button class="btn" data-inv-back="1">Paste again</button></div>`;
   const printed = (r.invoice && r.invoice.supplier) || r.lines[0].supplier || '';
-  const sup = findSupplier(p.supplierId);
+  const sup = findSupplier(p.supplierId) || invPriceSup(p.supplierId), real = !!findSupplier(p.supplierId);   // v3.11.66: or prices only
   const need = (sup ? 0 : 1) + st.unmatched + st.toDecide;
   const ticked = p.received.filter(v => v !== false).length;
   const adds = chk.adds.total === true ? `Adds up to <b>${invMoney(chk.sums.total)}</b>` : `<span class="cb-amb">${escapeHtml(chk.flags.filter(f => !/ to check\.$/.test(f))[0] || 'Check the totals.')}</span>`;
-  const supPick = sup ? '' : `<div class="section-label">Which of your suppliers is “${escapeHtml(printed || 'this')}”?</div><div class="chip-row iv-sups">${state.suppliers.map(s => `<button class="chip cat-chip" data-inv-sup="${escapeHtml(s.id)}">${escapeHtml(s.name)}</button>`).join('')}</div>`;
+  const supPick = sup ? '' : `<div class="section-label">Which of your suppliers is “${escapeHtml(printed || 'this')}”?</div><div class="chip-row iv-sups">${state.suppliers.map(s => `<button class="chip cat-chip" data-inv-sup="${escapeHtml(s.id)}">${escapeHtml(s.name)}</button>`).join('')}${invLoad(PRICE_SUPPLIERS_KEY, []).map(s => `<button class="chip cat-chip" data-inv-sup="${escapeHtml(s.id)}">${escapeHtml(s.name)} · prices only</button>`).join('')}</div>`;
   // v3.11.47 (his pick, 30 Oct): ordered · delivered under each line; what was ordered and not invoiced below; where "ordered" comes from, said
   let ovi = '';
-  if(sup){
+  if(sup && real){
     const sent = InvoiceEngine.sentOrders({ orders: readOrderHistory(), supplierId: p.supplierId, date: st.date }), when = invRange(sent.from, sent.to);
     if(sent.sent){
       const list = InvoiceEngine.orderedVsInvoiced({ orders: readOrderHistory(), supplierId: p.supplierId, date: st.date, products: invProducts(p.supplierId), groupOf: () => '',
@@ -3674,7 +3690,7 @@ function renderInvCheck(){
       ovi = (missing.length ? `<div class="section-label">Ordered, not on the invoice</div><div class="card tight">${missing.map(t => `<div class="iv-ovi">${t}</div>`).join('')}</div>` : '')
         + `<div class="iv-sent">Ordered = what The Pass sent ${escapeHtml(sup.name)} from ${when}. Orders by phone or text aren’t known.</div>`;
     } else ovi = `<div class="iv-sent">Nothing was sent to ${escapeHtml(sup.name)} through The Pass from ${when}, so there’s no order to compare. Orders by phone or text aren’t known.</div>`;
-  }
+  } else if(sup) ovi = `<div class="iv-sent">${escapeHtml(sup.name)} is prices only: this invoice’s prices are kept for it, and no order list changes.</div>`;   // v3.11.66
   const cr = InvoiceEngine.credits(chk.lines, p.received);
   const wait = !sup ? 'Pick the supplier first.' : [st.unmatched ? `match ${st.unmatched} line${st.unmatched === 1 ? '' : 's'}` : '', st.toDecide ? `decide ${st.toDecide} price${st.toDecide === 1 ? '' : 's'}` : ''].filter(Boolean).join(' and ');
   return back + `
@@ -3714,11 +3730,12 @@ function invUnremoveLine(){
 function renderInvMatch(){
   const st = invState(), i = state.invMatchAt, z = st && st.rows[i];
   if(!z) return `<div class="crumb"><button data-goto="invCheck">&larr; Back to the invoice</button></div><div class="empty">That line isn’t there any more.</div>`;
-  const l = z.x.line, sid = st.p.supplierId, sup = findSupplier(sid) || {};
+  const l = z.x.line, sid = st.p.supplierId, sup = findSupplier(sid) || invPriceSup(sid) || {}, real = !!findSupplier(sid);   // v3.11.66: or prices only
   if(!sup.id) return `<div class="crumb"><button data-goto="invCheck">&larr; Back to the invoice</button></div><div class="empty">First pick which of your suppliers this invoice is from, at the top of the invoice. Then its products show here.</div>`;   // v3.11.40
   const prods = invProducts(sid), sug = l.added ? [] : InvoiceEngine.suggest(l.description, prods, 5);
+  const homeOf = id => (prods.find(x => x.id === id) || {}).home;   // v3.11.66: a prices-only supplier's lines can be any of his products
   // v3.11.40: a line sold by the kilo ("KG Red Onion") starts as priced per kg
-  const pick = state.invMatchPick || (state.invMatchPick = { mode: sug.length || l.added ? 'product' : 'new', pid: sug.length ? sug[0].id : '', onList: true, billing: z.x.check.weighed || /^KGS?$/i.test(String(l.unit || '')) ? 'weight' : 'pack' });
+  const pick = state.invMatchPick || (state.invMatchPick = { mode: sug.length || l.added ? 'product' : 'new', pid: sug.length ? sug[0].id : '', onList: real, billing: z.x.check.weighed || /^KGS?$/i.test(String(l.unit || '')) ? 'weight' : 'pack' });
   const pack = pick.re && pick.pack ? pick.pack : InvoiceEngine.readPack(l.description);   // v3.11.57: changing a product keeps its pack size
   const opt = (on, attrs, title, sub) => `<div class="cb-opt" ${attrs}><span class="cb-radio${on ? ' on' : ''}"></span><div><div class="cb-name">${title}</div>${sub ? `<div class="cb-sub">${sub}</div>` : ''}</div></div>`;
   const others = prods.filter(x => !sug.some(s => s.id === x.id));
@@ -3728,10 +3745,10 @@ function renderInvMatch(){
     <div class="recipe-head"><div class="recipe-eyebrow">${l.added ? 'A line you added' : escapeHtml(sup.name || 'The supplier') + ' prints'}</div><h2 class="recipe-title iv-printed">${l.added ? escapeHtml(invReadAs(l)) : escapeHtml(l.description)}</h2></div>
     <div class="section-label">Which of your products is it?</div>
     <div class="card tight">
-      ${sug.map(s => opt(pick.mode === 'product' && pick.pid === s.id, `data-inv-pick="${escapeHtml(s.id)}"`, escapeHtml(s.name), escapeHtml(sup.name || ''))).join('')}
-      ${others.length ? `<div class="cb-opt"><span class="cb-radio${pick.mode === 'product' && others.some(o => o.id === pick.pid) ? ' on' : ''}"></span><div style="flex:1"><div class="cb-name">Another of yours</div><select id="inv-other" class="iv-sel"><option value="">Pick one…</option>${others.map(o => `<option value="${escapeHtml(o.id)}" ${pick.pid === o.id ? 'selected' : ''}>${escapeHtml(o.name)}</option>`).join('')}</select></div></div>` : ''}
+      ${sug.map(s => opt(pick.mode === 'product' && pick.pid === s.id, `data-inv-pick="${escapeHtml(s.id)}"`, escapeHtml(s.name), escapeHtml(homeOf(s.id) || sup.name || ''))).join('')}
+      ${others.length ? `<div class="cb-opt"><span class="cb-radio${pick.mode === 'product' && others.some(o => o.id === pick.pid) ? ' on' : ''}"></span><div style="flex:1"><div class="cb-name">Another of yours</div><select id="inv-other" class="iv-sel"><option value="">Pick one…</option>${others.map(o => `<option value="${escapeHtml(o.id)}" ${pick.pid === o.id ? 'selected' : ''}>${escapeHtml(o.name)}${o.home ? ' · ' + escapeHtml(o.home) : ''}</option>`).join('')}</select></div></div>` : ''}
       ${opt(pick.mode === 'new', 'data-inv-pick="__new"', 'A new, separate item', '')}
-      ${pick.mode === 'new' ? `<div class="iv-newform"><label>Name</label><input id="inv-newname" value="${escapeHtml(pick.name != null ? pick.name : l.added ? '' : invNiceName(l.description))}"><label>On the order list for ${escapeHtml(sup.name || 'this supplier')}</label><div class="chip-row"><button class="chip cat-chip ${pick.onList ? 'chip-on' : ''}" data-inv-onlist="1">Yes</button><button class="chip cat-chip ${pick.onList ? '' : 'chip-on'}" data-inv-onlist="0">No, prices only</button></div></div>` : ''}
+      ${pick.mode === 'new' ? `<div class="iv-newform"><label>Name</label><input id="inv-newname" value="${escapeHtml(pick.name != null ? pick.name : l.added ? '' : invNiceName(l.description))}">${real ? `<label>On the order list for ${escapeHtml(sup.name || 'this supplier')}</label><div class="chip-row"><button class="chip cat-chip ${pick.onList ? 'chip-on' : ''}" data-inv-onlist="1">Yes</button><button class="chip cat-chip ${pick.onList ? '' : 'chip-on'}" data-inv-onlist="0">No, prices only</button></div>` : `<div class="rd-note">Kept for its prices: ${escapeHtml(sup.name || 'this supplier')} has no order list here.</div>`}</div>` : ''}
       ${opt(pick.mode === 'skip', 'data-inv-pick="__skip"', 'Not a product', 'e.g. a delivery fee: no price kept')}
     </div>
     ${pick.mode === 'skip' ? '' : `<div class="section-label">Pack</div>
@@ -4146,7 +4163,7 @@ function renderInvKept(id){
   if(!k) return crumb + `<div class="empty">That invoice isn’t kept any more.</div>`;
   const lines = k.lines.map(l => `<div class="cb-line${l.received ? '' : ' cb-off'}"><span class="cb-tick${l.received ? ' on' : ''}">${l.received ? '&#10003;' : ''}</span><div class="iv-body"><div class="cb-top"${l.productId ? ` data-goto="invHist" data-fid="${escapeHtml(l.productId)}"` : ''}><span class="cb-name">${escapeHtml(l.productId ? invProductName(l.productId) : l.description)}</span><span class="cb-amt">${invMoney(l.total)}</span></div><div class="cb-sub${l.received ? '' : ' cb-red'}">${l.received ? (l.qty != null ? l.qty + ' × ' + invMoney(l.price) : invMoney(l.price)) + (l.choice === 'once' ? ' · price approved once' : '') : 'Not delivered · credit to chase'}</div>${l.productId ? `<div class="cb-pr">${escapeHtml(l.description)}</div>` : ''}</div></div>`).join('');
   return crumb + `
-    <div class="recipe-head"><div class="recipe-eyebrow">${escapeHtml(invDayLabel(k.date))}${k.number ? ' · invoice ' + escapeHtml(k.number) : ''}</div><h2 class="recipe-title">${escapeHtml((findSupplier(k.supplierId) || {}).name || k.printedSupplier || 'Invoice')}</h2>
+    <div class="recipe-head"><div class="recipe-eyebrow">${escapeHtml(invDayLabel(k.date))}${k.number ? ' · invoice ' + escapeHtml(k.number) : ''}</div><h2 class="recipe-title">${escapeHtml((findSupplier(k.supplierId) || invPriceSup(k.supplierId) || {}).name || k.printedSupplier || 'Invoice')}</h2>
       <div class="cb-sum">${invMoney(k.total)}${k.credits ? ` · <span class="cb-amb">credits to chase ${invMoney(k.credits)}</span>` : ''}</div></div>
     <div class="card tight">${lines}</div>
     <div class="add-row"><button class="btn btn-danger" data-inv-delkept="${escapeHtml(k.id)}">Delete this kept invoice</button></div>
@@ -6521,7 +6538,7 @@ function attachHandlers(){
     const st = invState(), i = state.invMatchAt, z = st && st.rows[i], pk = state.invMatchPick;
     if(!z || !pk) return;
     const sid = st.p.supplierId, l = z.x.line, matches = invLoad(INV_MATCHES_KEY, []);
-    if(!findSupplier(sid)){ showToast('Pick the supplier first'); return; }   // v3.11.40: never a match kept under no supplier
+    if(!invSupKnown(sid)){ showToast('Pick the supplier first'); return; }   // v3.11.66: or a prices-only one   // v3.11.40: never a match kept under no supplier
     const key = InvoiceEngine.nameKey(l.description);
     let m = { supplier: sid, key: key };
     if(pk.mode === 'skip') m.skip = true;
@@ -6560,7 +6577,7 @@ function attachHandlers(){
   if(ivKeep) ivKeep.addEventListener('click', ()=>{
     const st = invState(); if(!st) return;
     const sid = st.p.supplierId, r = st.r, kept = invLoad(INV_KEPT_KEY, []);
-    if(st.unmatched || st.toDecide || !findSupplier(sid)) return;
+    if(st.unmatched || st.toDecide || !invSupKnown(sid)) return;   // v3.11.66: or a prices-only supplier (its total counts in the week's spend, as any invoice's)
     if(!st.chk.ok && !confirm('This invoice doesn’t check out (' + st.chk.flags.join(' ') + ')\n\nKeep it anyway?')) return;
     const dup = kept.find(k => k.supplierId === sid && st.number && k.number === st.number);
     if(dup && !confirm('Invoice ' + st.number + ' was already kept on ' + invDayLabel(new Date(dup.keptAt).toISOString().slice(0, 10)) + '. Keep it again?')) return;
@@ -7638,16 +7655,16 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.65"></script>
+<script src="move-data.js?v=3.11.66"></script>
 <!-- v3.11.28: the function doc reader. A separate file too: if it fails, only "From management's doc" says so. -->
-<script src="function-reader.js?v=3.11.65"></script>
+<script src="function-reader.js?v=3.11.66"></script>
 <!-- v3.11.30: the invoice rules. A separate file too: if it fails, only bringing in an invoice says so. -->
-<script src="invoice-engine.js?v=3.11.65"></script>
+<script src="invoice-engine.js?v=3.11.66"></script>
 <!-- v3.11.31: the supplier readers for a scanned invoice (Aziz's so far). -->
-<script src="invoice-readers.js?v=3.11.65"></script>
+<script src="invoice-readers.js?v=3.11.66"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.65"></script>
-<script src="voice-brain.js?v=3.11.65"></script>
-<script src="voice.js?v=3.11.65"></script>
+<script src="roster-engine.js?v=3.11.66"></script>
+<script src="voice-brain.js?v=3.11.66"></script>
+<script src="voice.js?v=3.11.66"></script>
 </body>
 </html>

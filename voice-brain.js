@@ -3583,6 +3583,8 @@ function createRoom(host){
     // v3.11.65 (his log #577): the suppliers he has prices from but doesn't order from here ("update <a supplier>'s price …")
     var pdm = host.prices ? host.prices() : null;
     Object.keys((pdm && pdm.names) || {}).forEach(function(sid){ put2(pdm.names[sid]); put2(supSay(pdm.names[sid])); });
+    // v3.11.66: the items kept for prices only, by name, so "what's the price of <one>" reaches this room
+    ((pdm && pdm.items) || []).forEach(function(x){ if(x && x.name){ put2(itemSay(x.name)); namePieces(itemSay(x.name)).forEach(put2); } });
     /* v3.11.61 (his log, 1 Nov: "put Alex on Thursday at 4", "take Alex off Friday", "replace Lee with Kim" said
        to a fresh "Hey Pluto" got "I can't do that yet": nothing in them was this room's word). The staff's first names
        (never his own: he says "me"), so a change or a question about someone reaches this room. They stay on the
@@ -5708,9 +5710,9 @@ function createRoom(host){
   }
   /* the item named: his products whose name (or a short form of it) is said, the longest found; one item may sit with
      two suppliers (two products); "it" or "that": the item just asked about */
-  function prItem(text, cat){
+  function prItem(text, cat, extra){
     var w = keyOf(text).split(' '), best = 0, hits = [];
-    cat.entries.forEach(function(e){
+    var scan = function(list){ list.forEach(function(e){
       if(e.kind !== 'order') return;
       e.keys.forEach(function(k){
         var kw = k.k.split(' ');
@@ -5721,7 +5723,10 @@ function createRoom(host){
           if(ok){ if(kw.length > best){ best = kw.length; hits = []; } if(hits.indexOf(e) < 0) hits.push(e); return; }
         }
       });
-    });
+    }); };
+    scan(cat.entries);
+    // v3.11.66: the items kept for prices only, when none of his order lists' items is named (so what's found today stays)
+    if(!hits.length && extra) scan(extra);
     hits = hits.filter(function(e){ return e.keys.some(function(k){ return k.k.split(' ').length === best; }); });
     if(hits.length){
       var names = {}; hits.forEach(function(e){ names[clean(e.name)] = 1; });
@@ -5746,12 +5751,23 @@ function createRoom(host){
     return prMoney(rec.price);
   }
   function prData(){ return host.prices ? host.prices() : null; }
+  /* v3.11.66 (his ask, 6 Nov, about a supplier's invoice: "it should be able to reply when I ask"): the items kept
+     for prices only (a prices-only supplier's, or a new item never put on an order list) are found by name too, for their
+     prices only: never for an order */
+  function prOnly(pd){
+    return ((pd && pd.items) || []).filter(function(x){ return x && x.id && x.name; }).map(function(x){
+      var e = { kind: 'order', pid: x.id, sid: x.supplierId || '', name: x.name, keys: [] };
+      // its name as kept (the supplier's long printed one, mostly), and the same short runs of it Pluto's menu has
+      nameKeys(x.name).concat(namePieces(itemSay(x.name)).map(keyOf)).forEach(function(k){ if(k && !e.keys.some(function(y){ return y.k === k; })) e.keys.push({ k: k }); });
+      return e;
+    });
+  }
   async function prAnswer(kind, text){
     var pd = prData();
     if(!pd || !pd.engine) return cant('I can’t see the prices here.', 'price no data');
     if(kind === 'spend') return prSpend(pd, text);
     if(host.reload){ try{ host.reload(); }catch(e){} }
-    var cat = catalogue(host.data(), taught()), it = prItem(text, cat);
+    var cat = catalogue(host.data(), taught()), it = prItem(text, cat, prOnly(pd));
     if(!it && (kind === 'set' || kind === 'cheap') && prFocus && now() - prFocus.at <= PR_FOLLOW_MS) it = prFocus;   // v3.11.65
     if(it && it.many) return cant('Which item? ' + cap(joinOr(it.many.slice(0, 3).map(function(e){ return itemSay(e.name); }))) + '?', 'price which');
     if(!it && kind === 'set') return cant('Which item? Say it with its name, like “update the parmesan price to $20”.', 'price set no item');
@@ -6706,7 +6722,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.65',
+  version: 'v3.11.66',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
