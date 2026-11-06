@@ -6161,6 +6161,42 @@ function createRoom(host){
   function ohSup(cat, sid){ var s = supplier(cat, sid); return s ? supSay(s.name) : 'a supplier no longer in The Pass'; }
   function ohAgo(hist){ return hist.length ? ' (they go back to ' + ohWhen(hist[hist.length - 1].at).replace(/^on /, '') + ')' : ''; }
   var OH_UNKNOWN = ' Orders by phone or text aren’t kept.';
+  /* ---------- v3.11.68: last week's first order (his log #575, 1 Nov: "add beginning of the week <a supplier> order";
+     his pick, 6 Nov: "Last week's first order") ----------
+     The Pass's week starts on Wednesday (as Invoices and Ordering's week line). "The beginning of the week <supplier>
+     order", "the start of the week order", "last week's first order": the first order sent from here to that supplier
+     last week (Wednesday to Tuesday, by the day it was sent), read back with its day and loaded on his plain yes, as
+     "repeat the last order" is (with its undo). A question about it is left as before; orders by phone or text aren't
+     kept, so none is said. */
+  var FWO = /\b(?:(?:beginning|start) of (?:the )?week|(?:last )?weeks? first (?:[a-z]+ ){0,3}order|first (?:[a-z]+ ){0,3}order of (?:the |last )?week)\b/;
+  var FWO_LOAD = /\b(?:add|load|repeat|put|redo|reorder|use|copy|bring|pull|place|make|do|get|same)\b/;
+  // an amount said ("add 2 kilos of mozzarella to the first order of the week") is an item to add, never this
+  var FWO_AMOUNT = /\b(?:kilos?|kgs?|grams?|litres?|liters?|box|boxes|bags?|packs?|packets?|punnets?|bunch|bunches|cartons?|tins?|trays?|bottles?|cases?|tubs?|dozen|one|two|three|four|five|six|seven|eight|nine|ten|half)\b/;
+  function firstOrderSaid(text){
+    var c = clean(text);
+    return FWO.test(c) && /\border\b/.test(c) && FWO_LOAD.test(c.replace(FWO, ' ')) && !/^(?:what|which|when|whats|show|read|tell|how)\b/.test(c)
+      && !/\d/.test(c) && !FWO_AMOUNT.test(c);
+  }
+  function wedOf(k){ var d = keyDate(k); d.setDate(d.getDate() - (d.getDay() - 3 + 7) % 7); return dateKey(d); }
+  async function firstOrder(text){
+    var hist = ohList();
+    if(!hist) return cant('I can’t see the orders sent from here.', 'first order no data');
+    var f = await fresh(), cat = f.cat, sids = parse(text, cat).sids || [];
+    if(sids.length !== 1) return cant('Which supplier? Say it like “load the beginning of the week ' + supSay(((cat.suppliers || [])[0] || {}).name || 'Aziz') + ' order”.', 'first order which');
+    var sup = supplier(cat, sids[0]);
+    if(!sup) return cant('That supplier is gone.', 'gone');
+    var wk = wedOf(dateKey(new Date(now()))), from = addDays(wk, -7), dayOf = function(e){ return e.day || dateKey(new Date(+e.at)); };
+    var sent = hist.filter(function(e){ var d = dayOf(e); return e.sup === sup.id && d >= from && d < wk; }).sort(function(a, b){ return a.at - b.at; })[0];
+    if(!sent) return cant('I can’t find a ' + supSay(sup.name) + ' order sent from here last week.' + OH_UNKNOWN, 'first order none');
+    var back = (sup.products || []).filter(function(p){ return +sent.items[p.id] > 0; });
+    var gone = Object.keys(sent.items).filter(function(id){ return +sent.items[id] > 0 && !back.some(function(p){ return p.id === id; }); }).length;
+    if(!back.length) return cant('Last week’s first ' + supSay(sup.name) + ' order has none of its items on the list now.', 'first order gone');
+    var items = {}; back.forEach(function(p){ items[p.id] = +sent.items[p.id]; });
+    var d = keyDate(dayOf(sent)), when = DAY_FULL[DAY_KEYS[d.getDay()]] + ' ' + d.getDate() + ' ' + MONTHS[d.getMonth()], nowOn = onOrder(sup).length;
+    return confirming('repeat', ['Load last week’s first ' + supSay(sup.name) + ' order (' + when + '): ' + joinAnd(back.map(function(p){ return amount(items[p.id], p.unit) + ' ' + itemSay(p.name); })) + '.']
+      .concat(gone ? [gone === 1 ? 'One of its items isn’t on the list any more.' : gone + ' of its items aren’t on the list any more.'] : [])
+      .concat(nowOn ? ['It replaces the ' + nowOn + (nowOn === 1 ? ' item' : ' items') + ' there now.'] : []), 'Load it?', { sid: sup.id, items: items, first: true }, 'repeat first ' + supSay(sup.name));
+  }
   async function ohAnswer(kind, text, mode){
     var hist = ohList();
     if(!hist) return cant('I can’t see the orders sent from here.', 'history no data');
@@ -6413,6 +6449,7 @@ function createRoom(host){
         var oa = await onOrderAsk(req.text || '') || await haveAsk(req.text || '');   // v3.11.53: "have we got rocket"
         if(oa) return oa;
       }
+      if(firstOrderSaid(req.text || '')) return await firstOrder(req.text || '');   // v3.11.68: last week's first order
       var ohk = ohKind(req.text || '');   // v3.11.51: the orders sent ("when did I last order squid")
       if(ohk) return await ohAnswer(ohk, req.text || '', mode);
       var prk = prKind(req.text || '');   // v3.11.38: prices by voice (read only)
@@ -6546,9 +6583,9 @@ function createRoom(host){
         var s2 = supplier(cat, c.sid);
         if(!s2) return cant('That supplier is gone.', 'gone');
         var before = {}; (s2.products || []).forEach(function(p){ before[p.id] = +p.qty || 0; });
-        var lo = c.kind === 'repeat' && host.lastOrder ? host.lastOrder(s2.id) || {} : {};
+        var lo = c.kind === 'repeat' ? c.items || (host.lastOrder ? host.lastOrder(s2.id) : null) || {} : {};   // v3.11.68: or last week's first
         host.setQty((s2.products || []).map(function(p){ return { pid: p.id, qty: c.kind === 'repeat' ? (+lo[p.id] || 0) : 0 }; }));
-        var lab = c.kind === 'repeat' ? 'Loaded the last ' + supSay(s2.name) + ' order' : 'Cleared the ' + supSay(s2.name) + ' order';
+        var lab = c.kind === 'repeat' ? (c.first ? 'Loaded last week’s first ' : 'Loaded the last ') + supSay(s2.name) + ' order' : 'Cleared the ' + supSay(s2.name) + ' order';
         // the quantities can come back, so these keep an undo
         var aid = remember(lab, [{ k: 'restore', sid: s2.id, sname: s2.name, before: before }]);
         if(host.open) host.open({ view: 'supplier', id: s2.id });
@@ -6726,7 +6763,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.67',
+  version: 'v3.11.68',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
