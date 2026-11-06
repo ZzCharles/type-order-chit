@@ -600,9 +600,55 @@
     return out;
   }
 
+  /* ---------- v3.11.64: Download pricing (his ask, 6 Nov: "download all the pricing from individual suppliers … if I
+     need to submit to management or a competing supplier"; his picks: at the bottom of Prices, tick the suppliers; one:
+     text or a spreadsheet, several: a spreadsheet) ----------
+     Each ticked supplier's current price for every item it has priced (an item approved only once: that price), by the
+     item's name. Prices are always before GST: The Pass doesn't know which items carry GST, so it never adds 10%.
+     o = { prices, suppliers: [ids, in order], supName: { id: name }, items: { productId: { name, unit } } (an item not in
+     it, a removed one, is left out), today: 'YYYY-MM-DD', dates (default on), names (default on: the supplier's name) }
+     -> { rows: [{ sid, supplier, item, soldAs, price, per, date }], text, csv, count } */
+  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function dayWords(key, year){ var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(key || ''); return m ? (+m[3]) + ' ' + MONTHS[+m[2] - 1] + (year ? ' ' + m[1] : '') : ''; }
+  function dollars(v){ return '$' + (Math.round(Math.abs(v) * 100 + 1e-6) / 100).toFixed(2); }   // money() counts cents
+  function csvCell(v){ var s = String(v == null ? '' : v); return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }
+  function priceExport(o){
+    o = o || {};
+    var prices = o.prices || [], items = o.items || {}, supName = o.supName || {}, dates = o.dates !== false, names = o.names !== false;
+    var rows = [], blocks = [];
+    (o.suppliers || []).forEach(function(sid){
+      var mine = prices.filter(function(r){ return r && r.supplier === sid; }), seen = {};
+      var list = [];
+      mine.forEach(function(r){
+        if(seen[r.productId] || !Object.prototype.hasOwnProperty.call(items, r.productId)) return;
+        seen[r.productId] = 1;
+        var rec = currentPrice(mine, sid, r.productId) || historyOf(mine, r.productId, 1)[0].rec, it = items[r.productId] || {};
+        if(!(rec.price > 0)) return;
+        var weighed = rec.billing === 'weight', pk = rec.pack && rec.pack.amount > 0 ? rec.pack : null, u = String(it.unit || 'each');
+        var soldAs = weighed ? 'kg' : pk ? pk.amount + ' ' + pk.unit + ' pack' : u;
+        var per = !weighed && pk && rec.perBase != null ? (Math.round(rec.perBase * 100 + 1e-6) / 100).toFixed(2) + '/' + pk.unit : '';
+        list.push({ sid: sid, supplier: String(supName[sid] || ''), item: String(it.name || ''), soldAs: soldAs, price: round(rec.price, 2), per: per, date: rec.date || '' });
+      });
+      list.sort(function(a, b){ return a.item.toLowerCase() < b.item.toLowerCase() ? -1 : a.item.toLowerCase() > b.item.toLowerCase() ? 1 : 0; });
+      if(!list.length) return;
+      rows = rows.concat(list);
+      var head = (names && supName[sid] ? supName[sid] + ': prices' : 'Prices') + ' before GST (' + dayWords(o.today, true) + ')';
+      blocks.push([head].concat(list.map(function(x){
+        var a = x.soldAs === 'each' ? 'each' : (/^[aeiou]/i.test(x.soldAs) ? 'an ' : 'a ') + x.soldAs;
+        return x.item + ': ' + dollars(x.price) + ' ' + a + (x.per ? ', $' + x.per : '') + (dates && x.date ? ' (' + dayWords(x.date) + ')' : '');
+      })).join('\n'));
+    });
+    var cols = (names ? ['Supplier'] : []).concat(['Item', 'Sold as', 'Price before GST', 'Per kg/L/each']).concat(dates ? ['Date'] : []);
+    var lines = [cols.map(csvCell).join(',')].concat(rows.map(function(x){
+      return (names ? [x.supplier] : []).concat([x.item, x.soldAs, x.price.toFixed(2), x.per]).concat(dates ? [x.date] : []).map(csvCell).join(',');
+    }));
+    // a byte-order mark first, so Excel reads the names' letters right
+    return { rows: rows, text: blocks.join('\n\n'), csv: '﻿' + lines.join('\r\n') + '\r\n', count: rows.length };
+  }
+
   return { COLS: COLS, cents: cents, money: money, num: num, csvRows: csvRows, readCSV: readCSV, checkLine: checkLine, checkInvoice: checkInvoice,
     readPack: readPack, perBase: perBase, nameKey: nameKey, findMatch: findMatch, suggest: suggest, priceRecord: priceRecord, priceChange: priceChange, currentPrice: currentPrice, cartTotal: cartTotal, historyOf: historyOf,
     orderedVsInvoiced: orderedVsInvoiced, sentOrders: sentOrders, editLine: editLine, undoEdit: undoEdit, credits: credits, compareSuppliers: compareSuppliers, hasContact: hasContact,
     looseKey: looseKey, readPriceList: readPriceList, listRecord: listRecord, samePrice: samePrice, setPack: setPack, editPrice: editPrice, suppliersFor: suppliersFor, cheaperElsewhere: cheaperElsewhere,
-    typedPrice: typedPrice, setBoxSize: setBoxSize, weekOrdered: weekOrdered };
+    typedPrice: typedPrice, setBoxSize: setBoxSize, weekOrdered: weekOrdered, priceExport: priceExport };
 });

@@ -558,6 +558,14 @@ a.btn-block{display:block;}
 .imp-row:last-child{border-bottom:none;}
 .imp-row.imp-off .imp-name{color:var(--muted);text-decoration:line-through;}
 .imp-row input[type=checkbox]{width:20px;height:20px;margin-top:1px;flex:0 0 auto;accent-color:var(--ink);}
+/* v3.11.64: Download pricing, at the bottom of Prices */
+.dl-row{display:flex;align-items:center;gap:11px;padding:11px 0;border-bottom:1px solid #F2F0E6;font-size:14px;cursor:pointer;}
+.dl-row:last-child{border-bottom:none;}
+.dl-row input{width:20px;height:20px;margin:0;flex:0 0 auto;accent-color:var(--ink);}
+.dl-row .dl-n{flex:1;}
+.dl-row .dl-c{font-size:12px;color:var(--muted);}
+.dl-go{display:flex;gap:8px;margin:12px 0 4px;}
+.dl-go .btn{flex:1;}
 .imp-main{flex:1;min-width:0;}
 .imp-name{font-size:15px;font-weight:600;}
 .imp-status{font-size:11.5px;color:var(--muted);margin-top:2px;line-height:1.4;}
@@ -846,7 +854,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.63';
+const APP_VERSION = 'v3.11.64';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -3016,7 +3024,7 @@ function goto(view){
   if(view.name !== 'fnDoc'){ state.fnDocText = ''; state.fnDocRead = null; state.fnDocPicks = null; }   // v3.11.28
   if(INV_FLOW.indexOf(view.name) < 0){ state.invText = ''; state.invRead = null; state.invPicks = null; state.invMatchAt = -1; state.invMatchPick = null; state.invVia = ''; state.invEdit = null; }   // v3.11.30
   if(view.name !== 'plPaste' && view.name !== 'plCheck'){ state.plText = ''; state.plRead = null; state.plPicks = null; state.plOpen = {}; }   // v3.11.32
-  if(view.name !== 'invPrices'){ state.psEdit = ''; state.psText = null; }   // v3.11.34
+  if(view.name !== 'invPrices'){ state.psEdit = ''; state.psText = null; state.dl = null; }   // v3.11.34; v3.11.64: Download pricing's ticks
   if(view.name !== 'invHist' || view.fid !== state.view.fid){ state.prEdit = null; state.prDraft = null; }   // v3.11.35
   if(view.name !== 'invHist') state.histFrom = null;   // v3.11.63: a price history opened from Edit Product goes back there
   state.view = view; animate(render);   // v3.11.45: no history step per screen (the phone's Back goes one level up: upBack)
@@ -3820,7 +3828,83 @@ function renderInvPrices(){
     <div class="iv-two"><button class="btn btn-ghost" data-goto="plPaste">Bring in a price list</button><button class="btn btn-ghost" data-goto="invCompare">Compare suppliers</button></div>
     ${plNewHTML()}
     ${blocks || '<div class="empty">No prices yet: bring in an invoice or a price list.</div>'}
-    ${psListHTML()}`;
+    ${psListHTML()}
+    ${dlHTML()}`;
+}
+/* v3.11.64 (his ask, 6 Nov: "download all the pricing from individual suppliers … if I need to submit to management or
+   a competing supplier"; his picks, ../Pluto/design/price-export-mockup.html: "at the bottom. Download pricing, check
+   boxes to add suppliers"; "if multiple, then spreadsheet. If single, download as text or excel option"; the switches:
+   "let's try one out and will give feedback"): tick suppliers; one: Text or Spreadsheet; several: Spreadsheet. Two
+   switches, on at the start: the dates, and the suppliers' names (off for a rival supplier: the file's name leaves it out
+   too). Always before GST (The Pass doesn't know which items carry GST). Made on this phone (InvoiceEngine.priceExport)
+   and handed to the share sheet; nothing is kept or sent anywhere else. The spreadsheet is a CSV file (Excel and Google
+   Sheets open it): in the Pluto app through PlutoRoomHost.shareFile (app 1.30+); in Chrome as a shared or downloaded
+   file; in an app without shareFile, the same rows go as text, and it says so. */
+function dlSuppliers(){
+  const prices = invLoad(INV_PRICES_KEY, []), has = {};
+  prices.forEach(r => { if(r && r.supplier) has[r.supplier] = 1; });
+  return state.suppliers.map(s => s.id).filter(id => has[id]).concat(invLoad(PRICE_SUPPLIERS_KEY, []).map(p => p.id).filter(id => has[id]));
+}
+function dlState(){ return state.dl || (state.dl = { pick: {}, dates: true, names: true }); }
+function dlCanFile(){
+  try{ if(!ROOM && window.PlutoRoomHost) return typeof window.PlutoRoomHost.shareFile === 'function'; }catch(e){ return false; }
+  return true;   // Chrome: shared as a file, or downloaded
+}
+function dlHTML(){
+  if(typeof InvoiceEngine === 'undefined') return '';
+  const sups = dlSuppliers();
+  if(!sups.length) return '';
+  const d = dlState(), picked = sups.filter(id => d.pick[id]);
+  const counts = {}; invLoad(INV_PRICES_KEY, []).forEach(r => { if(r && r.supplier) (counts[r.supplier] = counts[r.supplier] || {})[r.productId] = 1; });
+  const rows = sups.map(id => `<label class="dl-row"><input type="checkbox" data-dl-sup="${escapeHtml(id)}"${d.pick[id] ? ' checked' : ''}><span class="dl-n">${escapeHtml(invSupName(id))}</span><span class="dl-c">${Object.keys(counts[id] || {}).length} priced</span></label>`).join('');
+  const go = !picked.length ? `<div class="rd-note">Tick the suppliers to download.</div>`
+    : picked.length === 1 ? `<div class="dl-go"><button class="btn btn-ghost" data-dl-go="text">Text</button><button class="btn" data-dl-go="csv">Spreadsheet</button></div>`
+    : `<div class="dl-go"><button class="btn" data-dl-go="csv">Spreadsheet (${picked.length} suppliers)</button></div>`;
+  const later = picked.length && !dlCanFile() ? `<div class="rd-note">In the Pluto app, a spreadsheet needs its next update: until then it goes as text.</div>` : '';
+  return `<div class="section-label">Download pricing</div><div class="card tight">${rows}</div>
+    <div class="card tight"><label class="dl-row"><input type="checkbox" data-dl-opt="dates"${d.dates ? ' checked' : ''}><span class="dl-n">Show the dates</span></label><label class="dl-row"><input type="checkbox" data-dl-opt="names"${d.names ? ' checked' : ''}><span class="dl-n">Show the supplier’s name</span></label></div>
+    ${go}${later}
+    <div class="rd-note">Prices are before GST. Made on this phone; you pick where it goes.</div>
+    <textarea id="dl-copy" style="display:none" rows="6"></textarea>`;
+}
+function dlItems(){
+  const items = {};
+  state.suppliers.forEach(s => (s.products || []).forEach(p => { if(!items[p.id]) items[p.id] = { name: p.name, unit: p.unit }; }));
+  invLoad(PRICE_ITEMS_KEY, []).forEach(i => { if(i && i.id && !items[i.id]) items[i.id] = { name: i.name, unit: i.unit || 'each' }; });
+  return items;
+}
+function dlGo(kind){
+  if(typeof InvoiceEngine === 'undefined') return;
+  const d = dlState(), picked = dlSuppliers().filter(id => d.pick[id]);
+  if(!picked.length){ showToast('Tick a supplier first'); return; }
+  const supName = {}; picked.forEach(id => { supName[id] = invSupName(id); });
+  const today = addDaysKey(0);
+  const r = InvoiceEngine.priceExport({ prices: invLoad(INV_PRICES_KEY, []), suppliers: picked, supName: supName, items: dlItems(), today: today, dates: d.dates, names: d.names });
+  if(!r.count){ showToast('No prices to download for that'); return; }
+  if(kind === 'text' && picked.length === 1){ shareText(r.text, 'dl-copy'); return; }
+  const slug = String(picked.length === 1 && d.names ? supName[picked[0]] : picked.length > 1 ? 'suppliers' : '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  const name = 'prices-' + (slug ? slug + '-' : '') + today + '.csv';
+  dlShareFile(r.csv, name, r.text);
+}
+function dlShareFile(csv, name, text){
+  try{
+    if(!ROOM && window.PlutoRoomHost){
+      if(typeof window.PlutoRoomHost.shareFile === 'function'){ window.PlutoRoomHost.shareFile(btoa(unescape(encodeURIComponent(csv))), name, 'text/csv'); return 'app'; }
+      shareText(text, 'dl-copy'); showToast('Sent as text: a spreadsheet needs the Pluto app’s next update'); return 'text';
+    }
+  }catch(e){}
+  const file = (() => { try{ return new File([csv], name, { type: 'text/csv' }); }catch(e){ return null; } })();
+  try{
+    if(file && navigator.canShare && navigator.canShare({ files: [file] })){
+      navigator.share({ files: [file] }).catch(err => { if(!err || err.name !== 'AbortError') showToast('Couldn’t share the spreadsheet'); });
+      return 'share';
+    }
+  }catch(e){}
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })), a = document.createElement('a');
+  a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 4000);
+  showToast('Downloaded ' + name);
+  return 'download';
 }
 /* v3.11.34 (his answer, 24 Oct: the sheet's "Seafood supplier" was Southern Fresh, its old order sheet Sydney
    Freezers): the prices-only suppliers, each renamable. A name another supplier already has is refused (never two
@@ -6580,6 +6664,10 @@ function attachHandlers(){
   });
   // v3.11.34: renaming a prices-only supplier
   document.querySelectorAll('[data-ps-edit]').forEach(b => b.addEventListener('click', ()=>{ state.psEdit = b.dataset.psEdit; state.psText = null; render(); const i = document.getElementById('ps-name'); if(i){ i.focus(); i.select(); } }));
+  // v3.11.64: Download pricing (ticks kept in state; the page stays where it is)
+  document.querySelectorAll('[data-dl-sup]').forEach(b => b.addEventListener('change', ()=>{ const d = dlState(); if(b.checked) d.pick[b.dataset.dlSup] = 1; else delete d.pick[b.dataset.dlSup]; const y = window.scrollY; render(); window.scrollTo(0, y); }));
+  document.querySelectorAll('[data-dl-opt]').forEach(b => b.addEventListener('change', ()=>{ dlState()[b.dataset.dlOpt] = b.checked; }));
+  document.querySelectorAll('[data-dl-go]').forEach(b => b.addEventListener('click', ()=> dlGo(b.dataset.dlGo)));
   document.querySelectorAll('[data-ps-cancel]').forEach(b => b.addEventListener('click', ()=>{ state.psEdit = ''; state.psText = null; render(); }));
   const psName = document.getElementById('ps-name');
   if(psName) psName.addEventListener('input', ()=>{ state.psText = psName.value; });
@@ -7550,16 +7638,16 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.63"></script>
+<script src="move-data.js?v=3.11.64"></script>
 <!-- v3.11.28: the function doc reader. A separate file too: if it fails, only "From management's doc" says so. -->
-<script src="function-reader.js?v=3.11.63"></script>
+<script src="function-reader.js?v=3.11.64"></script>
 <!-- v3.11.30: the invoice rules. A separate file too: if it fails, only bringing in an invoice says so. -->
-<script src="invoice-engine.js?v=3.11.63"></script>
+<script src="invoice-engine.js?v=3.11.64"></script>
 <!-- v3.11.31: the supplier readers for a scanned invoice (Aziz's so far). -->
-<script src="invoice-readers.js?v=3.11.63"></script>
+<script src="invoice-readers.js?v=3.11.64"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.63"></script>
-<script src="voice-brain.js?v=3.11.63"></script>
-<script src="voice.js?v=3.11.63"></script>
+<script src="roster-engine.js?v=3.11.64"></script>
+<script src="voice-brain.js?v=3.11.64"></script>
+<script src="voice.js?v=3.11.64"></script>
 </body>
 </html>
