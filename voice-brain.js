@@ -414,7 +414,11 @@ var TRAIL = [['please'], ['thanks'], ['mate'], ['bro'], ['for', 'me'], ['for', '
 /* v3.11.16 (his test, 17 Oct): words that never belong in a new item's name
    (a command, or a misheard "Hey Pluto"): no "Add it as a new product?" for them */
 var NOT_A_NAME = { add: 1, remove: 1, put: 1, order: 1, ordering: 1, tick: 1, take: 1, can: 1, could: 1, would: 1, you: 1, please: 1,
-  hey: 1, bluetooth: 1, pluto: 1, plutos: 1 };
+  hey: 1, bluetooth: 1, pluto: 1, plutos: 1,
+  // v3.11.67 (his log #575, 1 Nov: "add beginning of the week <supplier> order" offered a product called "Beginning"): time
+  // words never name a new item ("end" and "middle" stay: a brisket end, middle bacon; "week" and the days are STOP words)
+  beginning: 1, start: 1, weeks: 1, weekend: 1, fortnight: 1, yesterday: 1, morning: 1, afternoon: 1, evening: 1,
+  mondays: 1, tuesdays: 1, wednesdays: 1, thursdays: 1, fridays: 1, saturdays: 1, sundays: 1 };
 function notAName(shown){ return clean(shown).split(' ').some(function(x){ return NOT_A_NAME[x]; }); }
 var STOP = {
   the: 1, a: 1, an: 1, of: 1, to: 1, on: 1, onto: 1, in: 1, into: 1, for: 1, from: 1, off: 1, my: 1, our: 1, me: 1, us: 1,
@@ -6722,7 +6726,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.66',
+  version: 'v3.11.67',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
