@@ -87,6 +87,25 @@ var host = {
   removeProductNote: function(id){ return typeof pnRemove === 'function' ? pnRemove(id) : null; },
   // v3.11.58 (his idea and picks of 31 Oct): notes about staff, kept on this phone (index.html snAll…), read only here
   staffNotes: function(){ return typeof snAll === 'function' ? snAll() : []; },
+  /* v3.11.65 (his log #577, 1 Nov): a price said by voice, kept after his plain yes the way Edit Product keeps a typed one
+     (the brain made it with InvoiceEngine.typedPrice), and taken out again by undo: only that record (same supplier,
+     item, price and time, typed). The same storage and save as the Prices screens (index.html invLoad, invSave). */
+  keepPrice: function(rec){
+    if(!rec || !rec.supplier || !rec.productId || typeof invLoad !== 'function' || typeof invSave !== 'function') return false;
+    var prices = invLoad('order-chit-prices', []);
+    prices.push(rec);
+    if(!invSave('order-chit-prices', prices.slice(-5000))) return false;
+    bgRender();
+    return true;
+  },
+  dropPrice: function(rec){
+    if(!rec || typeof invLoad !== 'function' || typeof invSave !== 'function') return false;
+    var prices = invLoad('order-chit-prices', []);
+    var out = prices.filter(function(r){ return !(r && r.via === 'typed' && r.at === rec.at && r.supplier === rec.supplier && r.productId === rec.productId && r.price === rec.price); });
+    if(out.length === prices.length || !invSave('order-chit-prices', out)) return false;
+    bgRender();
+    return true;
+  },
   /* v3.11.38 (his asks, 24 Oct): prices by voice, read only. The kept prices and matches (Prices), the prices-only
      suppliers' names, and the Invoices screen's weekly totals as this phone keeps them; the rules are invoice-engine.js. */
   prices: function(){

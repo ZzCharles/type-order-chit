@@ -2115,8 +2115,25 @@ function createRoom(host){
      roster answer about one day: the same question, about that day. Only when
      the roster answered last (not the timesheet or a list read since). */
   var RO_DAY_RE = new RegExp('\\b(?:(?:on|for) )?(?:(?:this|next|last) )?(?:' + DAY_WORDS + ')s?\\b', 'g');
+  /* v3.11.65 (his log #585, 2 Nov: "and how about Thursday" right after a roster change went to his notes): a change made
+     outside a roster talk counts too, when it came last: a day said alone then reads that day of the week changed */
+  function roWeekWords(date, d){ var mon = mondayOf(date); return mon === d.week ? 'this week' : mon === addDays(d.week, 7) ? 'next week' : mon === addDays(d.week, -7) ? 'last week' : ''; }
+  function roFollowFrom(){
+    var r = roRecent(), e = rbLastEdit && rbLastEdit.date && now() - rbLastEdit.at <= RO_FOLLOW_MS ? rbLastEdit : null;
+    if(e && (!r || e.seq > r.seq)){
+      var s = rbSession(), d = roData(), ww = d && !(s && !s.finished) ? roWeekWords(e.date, d) : '';
+      return ww ? { text: 'whos working ' + ww, at: e.at, seq: e.seq, date: e.date, edit: true } : null;
+    }
+    return r;
+  }
+  /* v3.11.65 (his log #587–#589, #595, 2 Nov, dropped as talk to someone else): "no, this week" (or "next week", "this week,
+     October is not the 23rd") after a day's answer is that day in that week, after the week's the same question in that week;
+     "okay, let's go to Saturday" is Saturday; "thirsty" is Thursday misheard. A sentence with "roster" in it is a new question. */
+  var RO_WEEK_ONLY = /\b(this|next|last) weeks?\b/g;
+  var RO_WEEK_FILL = /\b(and|so|ok|okay|no|nope|nah|not|i|meant|mean|said|sorry|actually|instead|um|uh|oh|yeah|the|for|of|its|it|is|was|please|one|that|then|same|day|in|on|january|february|march|april|may|june|july|august|september|october|november|december|\d{1,2}|st|nd|rd|th)\b/g;   // clean() splits "23rd" into "23 rd"
+  var RO_THURSDAY = /\b(?:thirsty|thirstday|thursty|thirsday)\b/g;
   function roFollowDay(text, lastR){
-    var r = roRecent();
+    var r = roFollowFrom();
     if(!r || (tsLast && tsLast.at > r.at) || lastR) return null;   // lastR: a list was read just now
     // v3.11.2 (his log, 13 Oct): "for this weekend" after a question about the week
     var cw = clean(text), we = cw.match(/^(?:(?:and|so|ok|okay|for|what about|how about|on|over|the|just|only) )*((?:this |next )?weekend)$/);
@@ -2124,13 +2141,30 @@ function createRoom(host){
       var bw = clean(r.text).replace(RO_DAY_RE, ' ').replace(/\b(?:for |over |on )?(?:the )?(?:this |next |last )?(?:whole )?weeks?(?:ends?)?\b/g, ' ').replace(/\s+/g, ' ').trim();
       return rosterAnswer(bw + ' ' + (/^(this|next) /.test(we[1]) ? we[1] : 'this ' + we[1]), false, null);
     }
+    var wk = cw.match(RO_WEEK_ONLY);
+    if(wk && wk.length === 1 && !cw.match(RO_DAY_RE)
+       && !cw.replace(RO_WEEK_ONLY, ' ').replace(/\b(?:what|how) about\b/g, ' ').replace(RO_WEEK_FILL, ' ').trim()){
+      var bk = clean(r.text).replace(RO_DAY_RE, ' ').replace(/\b(?:for |of |on )?(?:the )?(?:this|next|last) weeks?\b/g, ' ').replace(/\s+/g, ' ').trim();
+      return r.date ? rosterAnswer(bk + ' ' + DAY_FULL[dayOf(r.date)].toLowerCase() + ' ' + wk[0], false, null) : rosterAnswer(bk + ' ' + wk[0], true, null);
+    }
     if(!r.date) return null;
-    var c = clean(text), days = c.match(RO_DAY_RE);
+    var c = clean(text).replace(RO_THURSDAY, 'thursday'), days = c.match(RO_DAY_RE);
     if(!days || days.length !== 1) return null;
-    var rest = c.replace(RO_DAY_RE, ' ').replace(/\b(and|also|so|ok|okay|now|then|check|what|whats|how|hows|about|same|for|with|on|the|please|as|well|too|again|one|day|is|it)\b/g, ' ').trim();
+    var rest = c.replace(RO_DAY_RE, ' ').replace(/\b(and|also|so|ok|okay|now|then|check|what|whats|how|hows|about|same|for|with|on|the|please|as|well|too|again|one|day|is|it|lets|let|us|go|to|onto|move|no|nope|i|meant|mean|sorry|actually|instead|um|uh|oh|yeah)\b/g, ' ').trim();
     if(rest) return null;
     var base = clean(r.text).replace(RO_DAY_RE, ' ').replace(/\s+/g, ' ').trim();
     return rosterAnswer(base + ' ' + days[0].trim(), false, null);
+  }
+  /* v3.11.65 (his log #583, #599, 2 Nov: "can you publish next week's roster" read the roster out, and never said it wasn't
+     published): Publish is his tap on Build Roster (his spec), said plainly; in The Pass itself the screen opens on that week */
+  var RO_PUBLISH = /\b(publish|post|send (?:out )?(?:it|the roster|the rosters)|share (?:it|the roster))\b/;
+  function roPublish(text, mode){
+    var d = roData(), next = !!d && roWhen(text, d, null).mon === addDays(d.week, 7);
+    if(mode !== 'pluto' && host.open){
+      host.open({ view: 'rosterBuild', week: next ? 'next' : 'this' });
+      return cant("I can't publish the roster by voice: Publish is your tap. Build Roster is on screen: tap Publish when it's ready.", 'roster publish, opened');
+    }
+    return cant("I can't publish the roster by voice: Publish is your tap. Open Build Roster in The Pass and tap Publish when it's ready.", 'roster publish');
   }
   /* "what date is he off", "how many hours is she doing": he/she is the one
      person the last roster answer named (2 minutes) */
@@ -3545,6 +3579,10 @@ function createRoom(host){
     ['function', 'functions'].forEach(put2);                 // v3.11.22: his functions, read by voice
     ['invoice', 'invoices', 'spend', 'spent', 'spending'].forEach(put2);   // v3.11.38: "how much did we spend this week"
     ['cart', 'basket', 'trolley'].forEach(put2);             // v3.11.51: "what's in the cart"
+    ['cheaper', 'cheapest'].forEach(put2);                   // v3.11.65 (his log #578: "who has cheaper" got "I can't do that yet")
+    // v3.11.65 (his log #577): the suppliers he has prices from but doesn't order from here ("update <a supplier>'s price …")
+    var pdm = host.prices ? host.prices() : null;
+    Object.keys((pdm && pdm.names) || {}).forEach(function(sid){ put2(pdm.names[sid]); put2(supSay(pdm.names[sid])); });
     /* v3.11.61 (his log, 1 Nov: "put Alex on Thursday at 4", "take Alex off Friday", "replace Lee with Kim" said
        to a fresh "Hey Pluto" got "I can't do that yet": nothing in them was this room's word). The staff's first names
        (never his own: he says "me"), so a change or a question about someone reaches this room. They stay on the
@@ -4279,6 +4317,9 @@ function createRoom(host){
         qtyOps = qtyOps.filter(function(q){ return q.pid !== o.pid; });
         said = said.filter(function(x){ return x.indexOf(itemSay(o.name) + ' is back to') !== 0; });
         if(host.removeProduct && host.removeProduct(o.sid, o.pid)) said.push('Took ' + o.name + ' back off the ' + supSay(o.sname) + ' products.'); else skipped.push(o.name);
+      }
+      else if(o.k === 'price'){   // v3.11.65: the price kept by voice, taken out again (that record only)
+        if(host.dropPrice && host.dropPrice(o.rec)) said.push(prPoss(o.sname) + ' ' + o.nm + ' price is back how it was.'); else skipped.push(prPoss(o.sname) + ' ' + o.nm + ' price');
       }
       else if(o.k === 'pnRemove'){   // v3.11.54: a note on a product, put back as it was
         if(host.addProductNote && host.addProductNote(o.note)) said.push('The note on ' + itemSay(o.note.name) + ' is back.'); else skipped.push('the note');
@@ -5643,8 +5684,21 @@ function createRoom(host){
   var PR_SPEND = /\b(spend|spent|spending)\b|\binvoices? (?:this|last) week\b|\b(?:this|last) weeks? invoices?\b|\bweekly spend\b/;
   var PR_ORDERISH = /\b(order|orders|ordered|list|prep|need|needed|left)\b/;
   var PR_FOLLOW_MS = 2 * 60 * 1000, prFocus = null;   // { at, pids, name }
+  /* v3.11.65 (his log #577–#578, 1 Nov): "can you update <a supplier's> price at <a price>" right after the parmesan's price lost
+     the item; "who has cheaper" got "I can't do that yet". A price said with a change word is a price to keep (read back,
+     kept only on his plain yes: prSet); "who's cheaper" compares the suppliers' prices (prCheap). Both take the item just
+     asked about (2 minutes) when none is named. */
+  var PR_SET = /\b(update|change|set|make|put|correct|fix|enter)\b/;
+  var PR_AMOUNT = /\$\s?(\d{1,5}(?:\.\d{1,2})?)(?!\d)|\b(\d{1,5}(?:\.\d{1,2})?) ?(?:dollars|bucks)\b/i;
+  var PR_CHEAP = /\b(cheaper|cheapest|best price|lowest price|better price)\b/;
+  function prSetSaid(text){
+    var c = clean(text);
+    return PR_SET.test(c) && PR_AMOUNT.test(String(text || '')) && !/\b(order|orders|ordering|prep|list|function|functions)\b/.test(c) && c.split(' ').length <= 16;
+  }
   function prKind(text){
     var c = clean(text);
+    if(prSetSaid(text)) return 'set';                                                       // v3.11.65
+    if(PR_CHEAP.test(c) && !PR_CHANGE.test(c) && !PR_ORDERISH.test(c)) return 'cheap';      // v3.11.65
     if(PR_SPEND.test(c)) return 'spend';
     if(PR_LAST.test(c)) return 'last';
     if(PR_CHANGE.test(c)) return 'change';
@@ -5698,13 +5752,18 @@ function createRoom(host){
     if(kind === 'spend') return prSpend(pd, text);
     if(host.reload){ try{ host.reload(); }catch(e){} }
     var cat = catalogue(host.data(), taught()), it = prItem(text, cat);
+    if(!it && (kind === 'set' || kind === 'cheap') && prFocus && now() - prFocus.at <= PR_FOLLOW_MS) it = prFocus;   // v3.11.65
     if(it && it.many) return cant('Which item? ' + cap(joinOr(it.many.slice(0, 3).map(function(e){ return itemSay(e.name); }))) + '?', 'price which');
+    if(!it && kind === 'set') return cant('Which item? Say it with its name, like “update the parmesan price to $20”.', 'price set no item');
+    if(!it && kind === 'cheap') return cant('Which item? Say its name, like “who has the cheapest mozzarella”.', 'price cheap no item');
     if(!it) return cant(/\b(it|that|them|those|this)\b/.test(clean(text)) ? 'Which item? Say its name, like “what’s the price for mozzarella”.' : 'I couldn’t find that item in The Pass. Say it as it’s named on your list.', 'price no item');
     prFocus = { at: now(), pids: it.pids, name: it.name, homes: it.homes };
     var E = pd.engine, rows = [];
     it.pids.forEach(function(pid){ E.suppliersFor(pd.prices, pid, pd.today).forEach(function(r){ r.pid = pid; rows.push(r); }); });
     var nm = itemSay(it.name);
+    if(kind === 'set') return prSet(pd, rows, nm, it, text);   // v3.11.65
     if(!rows.length) return ans('answer', { say: ['I don’t have a price for ' + nm + ' yet. Bring one in on The Pass’s Prices screen.'], log: 'price none' });
+    if(kind === 'cheap') return prCheap(pd, rows, nm);         // v3.11.65
     if(kind === 'last') return prLast(pd, rows, nm, it);
     if(kind === 'change') return prChange(pd, rows, nm, it, text);
     return prPrice(pd, rows, nm, it);
@@ -5721,6 +5780,41 @@ function createRoom(host){
       if(c && !c.unknown && like !== 'not comparable') say.push(prSupName(pd, c.row.supplier) + ' is ' + prMoney(c.less) + ' ' + PR_UNIT[c.row.unit] + ' cheaper' + (like === 'different' ? ', but it isn’t the same product.' : like === 'similar' ? ', probably the same product.' : '.'));
     } else if(rows[0].perBase != null) say.push('Cheapest: ' + prSupName(pd, rows[0].supplier) + '.');
     return ans('answer', { say: [say.join(' ')], log: 'price ' + rows.length + ' supplier' + (rows.length === 1 ? '' : 's') });
+  }
+  /* v3.11.65: "who has cheaper": the two cheapest that can be compared (a price per kilo, litre or each, in the same unit) */
+  function prCheap(pd, rows, nm){
+    if(rows.length < 2) return ans('answer', { say: ['I only have a price for ' + nm + ' from ' + prSupName(pd, rows[0].supplier) + '.'], log: 'price cheap one' });
+    var known = rows.filter(function(r){ return r.perBase != null; }), a = known[0], b = a && known.filter(function(r){ return r !== a && r.unit === a.unit; })[0];
+    if(!b) return ans('answer', { say: ['I can’t compare ' + nm + ' yet: not every price has its pack size.'], log: 'price cheap unknown' });
+    var like = (pd.matches.filter(function(m){ return m.supplier === a.supplier && m.productId === a.pid && m.like; })[0] || {}).like || '';
+    if(like === 'not comparable') return ans('answer', { say: ['I can’t compare ' + nm + ': ' + prSupName(pd, a.supplier) + '’s isn’t the same thing.'], log: 'price cheap not comparable' });
+    if(a.perBase >= b.perBase * 0.99) return ans('answer', { say: [prSupName(pd, a.supplier) + ' and ' + prSupName(pd, b.supplier) + ' are about the same for ' + nm + ': ' + prMoney(a.perBase) + ' and ' + prMoney(b.perBase) + ' ' + PR_UNIT[a.unit] + '.'], log: 'price cheap same' });
+    return ans('answer', { say: [prSupName(pd, a.supplier) + ' is cheaper for ' + nm + ': ' + prMoney(a.perBase) + ' ' + PR_UNIT[a.unit] + ', against ' + prMoney(b.perBase) + ' from ' + prSupName(pd, b.supplier)
+      + (like === 'different' ? ', but it isn’t the same product.' : like === 'similar' ? ', probably the same product.' : '.')], log: 'price cheap ' + known.length });
+  }
+  /* v3.11.65: a price said by voice, for one supplier: the one named, else where he orders it. Per kilo (or litre) or per
+     pack as that supplier's last price for it was, unless he says which; read back against that price, and kept only on
+     his plain yes, the way Edit Product keeps one he types (InvoiceEngine.typedPrice: today's, "typed by you"). */
+  var PR_PER_KG = /\b(?:a|per|the|by the) (?:kilo|kilos|kg|kgs|kilogram|litre|litres|liter|liters)\b/;
+  var PR_PER_PACK = /\b(?:a|per|the|each) (?:box|boxes|pack|packs|packet|packets|tin|tins|bag|bags|bottle|bottles|tub|tubs|carton|cartons|case|bucket|tray|punnet|bunch|jar|block|wheel|piece|unit)\b|\beach\b/;
+  function prPoss(n){ return /s$/i.test(n) ? n + '’' : n + '’s'; }   // a name ending in s: "Smiths’ parmesan"; else "Aziz’s parmesan"
+  function prSet(pd, rows, nm, it, text){
+    var raw = String(text || ''), c = clean(raw), m = PR_AMOUNT.exec(raw), price = m ? +(m[1] || m[2]) : NaN;
+    if(!(price > 0)) return cant('What price? Say it like “update the parmesan price to $20”.', 'price set no amount');
+    var named = Object.keys(pd.names || {}).filter(function(sid){ var k = clean(supSay(pd.names[sid] || '')); return k && (' ' + c + ' ').indexOf(' ' + k + ' ') > -1; });
+    if(named.length > 1) return cant('Which supplier? Say just one, like “update Aziz’s ' + nm + ' price to $20”.', 'price set two suppliers');
+    var sid = named[0] || it.homes[0];
+    if(!sid) return cant('Which supplier? Say its name too.', 'price set no supplier');
+    var row = rows.filter(function(r){ return r.supplier === sid; })[0], hi = it.homes.indexOf(sid);
+    var pid = row ? row.pid : hi > -1 ? it.pids[hi] : it.pids[0], cur = row ? row.rec : null;
+    var billing = PR_PER_KG.test(c) ? 'weight' : PR_PER_PACK.test(c) ? 'pack' : cur ? cur.billing : null;
+    if(!billing) return cant('Per kilo, or per pack? Say it with the price, like “$20 a kilo”.', 'price set no unit');
+    var pack = cur && cur.billing === billing && cur.pack ? { amount: cur.pack.amount, unit: cur.pack.unit } : null;
+    var t = pd.engine.typedPrice({ supplier: sid, productId: pid, price: price, billing: billing, pack: pack, date: pd.today, at: now() });
+    if(!t.ok) return cant('I couldn’t take that price: ' + t.why.toLowerCase() + '.', 'price set refused');
+    var sn = prSupName(pd, sid), one = function(rec){ return prOne(pd, { rec: rec, perBase: rec.perBase, unit: rec.billing === 'weight' ? 'kg' : rec.pack ? rec.pack.unit : '' }); };
+    var line = prPoss(sn) + ' ' + nm + ': ' + one(t.rec) + (cur ? ', from ' + one(cur) + (cur.date ? ' (' + prWhen(cur.date) + ')' : '') + '.' : '. There’s no price from them for it yet.');
+    return confirming('price', [line], 'Keep it?', { rec: t.rec, sname: sn, nm: nm, pids: it.pids, name: it.name, homes: it.homes }, 'price set ask');
   }
   function prLast(pd, rows, nm, it){
     var got = pd.prices.filter(function(r){ return it.pids.indexOf(r.productId) > -1 && (r.invoiceId || r.qty > 0 || /\binv(oice)?\b/i.test(r.source || '')) && r.date; })
@@ -6339,6 +6433,8 @@ function createRoom(host){
       if(rosterWrite(req.text || '', roN)) return cant(RE && host.setRosterDays ? rbTryLine() : "I can't change the roster from here.", 'roster write');
       var rdA = roDetailAgain(req.text || '');   // v3.10.1: "more details" after a roster answer
       if(rdA) return rdA;
+      // v3.11.65: a request, never long talk about the app that says "publish" (his note of 25 Oct)
+      if(RO_PUBLISH.test(clean(roT)) && /\brosters?\b/.test(clean(roT)) && clean(roT).split(' ').length <= 12) return roPublish(roT, mode);
       if(rosterIntent(roT, roN)) return rosterAnswer(roT);   // v3.9.11: read only (v3.11.1: "he" is who was just asked about)
       /* v3.9.3: long talk while it listens for a follow-up, with no verb and
          few names or amounts in it, is chatter (his log: talking to Claude
@@ -6509,6 +6605,14 @@ function createRoom(host){
         if(fnFocus && fnFocus.fid === c.fid) fnFocus.at = now();
         return ans('done', { say: [fnDetailDone(c, rd)], action: { id: did, label: dlab, undo: true }, log: 'fn detail ok ' + c.field });
       }
+      if(c.kind === 'price'){   // v3.11.65: a price said by voice, after his yes
+        if(!host.keepPrice || !host.keepPrice(c.rec)) return ans('error', { say: ['I couldn’t keep that price, so nothing changed.'], log: 'price set failed' });
+        var prlab = prPoss(c.sname) + ' ' + c.nm + ' price';
+        var prid = remember(prlab, [{ k: 'price', rec: c.rec, sname: c.sname, nm: c.nm }]);
+        prFocus = { at: now(), pids: c.pids, name: c.name, homes: c.homes };
+        return ans('done', { say: ['Kept. ' + prPoss(c.sname) + ' ' + c.nm + ' is ' + prOne(prData() || {}, { rec: c.rec, perBase: c.rec.perBase, unit: c.rec.billing === 'weight' ? 'kg' : c.rec.pack ? c.rec.pack.unit : '' }) + ' from today.'],
+          action: { id: prid, label: prlab, undo: true }, log: 'price set ok' });
+      }
       if(c.kind === 'roster') return rbConfirmed(c);   // v3.10.0
       if(c.kind === 'dict') return await dictAdd(c);    // v3.11.0
       if(c.kind === 'again'){
@@ -6602,7 +6706,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.64',
+  version: 'v3.11.65',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
