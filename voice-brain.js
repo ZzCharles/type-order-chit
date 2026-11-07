@@ -5911,11 +5911,14 @@ function createRoom(host){
      what to add …", the answer to "can you do orders?", which sounds like "yes, they're on it"; said again in the follow-up
      it was dropped as chatter): "check if I've added X to the order(ing list)", "did I add X to the Aziz order" ask whether
      X is on it. Google's other guesses are tried for the item ("donut bolts" / "donut balls"); none found: said so, never
-     a yes. */
-  var ADDED_Q = new RegExp(ASK_LEAD + '(?:(?:if|whether) )?(?:(?:ive|i have|i|weve|we have|we|youve|you have) (?:already )?(?:added|put|included|ordered|got)|(?:did|have) (?:i|we|you) (?:already )?(?:add|added|put|include|included|order|ordered)) (?:any |some |the )?(.+?) (?:to|on|in|onto|into) ((?:the |my |our |todays )?(?:[a-z]+ ){0,3})(?:ordering|order|orders)(?: (?:list|lists|sheet))?(?: (?:yet|already|today|now|for (?:today|tomorrow)))?$');
+     a yes.
+     v3.11.70 (Pluto's heard log #674, 8 Nov: "can you check if there is any donuts on the order for this week" still got
+     "Yes. Say what to add …"): "check if there is / are any X on the order", and "… for this week" / "this week" after it */
+  var ADDED_Q = new RegExp(ASK_LEAD + '(?:(?:if|whether) )?(?:(?:ive|i have|i|weve|we have|we|youve|you have) (?:already )?(?:added|put|included|ordered|got)|(?:did|have) (?:i|we|you) (?:already )?(?:add|added|put|include|included|order|ordered)|theres|there is|there are|is there|are there) (?:any |some |the )?(.+?) (?:to|on|in|onto|into) ((?:the |my |our |todays )?(?:[a-z]+ ){0,3})(?:ordering|order|orders)(?: (?:list|lists|sheet))?(?: (?:yet|already|today|now|this week|for (?:today|tomorrow|this week|the week)))?$');
   function addedAsk(text){
     var m = ADDED_Q.exec(clean(text));
     if(!m) return null;
+    if(/^(?:anything|something|everything|stuff|things|items|any items|much|what|whats|a lot)\b/.test(m[1])) return null;   // v3.11.70: "is there anything in the cart" stays the cart's
     var where = m[2].replace(/\b(?:the|my|our|todays|ordering)\b/g, ' ').replace(/\s+/g, ' ').trim(), plain = 'is there ' + m[1] + ' on the order';
     return { item: m[1], text: where ? 'is there ' + m[1] + ' on the ' + where + ' order' : plain, plain: plain };
   }
@@ -6788,7 +6791,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.69',
+  version: 'v3.11.70',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
