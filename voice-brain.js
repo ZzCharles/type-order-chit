@@ -5907,7 +5907,32 @@ function createRoom(host){
   var ON_ORDER_Q = /^(?:(?:and|so|ok|okay|um|uh|hey|also) )*(?:(?:have|did|do) (?:we|i|you) (?:got|get|have|put|add|added)|have you got|is there|are there|is|are)\b.*\b(?:on|in) (?:the|my|our|todays) (?:[a-z]+ ){0,3}order(?: (?:yet|now|already|please|for (?:today|tomorrow)))*$/;
   /* v3.11.60 (his log #484, 25 Oct: "could you check if there's any gnocchi ordered" was not mine): "… ordered" is "on the order" */
   var ORDERED_Q = new RegExp(ASK_LEAD + '(?:(?:if|whether) )?(?:theres|there is|there are|is there|are there|have we got|have we|weve got|weve|we have|we got) (?:any |some )?(.+?) (?:ordered|on order)(?: (?:yet|already|today|now|for tomorrow))?$');
-  async function onOrderAsk(text){
+  /* v3.11.69 (Pluto's heard log #653, 7 Nov: "can you check if I've added donut balls to the ordering list" got "Yes. Say
+     what to add …", the answer to "can you do orders?", which sounds like "yes, they're on it"; said again in the follow-up
+     it was dropped as chatter): "check if I've added X to the order(ing list)", "did I add X to the Aziz order" ask whether
+     X is on it. Google's other guesses are tried for the item ("donut bolts" / "donut balls"); none found: said so, never
+     a yes. */
+  var ADDED_Q = new RegExp(ASK_LEAD + '(?:(?:if|whether) )?(?:(?:ive|i have|i|weve|we have|we|youve|you have) (?:already )?(?:added|put|included|ordered|got)|(?:did|have) (?:i|we|you) (?:already )?(?:add|added|put|include|included|order|ordered)) (?:any |some |the )?(.+?) (?:to|on|in|onto|into) ((?:the |my |our |todays )?(?:[a-z]+ ){0,3})(?:ordering|order|orders)(?: (?:list|lists|sheet))?(?: (?:yet|already|today|now|for (?:today|tomorrow)))?$');
+  function addedAsk(text){
+    var m = ADDED_Q.exec(clean(text));
+    if(!m) return null;
+    var where = m[2].replace(/\b(?:the|my|our|todays|ordering)\b/g, ' ').replace(/\s+/g, ' ').trim(), plain = 'is there ' + m[1] + ' on the order';
+    return { item: m[1], text: where ? 'is there ' + m[1] + ' on the ' + where + ' order' : plain, plain: plain };
+  }
+  async function onOrderAsk(text, alts){
+    var ad = addedAsk(text);
+    if(ad){
+      /* his words, then Google's other guesses; a supplier named: that order first, then wherever the item is ("did I add
+         rocket to the Aziz order": "Rocket: 3 kilos on the Michael's Fresh order.", never "I couldn't find rocket") */
+      var others = (alts || []).map(function(x){ return addedAsk(typeof x === 'string' ? x : (x && x.s) || ''); }).filter(Boolean).slice(0, 4);
+      var tries = [ad.text].concat(others.map(function(a){ return a.text; }), [ad.plain], others.map(function(a){ return a.plain; }))
+        .filter(function(t, i, all){ return all.indexOf(t) === i; });
+      for(var i = 0; i < tries.length; i++){ var got = await onOrderRead(tries[i]); if(got) return got; }
+      return cant('I couldn’t find ' + ad.item + ' on your order lists.', 'on order: item not found');
+    }
+    return await onOrderRead(text);
+  }
+  async function onOrderRead(text){
     var om = ORDERED_Q.exec(clean(text));
     if(om) text = 'is there ' + om[1] + ' on the order';
     if(!ON_ORDER_Q.test(clean(text))) return null;
@@ -6446,7 +6471,7 @@ function createRoom(host){
         var ca = await onOrderAsk(req.text) || await cartAsk(req.text, cs);
         if(ca) return ca;
       } else {
-        var oa = await onOrderAsk(req.text || '') || await haveAsk(req.text || '');   // v3.11.53: "have we got rocket"
+        var oa = await onOrderAsk(req.text || '', req.alts) || await haveAsk(req.text || '');   // v3.11.53: "have we got rocket"; v3.11.69: his other guesses
         if(oa) return oa;
       }
       if(firstOrderSaid(req.text || '')) return await firstOrder(req.text || '');   // v3.11.68: last week's first order
@@ -6763,7 +6788,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.68',
+  version: 'v3.11.69',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,

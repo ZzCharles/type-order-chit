@@ -1,6 +1,6 @@
 /* The Pass service worker
    Bump CACHE when you change index.html, or phones will keep serving the old copy. */
-const CACHE = 'the-pass-v100';
+const CACHE = 'the-pass-v101';
 const SHELL = ['./', './index.html', './manifest.json', './icon-192.png'];
 
 self.addEventListener('install', e => {
