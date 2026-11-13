@@ -5134,6 +5134,11 @@ function createRoom(host){
   var FN_ASKS = /^(what|whats|when|whens|which|how|hows|is|are|was|do|does|did|any|anything|have|has|got|tell|give|read|check|show|whos|who|and|so|the|our|my|next|upcoming|list|functions?)\b|\b(any|anything)\b/;
   var FN_DAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
   var FN_SAY_MAX = 4, fnLast = null, FN_FOLLOW_MS = 2 * 60 * 1000;
+  /* v3.11.71 (Pluto's roadmap T, his #767, 13 Nov: "No functions coming up" with ten waiting in the Almo calendar, none added
+     to The Pass yet; his words, tile "Short and honest"): a "no function" answer says where it looked. when: fnWhen's
+     { one, words } ("this week", "on Saturday"), or none: "coming up". */
+  function fnNone(when){ return (when && when.one ? 'No function' : 'No functions') + ' in The Pass ' + (when ? when.words : 'coming up') + '.'; }
+  var FN_NOT_FOUND = 'I can’t find that function in The Pass.';
   function fnKind(c){
     if(FN_PLATES.test(c)) return 'portion';
     if(FN_ADDONS_Q.test(c)) return 'addons';   // v3.11.25: "what add-ons for Tara's function"
@@ -5580,7 +5585,7 @@ function createRoom(host){
       .sort(function(a, b){ return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
     var f = fnPick(c, list, today, opt.fid || (focus && focus.fid));
     if(f === 'many') return cant('Which function? Say its name or its day.', 'fn detail which');
-    if(f === 'none') return cant(list.length ? 'I can’t find that function.' : 'No functions coming up.', 'fn detail none');
+    if(f === 'none') return cant(list.length ? FN_NOT_FOUND : fnNone(), 'fn detail none');   // v3.11.71: "in The Pass"
     var whose = fnWhose(f) + ' ' + fnOn(f.date, today), nums = fnNums(c), t = c.split(' '), ask;
     if(w === 'pax'){
       // the number next to "people" or "guests", or after "head count", else the last one said
@@ -6340,7 +6345,7 @@ function createRoom(host){
       var bf = list.filter(function(f){ return prev.ids.indexOf(f.id) > -1; }).sort(function(a, b){ return a.date < b.date ? -1 : 1; }).pop();
       if(bf){
         var later = list.filter(function(f){ return f.date > bf.date; }), base = fnWhose(bf) + ' ' + fnOn(bf.date, today);
-        if(!later.length) return done('No functions after ' + base + ' yet.', 'after none', [bf]);
+        if(!later.length) return done('No functions in The Pass after ' + base + ' yet.', 'after none', [bf]);   // v3.11.71
         var al = later.slice(0, FN_SAY_MAX).map(function(f){ return fnLine(f, today, true); }), am = later.length - al.length;
         return done('After ' + base + ': ' + (al.length > 1 ? al.slice(0, -1).join('; ') + '; and ' + al[al.length - 1] : al[0]) + (am ? '; and ' + am + ' more' : '') + '.', 'after ' + later.length, later);
       }
@@ -6348,7 +6353,7 @@ function createRoom(host){
     if(kind === 'list' && !named){
       var single = /\bnext function\b|\bthe next one\b/.test(c) && !when;
       if(single){
-        if(!list.length) return done('No functions coming up.', 'next none');
+        if(!list.length) return done(fnNone(), 'next none');   // v3.11.71
         var f0 = list[0];
         return done('The next function is ' + (fnName(f0) ? fnPoss(fnName(f0)) + ', ' : '') + fnOn(f0.date, today, true) + (fnDetails(f0) ? ': ' + fnDetails(f0) : '') + '.', 'next', [f0]);
       }
@@ -6356,7 +6361,7 @@ function createRoom(host){
       var inR = list.filter(function(f){ return f.date >= w.from && f.date <= w.to; });
       if(!inR.length){
         var after = list.filter(function(f){ return f.date > w.to; })[0];
-        say = (w.one ? 'No function ' : 'No functions ') + w.words + '.';
+        say = fnNone(w);   // v3.11.71
         if(after) say += ' The next one is ' + fnOn(after.date, today, true) + (fnName(after) ? ', ' + fnName(after) : '') + '.';
         return done(say, 'list none', after ? [after] : []);
       }
@@ -6374,7 +6379,7 @@ function createRoom(host){
         : (function(r){ var ids = follow && follow.ids ? follow.ids : r && r.ids.length === 1 && /\b(that|this|the same) function\b/.test(c) ? r.ids : null; var x = ids ? list.filter(function(f){ return ids.indexOf(f.id) > -1; }) : []; return x.length ? x : list.slice(0, 1); })(prev);
       var withDish = pf.filter(function(f){ return fnDishIn(c, f).length; });
       if(kind === 'portion' || withDish.length){
-        if(!pf.length) return done(named ? 'I can\u2019t find that function.' : when ? (when.one ? 'No function ' : 'No functions ') + when.words + '.' : 'No functions coming up.', 'portion none');
+        if(!pf.length) return done(named ? FN_NOT_FOUND : fnNone(when), 'portion none');   // v3.11.71
         var outs = [];
         pf.slice(0, 2).forEach(function(f){
           var items = fnItems(f), ds = fnDishIn(c, f);
@@ -6401,9 +6406,8 @@ function createRoom(host){
     if(!sel && when) sel = list.filter(function(f){ return f.date >= when.from && f.date <= when.to; });
     if(!sel) sel = list.length ? [list[0]] : [];
     if(!sel.length){
-      if(named || /\b[a-z]+s function\b/.test(c) && !when) return done('I can\u2019t find that function.', kind + ' unknown');
-      if(when) return done((when.one ? 'No function ' : 'No functions ') + when.words + '.', kind + ' none');
-      return done('No functions coming up.', kind + ' none');
+      if(named || /\b[a-z]+s function\b/.test(c) && !when) return done(FN_NOT_FOUND, kind + ' unknown');   // v3.11.71
+      return done(fnNone(when), kind + ' none');
     }
     var dated = !!(when && when.one && /^on the /.test(when.words));
     return done(sel.slice(0, FN_SAY_MAX).map(function(f){ return fnSentence(kind, f, today, dated); }).join(' '), kind + ' ' + sel.length, sel);
@@ -6791,7 +6795,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.70',
+  version: 'v3.11.71',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
