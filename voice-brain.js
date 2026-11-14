@@ -4945,6 +4945,15 @@ function createRoom(host){
     var cmd = p.cmd;
     if(p.kind === 'fnAddonHow' || p.kind === 'fnMezzeHow') return await fnAddonReply(p, req);   // v3.11.24, v3.11.25
     if(p.kind === 'pnKeep') return await pnKeepReply(p, req);    // v3.11.54: "Keep the note?"
+    if(p.kind === 'prWhich'){                                     // v3.11.72: "<Supplier>'s price for <item>, or your <supplier> order?"
+      pending = null;
+      var pc = clean(text), pw = choice != null ? choice : matchOption(text, p.options);
+      if(pw == null) pw = /\b(?:prices?|cost|costs)\b/.test(pc) ? 'price' : /\b(?:orders?|cart|list)\b/.test(pc) ? 'order' : null;
+      if(pw === 'price') return await prAnswer('other', p.text);
+      // the order, or something else said instead: as with no price just before (handle() ended the price topic at the question)
+      if(pw === 'order') return await handle(Object.assign({}, req, { text: p.text, reply: null }));
+      return text ? await handle(Object.assign({}, req, { reply: null })) : ans('answer', { say: ['Left it.'], log: 'price which dropped' });
+    }
     if(p.kind === 'ohWhich'){                                     // v3.11.51: "Which item?" about the orders sent
       var oc = choice != null ? choice : matchOption(text, p.options);
       pending = null;
@@ -5706,6 +5715,42 @@ function createRoom(host){
     var c = clean(text);
     return PR_SET.test(c) && PR_AMOUNT.test(String(text || '')) && !/\b(order|orders|ordering|prep|list|function|functions)\b/.test(c) && c.split(' ').length <= 16;
   }
+  /* v3.11.72 (his pick, 14 Nov: "when it answers, it to be able to understand a follow up question if I ask how about another
+     supplier"; Fable's second check, 14 Nov: a follow-up only when the sentence is nothing but the follow-up; his words, 14 Nov:
+     "say I ask, whats on michael's fresh order. then i ask how about aziz - I dont want it giving me price, but when its about
+     price then I want it to understand the context. so maybe best route is to teach it that after we discuss prices only it
+     will give prices. Just to be sure it could also ask a clarifying question, did you mean to check prices or the cart etc"):
+     only while the last thing this room answered was a price (prOn) and for two minutes, and only when, with the supplier's
+     name, "another supplier" / "anyone else" / "elsewhere", the lead and the small words taken out, nothing is left but an
+     item's name. -> null | 'others' (the ones not said yet) | 'named' ("how about" / "what about" / "price": that supplier's
+     price) | 'ask' (a bare name, "and <name>", "from <name>", which also means his order: asked) | 'item' (an item named) */
+  var PR_OTHER_ANY = /\b(?:another|other|different) (?:suppliers?|ones?|places?|companies|company)\b|\b(?:any ?one|anybody|someone|somebody) else\b|\belsewhere\b/g;
+  var PR_FOLLOW_FILL = {};
+  'and so ok okay but then um uh oh well how what whats about from at with is it its the a price prices for please there one ones'.split(' ').forEach(function(w){ PR_FOLLOW_FILL[w] = 1; });
+  var prOn = false;   // the last answer this room gave (not "not mine") was a price: set in handle()
+  function prEsc(s){ return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+  function prNamed(pd, c){   // the suppliers whose whole name is said ("dick stone", "dick stones")
+    return Object.keys((pd && pd.names) || {}).filter(function(sid){
+      var k = clean(supSay(pd.names[sid] || ''));
+      return k && new RegExp('(?:^| )' + prEsc(k) + 's?(?: |$)').test(c);
+    });
+  }
+  function prFollow(c){
+    if(!prOn || !prFocus || now() - prFocus.at > PR_FOLLOW_MS || !c) return null;
+    var pd = prData(), named = prNamed(pd, c), rest = ' ' + c + ' ';
+    named.forEach(function(sid){ rest = rest.replace(new RegExp(' ' + prEsc(clean(supSay(pd.names[sid]))) + 's?(?= )', 'g'), ' '); });
+    var any = rest !== rest.replace(PR_OTHER_ANY, ' ');
+    var left = rest.replace(PR_OTHER_ANY, ' ').split(' ').filter(function(w){ return w && !PR_FOLLOW_FILL[w]; });
+    if(left.length){   // an item's name and nothing else: that item's price (from the supplier named)
+      var it = prItem(left.join(' '), catalogue(host.data(), taught()), prOnly(pd)), words = it && !it.many ? clean(itemSay(it.name)).split(' ') : [];
+      return it && !it.many && left.every(function(w){ return words.indexOf(w) > -1; }) ? 'item' : null;
+    }
+    if(!named.length) return any ? 'others' : null;
+    if(named.length > 1 || /\b(?:how|what) about\b|\bprices?\b/.test(c)) return 'named';
+    // a bare name, "and <name>", "from <name>": his order with that supplier too, unless it has no order list here
+    var cat = catalogue(host.data(), taught());
+    return supplier(cat, named[0]) ? 'ask' : 'named';
+  }
   function prKind(text){
     var c = clean(text);
     if(prSetSaid(text)) return 'set';                                                       // v3.11.65
@@ -5713,6 +5758,10 @@ function createRoom(host){
     if(PR_SPEND.test(c)) return 'spend';
     if(PR_LAST.test(c)) return 'last';
     if(PR_CHANGE.test(c)) return 'change';
+    var fw = prFollow(c);   // v3.11.72: after the spend, "who from" and "gone up", which keep their own answers
+    if(fw === 'item') return 'price';
+    if(fw === 'ask') return 'which';
+    if(fw) return 'other';
     if(PR_PRICE.test(c)) return 'price';
     if(PR_HOWMUCH.test(c) && !PR_ORDERISH.test(c)) return 'price';
     return null;
@@ -5776,35 +5825,80 @@ function createRoom(host){
     if(!pd || !pd.engine) return cant('I can’t see the prices here.', 'price no data');
     if(kind === 'spend') return prSpend(pd, text);
     if(host.reload){ try{ host.reload(); }catch(e){} }
-    var cat = catalogue(host.data(), taught()), it = prItem(text, cat, prOnly(pd));
+    /* v3.11.72: a supplier named in a price question ("the price of prawns from <a supplier>") is taken out before the item
+       is looked for, so a word of its name is never an item; a follow-up ("how about <a supplier>") is the item just asked about */
+    var follow = kind === 'other' || kind === 'which';
+    var c0 = clean(text), named = kind === 'price' || follow ? prNamed(pd, c0) : [], itemText = text;
+    if(kind === 'price' && named.length) itemText = named.reduce(function(s, sid){ return s.replace(new RegExp('(?:^| )' + prEsc(clean(supSay(pd.names[sid] || ''))) + 's?(?= |$)', 'g'), ' '); }, c0);
+    var cat = catalogue(host.data(), taught()), it = follow ? prFocus : prItem(itemText, cat, prOnly(pd));
     if(!it && (kind === 'set' || kind === 'cheap') && prFocus && now() - prFocus.at <= PR_FOLLOW_MS) it = prFocus;   // v3.11.65
+    if(!it && kind === 'price' && named.length && prOn && prFocus && now() - prFocus.at <= PR_FOLLOW_MS) it = prFocus;   // v3.11.72: "the price at <a supplier>", while prices are the topic
     if(it && it.many) return cant('Which item? ' + cap(joinOr(it.many.slice(0, 3).map(function(e){ return itemSay(e.name); }))) + '?', 'price which');
     if(!it && kind === 'set') return cant('Which item? Say it with its name, like “update the parmesan price to $20”.', 'price set no item');
     if(!it && kind === 'cheap') return cant('Which item? Say its name, like “who has the cheapest mozzarella”.', 'price cheap no item');
     if(!it) return cant(/\b(it|that|them|those|this)\b/.test(clean(text)) ? 'Which item? Say its name, like “what’s the price for mozzarella”.' : 'I couldn’t find that item in The Pass. Say it as it’s named on your list.', 'price no item');
-    prFocus = { at: now(), pids: it.pids, name: it.name, homes: it.homes };
+    prFocus = { at: now(), pids: it.pids, name: it.name, homes: it.homes, said: (it === prFocus && it.said) || [] };   // v3.11.72: the suppliers said for it
     var E = pd.engine, rows = [];
     it.pids.forEach(function(pid){ E.suppliersFor(pd.prices, pid, pd.today).forEach(function(r){ r.pid = pid; rows.push(r); }); });
     var nm = itemSay(it.name);
     if(kind === 'set') return prSet(pd, rows, nm, it, text);   // v3.11.65
+    if(kind === 'which'){   // v3.11.72 (his words: "it could also ask a clarifying question"): a bare name right after a price
+      var wn = prSupName(pd, named[0]);
+      return asking('prWhich', wn + '’s price for ' + nm + ', or your ' + wn + ' order?', [{ label: 'The price', value: 'price' }, { label: 'The order', value: 'order' }], { text: text }, 'choice');
+    }
     if(!rows.length) return ans('answer', { say: ['I don’t have a price for ' + nm + ' yet. Bring one in on The Pass’s Prices screen.'], log: 'price none' });
     if(kind === 'cheap') return prCheap(pd, rows, nm);         // v3.11.65
     if(kind === 'last') return prLast(pd, rows, nm, it);
     if(kind === 'change') return prChange(pd, rows, nm, it, text);
-    return prPrice(pd, rows, nm, it);
+    if(kind === 'other') return prOther(pd, rows, nm, it, named);   // v3.11.72
+    return prPrice(pd, rows, nm, it, named);
   }
-  function prPrice(pd, rows, nm, it){
-    var home = rows.filter(function(r){ return it.homes.indexOf(r.supplier) > -1; })[0];
-    var others = rows.filter(function(r){ return r !== home; }).slice(0, 3), say = [];
-    if(home) say.push('We buy ' + nm + ' from ' + prSupName(pd, home.supplier) + ' at ' + prOne(pd, home) + ' (' + prWhen(home.date) + ')' + (home.perBase == null && home.rec.billing !== 'weight' ? ', but its pack size isn’t known.' : '.'));
-    else say.push('No price for ' + nm + ' from ' + supSay(pd.names[it.homes[0]] || 'its supplier') + ' yet.');
-    others.forEach(function(r){ say.push(prSupName(pd, r.supplier) + ': ' + prOne(pd, r) + ' (' + prWhen(r.date) + ').'); });
-    if(home){
-      var c = pd.engine.cheaperElsewhere(rows.filter(function(r){ return r.pid === home.pid || r.unit === home.unit; }), home.supplier);
-      var like = c ? (pd.matches.filter(function(m){ return m.supplier === c.row.supplier && m.productId === c.row.pid && m.like; })[0] || {}).like : '';
-      if(c && !c.unknown && like !== 'not comparable') say.push(prSupName(pd, c.row.supplier) + ' is ' + prMoney(c.less) + ' ' + PR_UNIT[c.row.unit] + ' cheaper' + (like === 'different' ? ', but it isn’t the same product.' : like === 'similar' ? ', probably the same product.' : '.'));
-    } else if(rows[0].perBase != null) say.push('Cheapest: ' + prSupName(pd, rows[0].supplier) + '.');
-    return ans('answer', { say: [say.join(' ')], log: 'price ' + rows.length + ' supplier' + (rows.length === 1 ? '' : 's') });
+  /* v3.11.72 (Pluto's roadmap T; his #694, 8 Nov: "that was a very long answer, it should be short and concise … [no need] to
+     mention dates"; his pick, 14 Nov: "from the most frequent one, or the one I specifically ask for"): one supplier's price,
+     in one short sentence, no date: the supplier he names, else the one he has ordered it from most (the orders sent from this
+     phone), else where it's on his order lists. Per kilo, litre or each when the pack size is known. "Who's cheaper", "has it
+     gone up" and "who did we get it from" still say more when asked. */
+  function prShort(r){
+    var rec = r.rec;
+    if(rec.billing === 'weight') return prMoney(rec.price) + ' a kilo';
+    if(r.perBase != null && PR_UNIT[r.unit]) return prMoney(r.perBase) + ' ' + PR_UNIT[r.unit];
+    return prMoney(rec.price) + ' a pack';
+  }
+  function prLine(pd, r, nm, it){
+    return it.homes.indexOf(r.supplier) > -1 ? 'We buy ' + nm + ' from ' + prSupName(pd, r.supplier) + ' at ' + prShort(r) + '.'
+      : prSupName(pd, r.supplier) + ' has ' + nm + ' at ' + prShort(r) + '.';
+  }
+  function prMost(it){   // of the suppliers whose lists have it, the one it was sent to most often; a tie or no orders: the first
+    var h = ohList() || [], best = it.homes[0], bn = 0;
+    it.homes.forEach(function(sid, i){
+      var pid = it.pids[i], n = h.filter(function(e){ return +((e.items || {})[pid]) > 0; }).length;   // a product is one supplier's
+      if(n > bn){ best = sid; bn = n; }
+    });
+    return best;
+  }
+  function prPrice(pd, rows, nm, it, named){
+    if(named.length > 1) return cant('Which supplier? Say just one, like “what’s the price of ' + nm + ' from ' + prSupName(pd, named[0]) + '”.', 'price two suppliers');
+    var sid = named[0] || prMost(it), row = rows.filter(function(r){ return r.supplier === sid; })[0];
+    prFocus.said = [sid];
+    if(row) return ans('answer', { say: [prLine(pd, row, nm, it)], log: 'price ' + (named.length ? 'supplier named' : it.homes.length > 1 ? 'most ordered' : 'his supplier') });
+    var sn = sid ? supSay(pd.names[sid] || 'its supplier') : 'its supplier', other = rows[0];
+    if(!named.length && other) prFocus.said.push(other.supplier);
+    return ans('answer', { say: ['No price for ' + nm + ' from ' + sn + ' yet.' + (!named.length && other ? ' ' + prSupName(pd, other.supplier) + ' has it at ' + prShort(other) + '.' : '')],
+      log: 'price none from ' + (named.length ? 'the supplier named' : 'his supplier') });
+  }
+  /* "how about <a supplier>": its price for the item just asked about; "another supplier": the others not said yet (up to three) */
+  function prOther(pd, rows, nm, it, named){
+    if(named.length > 1) return cant('Which supplier? Say just one.', 'price other two suppliers');
+    if(named.length){
+      var row = rows.filter(function(r){ return r.supplier === named[0]; })[0];
+      if(prFocus.said.indexOf(named[0]) < 0) prFocus.said.push(named[0]);
+      return ans('answer', { say: [row ? prLine(pd, row, nm, it) : 'No price for ' + nm + ' from ' + prSupName(pd, named[0]) + ' yet.'], log: 'price other: ' + (row ? 'the supplier named' : 'none from the supplier named') });
+    }
+    var rest = rows.filter(function(r){ return prFocus.said.indexOf(r.supplier) < 0; }).slice(0, 3);   // never one said already
+    rest.forEach(function(r){ prFocus.said.push(r.supplier); });
+    if(!rest.length) return ans('answer', { say: ['No other supplier has a price for ' + nm + '.'], log: 'price other: none' });
+    if(rest.length === 1) return ans('answer', { say: [prLine(pd, rest[0], nm, it)], log: 'price other: 1' });
+    return ans('answer', { say: [rest.map(function(r){ return prSupName(pd, r.supplier) + ': ' + prShort(r); }).join('; ') + '.'], log: 'price other: ' + rest.length });
   }
   /* v3.11.65: "who has cheaper": the two cheapest that can be compared (a price per kilo, litre or each, in the same unit) */
   function prCheap(pd, rows, nm){
@@ -6423,7 +6517,13 @@ function createRoom(host){
   async function handle(req){
     var mine = !replyTurn || now() - replyTurn.at > 30000, turn = mine ? { on: !!(req && req.reply), at: now() } : null;
     if(mine) replyTurn = turn;
-    try{ return await handle1(req); }
+    try{
+      var out = await handle1(req);
+      // v3.11.72 (his words, 14 Nov: "after we discuss prices only it will give prices"): the price topic is on only while the
+      // last answer was a price; any other answer ends it ("not mine" leaves it as it was)
+      if(mine && out && out.status !== 'notmine') prOn = /^price\b/.test(out.log || '');
+      return out;
+    }
     finally{ if(mine && replyTurn === turn) replyTurn = null; }
   }
   // the question's answer handlers cut a leading "no" off a new request said instead (v3.11.62)
@@ -6795,7 +6895,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.71',
+  version: 'v3.11.72',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
