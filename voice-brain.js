@@ -14,8 +14,10 @@
                      in test-voice.mjs).
 
    The brain proposes, the code decides. What needs a "yes" is fixed here,
-   never guessed, and anything it can't pin down it asks about. Nothing is
-   ever sent: sending stops at the Review Order screen, where the owner taps.
+   never guessed, and anything it can't pin down it asks about. Sending
+   stops at the Review Order screen, where the owner taps; since v3.11.73
+   (his word, 14 Nov) a short order (8 lines, $800) may be texted by the
+   Pluto app after a full read-back and his plain yes ("sending an order").
 
    Loaded by the page as window.AlmoVoice, by Node with require(). */
 (function(root, make){
@@ -4353,6 +4355,91 @@ function createRoom(host){
   }
 
   /* ---------- whole-list jobs: read, clear, send, repeat, open ---------- */
+  /* ---------- v3.11.73: sending an order (his #701; his rule of 14 Nov; ../Pluto/plans/S-send-text.md) ----------
+     His words: "It will repeat and read up to 8 items. Anything longer will be shown on the screen and would require me
+     to physically tap send after reviewing. Same rule for anything over $800."
+     - 8 lines or fewer and $800 or less at the kept prices (before GST, as the order's own header counts it: only what
+       can be priced is added, and the read-back says how many couldn't be), where the Pluto app can text that
+       supplier's number (he allowed it by his own tap): every line read back, "Send it?", and after his plain yes the
+       app texts Review Order's own words. "Sent" is said only when the phone says it went; the order is then marked
+       sent and cleared, as the button does (host.sendOrder). Anything else says what is true and leaves the order.
+     - Longer or dearer: never read out and never sent by voice. It opens on Review Order for his tap.
+     - A time or another day said ("at 5 am", "tonight", "for Friday"): never sent by voice as if it were for tomorrow,
+       now. It opens on Review Order, where he picks the day; timing a text is not built yet.
+     - Where the app can't text (Chrome, an older app, a number he hasn't allowed, an email): as before v3.11.73, every
+       line read back and "Open it ready to send?", and his tap sends. */
+  var SEND_MAX_LINES = 8, SEND_MAX_DOLLARS = 800;
+  var SEND_LATER = /\b(?:(?:at|by|around|before|after|until|till) (?:\d|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|noon|midday|midnight|half|quarter)|tonight|later|morning|afternoon|evening|overnight|schedule|scheduled|timed|timer|in (?:a|an|\d+|one|two|three|four|five|six|ten|fifteen|twenty|thirty|half an?) ?(?:hours?|minutes?|mins?)|(?<!for )tomorrow)\b/;
+  var SEND_DAY = /\b(?:mondays?|tuesdays?|wednesdays?|thursdays?|fridays?|saturdays?|sundays?|mon|tue|tues|wed|thu|thur|thurs|fri|sat|sun|for today|next week|this week|the weekend|weekend|january|february|march|april|june|july|august|september|october|november|december|\d{1,2} ?(?:st|nd|rd|th))\b/;
+  function sendWhen(text){ var c = clean(text || ''); return SEND_LATER.test(c) ? 'later' : SEND_DAY.test(c) ? 'day' : ''; }
+  function sendMoney(v){ return '$' + String(Math.round(+v || 0)).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+  function sendTotal(sid){ var t = null; try{ t = host.orderTotal ? host.orderTotal(sid) : null; }catch(e){ t = null; } return t && typeof t.total === 'number' ? t : null; }
+  function sendText(sid){ var t = null; try{ t = host.textState ? host.textState(sid) : null; }catch(e){ t = null; } return !!(t && t.can && t.allowed && host.sendOrder); }
+  function sendSnap(s){ var m = {}; onOrder(s).forEach(function(p){ m[p.id] = +p.qty; }); return m; }
+  function sendCard(s, title, view){
+    return { title: title, lines: onOrder(s).slice(0, 6).map(function(p){ return { text: itemSay(p.name) + ' · ' + fmt(+p.qty) + ' ' + p.unit, tone: 'ok' }; }), open: { view: view, id: s.id } };
+  }
+  /* the order just added to or changed, when it was one supplier's (never a prep line, never two suppliers' items) */
+  function sendTouched(cat){
+    if(!ctx || now() - ctx.at >= CTX_MS || !ctx.items || !ctx.items.length) return null;
+    var sid = null;
+    for(var i = 0; i < ctx.items.length; i++){
+      var e = ctx.items[i].kind === 'order' ? entryById(cat, ctx.items[i].id) : null;
+      if(!e || !e.sid || (sid && sid !== e.sid)) return null;
+      sid = e.sid;
+    }
+    return supplier(cat, sid);     // even emptied since: "send it" then says that order is empty, never offers another's
+  }
+  function sendOnScreen(ss, why, mode, log){
+    var sup = supSay(ss.name), say = [why];
+    if(host.sentToday && host.sentToday(ss.id)) say.push(sup + ' was already sent an order today.');
+    say.push('It’s on screen. Check it and tap Send Order.');
+    if(mode !== 'pluto' && host.open) host.open({ view: 'ticket', id: ss.id });
+    var card = sendCard(ss, sup + ' order', 'ticket');
+    card.go = true;      // through Pluto: The Pass's tab opens at Review Order once this is said (contract 6.5)
+    return ans('answer', { say: say, show: card, keep: false, log: log });
+  }
+  function sendAsk(ss, lines, mode, text){
+    var sup = supSay(ss.name), n = lines.length, tot = sendTotal(ss.id), can = sendText(ss.id);
+    var dear = !!(tot && tot.priced && tot.total > SEND_MAX_DOLLARS), long = n > SEND_MAX_LINES;
+    if(long || dear){
+      var big = long ? 'The ' + sup + ' order has ' + n + ' items' + (dear ? ', about ' + sendMoney(tot.total) : '') : 'The ' + sup + ' order is about ' + sendMoney(tot.total);
+      return sendOnScreen(ss, big + ': that’s one to check on screen.', mode, 'send on screen supplier=' + sup + ' lines=' + n + (dear ? ' over $' + SEND_MAX_DOLLARS : ''));
+    }
+    var when = can ? sendWhen(text) : '';
+    if(when) return sendOnScreen(ss, when === 'later' ? 'I can’t time a text yet.' : 'By voice I can only send an order for tomorrow.', mode, 'send on screen supplier=' + sup + ' lines=' + n + ' ' + when);
+    var rb = [sup + ' order for tomorrow: ' + joinAnd(lines.map(lineOf)) + '.'];
+    if(can && tot && tot.priced) rb.push('About ' + sendMoney(tot.total) + (tot.unpriced ? ', with ' + tot.unpriced + (tot.unpriced === 1 ? ' item' : ' items') + ' not priced.' : '.'));
+    // S's check, 15 Nov, his pick "Say so, then ask": nothing priced, or no total to be had, is said before "Send it?"
+    // (never left out, never "none are priced" when the prices just couldn't be read); his yes still sends it
+    else if(can) rb.push((!tot ? 'I can’t work out the total' : n === 1 ? 'It isn’t priced' : 'None of these are priced') + ', so I can’t check the $' + SEND_MAX_DOLLARS + '.');
+    if(host.sentToday && host.sentToday(ss.id)) rb.push(sup + ' was already sent an order today.');
+    if(can) return confirming('sendNow', rb, 'Send it?', { sid: ss.id, snap: sendSnap(ss) }, 'send now supplier=' + sup + ' lines=' + n);
+    return confirming('send', rb, 'Open it ready to send?', { sid: ss.id }, 'send supplier=' + sup + ' lines=' + n);
+  }
+  /* why a text did not go, in plain words; the order is still on the list in every one */
+  function sendWhy(why, sup){
+    var kept = 'The order is still on the list.';
+    switch(why){
+      case 'no-service': return ['It did NOT go: there’s no mobile signal.', kept];
+      case 'radio-off': return ['It did NOT go: the phone is in flight mode.', kept];
+      case 'partial': return ['Only part of the text went.', 'Check Messages, then send it from Review Order.', kept];
+      case 'unsure': return ['The phone never said whether it went.', 'Check Messages before you send it again.', kept];
+      case 'not-allowed': case 'permission': return ['It did NOT go: I’m not allowed to text ' + sup + ' any more.', 'Allow the number again on Review Order.', kept];
+      case 'fast': return ['I texted that number a moment ago, so I didn’t send this one.', 'Check Messages first.', kept];
+      case 'cap': return ['It did NOT go: that’s the most texts I send in a day.', 'Send it from Review Order.', kept];
+      case 'sim': return ['It did NOT go: the phone has no SIM set for texts.', kept];
+      case 'long': return ['It did NOT go: that order is too long for a text from me.', 'Send it from Review Order.', kept];
+      default: return ['It did NOT go: the phone wouldn’t take the text.', kept];
+    }
+  }
+  /* "can you send orders?": true to where it's asked (the app with a number he could allow, or not) */
+  function sendCanSay(){
+    var any = false;
+    try{ ((host.data() || {}).suppliers || []).forEach(function(s){ var t = host.textState ? host.textState(s.id) : null; if(t && t.can) any = true; }); }catch(e){ any = false; }
+    return any ? 'Yes, a short one: up to ' + SEND_MAX_LINES + ' items and $' + SEND_MAX_DOLLARS + ', to a supplier whose number you’ve allowed on Review Order. I read it back, and it goes after your yes. Longer ones I open for your tap.' : CAN_SAY.send;
+  }
+
   function pickSupplier(cmd, cat, kind, filter){
     if(cmd.sids.length === 1) return supplier(cat, cmd.sids[0]);
     var list = cat.suppliers.filter(filter || function(){ return true; });
@@ -4546,16 +4633,16 @@ function createRoom(host){
         'Clear ' + (items.length === 1 ? 'it' : 'all ' + items.length) + '?', { sid: sc.id }, 'clear ' + supSay(sc.name) + ' ' + items.length);
     }
     if(v === 'send'){
-      if(mode === 'pluto' && !hasCue) return notmine('send no cue');
-      var ss = pickSupplier(cmd, cat, 'send', function(s){ return onOrder(s).length > 0; });
+      /* v3.11.73 (his #701, 8 Nov: "send it" right after an add): with no supplier said, the order just added to or
+         changed (two minutes). Through Pluto that is only ever a follow-up; a fresh "send it" is still not the kitchen's. */
+      var st0 = !cmd.sids.length && cmd.list !== 'prep' ? sendTouched(cat) : null;
+      if(mode === 'pluto' && !hasCue && !(st0 && cmd.followUp)) return notmine('send no cue');
+      var ss = st0 || pickSupplier(cmd, cat, 'send', function(s){ return onOrder(s).length > 0; });
       if(!ss) return cant(cmd.sids.length ? 'That order is empty.' : "There's nothing on any order yet.", 'send empty');
       if(ss.status) return ss;
       var lines = onOrder(ss);
       if(!lines.length) return cant('The ' + supSay(ss.name) + ' order is empty.', 'send empty');
-      var rb = [supSay(ss.name) + ' order for tomorrow: ' + joinAnd(lines.map(lineOf)) + '.'];
-      var sent = host.sentToday ? host.sentToday(ss.id) : null;
-      if(sent) rb.push(supSay(ss.name) + ' was already sent an order today.');
-      return confirming('send', rb, 'Open it ready to send?', { sid: ss.id }, 'send supplier=' + supSay(ss.name) + ' lines=' + lines.length);
+      return sendAsk(ss, lines, mode, cmd.text);
     }
     if(v === 'repeat'){
       if(mode === 'pluto' && !hasCue) return notmine('repeat no cue');
@@ -6687,6 +6774,7 @@ function createRoom(host){
            with a misheard name ("can you add pearly garlic" → "Did you mean …?") */
         if(!target && (about || !c1.verb)){
           if(mode === 'pluto' && topic === 'other') return notmine('can other');
+          if(topic === 'send') return ans('answer', { say: [sendCanSay()], log: 'can send' });   // v3.11.73: true to where it's asked
           return ans('answer', { say: [CAN_SAY[topic].replace(/\{(\d)\}/g, function(m, i){ return rbHintNames()[+i]; })], log: 'can ' + topic });
         }
       }
@@ -6710,6 +6798,23 @@ function createRoom(host){
         return ans('done', { say: ["It's on screen. Check it and tap Send Order."], action: { id: 'a-send-' + now().toString(36), label: 'Opened the ' + supSay(s.name) + ' order to send', undo: false },
           show: { title: supSay(s.name) + ' order', lines: onOrder(s).slice(0, 6).map(function(p){ return { text: itemSay(p.name) + ' · ' + fmt(+p.qty) + ' ' + p.unit, tone: 'ok' }; }), open: { view: 'ticket', id: s.id }, go: true },
           keep: false, log: 'send ok' });
+      }
+      if(c.kind === 'sendNow'){   // v3.11.73: his yes to "Send it?": the app texts it
+        var sn = supplier(cat, c.sid);
+        if(!sn || !onOrder(sn).length) return cant('That order is empty now.', 'send empty');
+        var supN = supSay(sn.name), nNow = onOrder(sn).length;
+        // only what was read back is ever sent: changed since (his taps, the other copy of the page), it's asked again
+        if(JSON.stringify(sendSnap(sn)) !== JSON.stringify(c.snap)) return cant('The ' + supN + ' order changed after I read it out. Ask me again.', 'send now changed');
+        if(!sendText(sn.id)) return cant('I can’t text ' + supN + ' right now. It’s still on the list: send it from Review Order.', 'send now no hand');
+        var card = sendCard(sn, supN + ' order, sent', 'supplier'), sr = null;
+        try{ sr = await host.sendOrder(sn.id); }catch(e){ sr = null; }
+        if(sr && sr.ok && sr.state === 'sent'){
+          return ans('done', { say: ['Sent to ' + supN + '.'], action: { id: 'a-sent-' + now().toString(36), label: 'Texted the ' + supN + ' order', undo: false },
+            show: card, keep: false, log: 'send now ok lines=' + nNow });
+        }
+        if(sr && sr.ok) return ans('answer', { say: ['It’s with the phone, but the phone hasn’t said it went yet.', 'A notice will tell you. Check Messages before you send it again.'], keep: false, log: 'send now waiting lines=' + nNow });
+        var whyN = (sr && sr.why) || 'no answer';
+        return ans(/^(fast|cap|not-allowed|permission|long|sim)$/.test(whyN) ? 'cant' : 'error', { say: sendWhy(whyN, supN), keep: false, log: 'send now failed ' + whyN });
       }
       if(c.kind === 'clear' || c.kind === 'repeat'){
         var s2 = supplier(cat, c.sid);
@@ -6895,7 +7000,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.72',
+  version: 'v3.11.73',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,

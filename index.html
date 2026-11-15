@@ -513,6 +513,11 @@ a.btn-block{display:block;}
   padding:9px 12px;margin-bottom:10px;font-size:12px;color:#2F5F39;}
 .sent-banner button{background:none;border:none;font-family:inherit;font-size:11.5px;
   font-weight:700;color:#2F5F39;text-decoration:underline;cursor:pointer;padding:2px 0;white-space:nowrap;}
+/* ===== v3.11.73: Pluto's texts, on Review Order (only inside the Pluto app) ===== */
+.text-allow{margin:12px 0 0;padding:10px 12px;border:1px solid #D9D5C7;border-radius:8px;font-size:12px;line-height:1.45;color:#6B665A;}
+.text-allow.on{background:#F0F5EE;border-color:#D3E2CE;color:#2F5F39;}
+.text-allow button{display:block;margin-top:6px;background:none;border:none;font-family:inherit;font-size:12.5px;
+  font-weight:700;color:inherit;text-decoration:underline;cursor:pointer;padding:2px 0;text-align:left;}
 </style>
 
 <style>
@@ -854,7 +859,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.72';
+const APP_VERSION = 'v3.11.73';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -2645,6 +2650,138 @@ function recordOrderSent(s){
     h.push({ at: now, day: serviceDateKey(), sup: s.id, mode: ticketDateMode, for: ticketForKey(s), items: items });
     localStorage.setItem(ORDER_HISTORY_KEY, JSON.stringify(h));
   }catch(e){}
+}
+
+/* ===== v3.11.73: an order texted by Pluto (his #701; his answer of 14 Nov; ../Pluto/plans/S-send-text.md) =====
+   Inside the Pluto app (1.36+) the app can send a text itself, to a number he allowed on the phone's own dialog.
+   passSendNow builds Review Order's own text (buildMessage, for tomorrow) and hands it over. Only when the PHONE says
+   it went is the order marked sent, kept in the history and cleared, as the Send Order button does (passTextSettle).
+   What was handed over is kept until then (TEXT_PENDING_KEY: which order, the amounts as sent), so a page that was
+   asleep when the phone answered settles it the next time it looks (passTextReconcile, from the app's own log).
+   That key doesn't start "order-chit-": a text in flight belongs to this phone, so Move my data leaves it behind.
+   Never in Chrome (no app), never from a starter or backup copy. Only one-shot timers. */
+const TEXT_PENDING_KEY = 'pass-text-pending';
+const TEXT_WAIT_MS = 5500;            // a room has 10 s to answer Pluto (and may spend 2.5 s on its lists first): after this it says the phone hasn't answered yet
+const TEXT_LOST_MS = 3 * 60 * 1000;   // handed over, and the app has no record of it after this: it never went
+const TEXT_UNSURE_MS = 24 * 3600 * 1000;   // S's check, 15 Nov: "can't tell" is watched in the app's log for a day (a late "sent" or "failed"), then let go
+const textWaiters = {};
+function textHost(){
+  try{ const h = window.PlutoRoomHost; return h && typeof h.sendText === 'function' && typeof h.textState === 'function' ? h : null; }
+  catch(e){ return null; }
+}
+/* { can, granted, allowed } for that supplier's number; null where the app can't text (Chrome, an older app, an email) */
+function passTextState(s){
+  const h = textHost();
+  if(!h || !s || s.contactType !== 'sms' || !s.contact) return null;
+  try{ const o = JSON.parse(h.textState(String(s.contact))); return o && typeof o === 'object' ? o : null; }catch(e){ return null; }
+}
+function textPending(){ const l = readStoredJSON(TEXT_PENDING_KEY); return Array.isArray(l) ? l : []; }
+function textPendingSave(l){ try{ localStorage.setItem(TEXT_PENDING_KEY, JSON.stringify(l.slice(-20))); }catch(e){} }
+/* Takes one off the waiting list: the entry, or null when the other copy of the page took it first (never settled twice) */
+function textPendingTake(id){
+  const l = textPending(), i = l.findIndex(x => x && x.id === id);
+  if(i < 0) return null;
+  const x = l.splice(i, 1)[0];
+  textPendingSave(l);
+  return x;
+}
+/* The phone's word on a text (or, later, the app's log). "sent": what the Send Order button does, from the amounts as
+   sent (a line he changed after his yes stays on the list: that's a new want). Anything else: the order stays as it is.
+   "unsure" (S's check, 15 Nov): the app's minute passed with no word, but the phone may still say "sent" or "failed"
+   later, and then the app only writes it in its log. So it keeps waiting, for passTextReconcile to settle (or let go). */
+function passTextSettle(id, st){
+  if(st === 'unsure') return false;
+  const x = textPendingTake(id);
+  if(!x) return false;
+  if(st !== 'sent') return true;
+  refreshSuppliersFromStorage();
+  const s = findSupplier(x.sid), at = Date.now();
+  try{ localStorage.setItem(lastOrderKey(x.sid), JSON.stringify(x.items)); }catch(e){}
+  saveLastSent(x.sid);
+  try{
+    const cutoff = at - ORDER_HISTORY_DAYS * 24 * 3600 * 1000;
+    const h = readOrderHistory().filter(e => e && e.at >= cutoff);
+    h.push({ at: at, day: serviceDateKey(), sup: x.sid, mode: 'tomorrow', for: x.for || null, items: x.items });
+    localStorage.setItem(ORDER_HISTORY_KEY, JSON.stringify(h));
+  }catch(e){}
+  if(s){
+    s.products.forEach(p => { if(x.items[p.id] != null && +p.qty === +x.items[p.id]) p.qty = 0; });
+    saveData();
+  }
+  bgRender();
+  return true;
+}
+/* Hands that supplier's order to the app as a text. Answers once: { ok: true, state: 'sent' } (the phone said so: the
+   order is now marked sent and cleared), { ok: true, state: 'waiting' } (handed over, no word from the phone yet:
+   nothing marked), or { ok: false, why } (it did not go: nothing marked). */
+function passSendNow(sid){
+  return new Promise(resolve => {
+    const h = textHost();
+    if(!h) return resolve({ ok: false, why: 'no-app' });
+    if(copyRole()) return resolve({ ok: false, why: 'copy' });
+    refreshSuppliersFromStorage();
+    const s = findSupplier(sid);
+    if(!s) return resolve({ ok: false, why: 'gone' });
+    if(s.contactType !== 'sms' || !s.contact) return resolve({ ok: false, why: 'email' });
+    const items = s.products.filter(p => p.qty > 0);
+    if(!items.length) return resolve({ ok: false, why: 'empty' });
+    const body = buildMessage(s, items, 'tomorrow');
+    const id = 'o' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const snap = {}; items.forEach(p => { snap[p.id] = p.qty; });
+    const tm = new Date(); tm.setDate(tm.getDate() + 1);
+    const l = textPending(); l.push({ id: id, sid: s.id, at: Date.now(), items: snap, for: localDateKey(tm) }); textPendingSave(l);
+    let r = null;
+    try{ r = JSON.parse(h.sendText(JSON.stringify({ id: id, to: String(s.contact), name: s.name, body: body }))); }catch(e){ r = null; }
+    if(!r || !r.ok){ textPendingTake(id); return resolve({ ok: false, why: (r && r.why) || 'error' }); }
+    const timer = setTimeout(() => { if(textWaiters[id]){ delete textWaiters[id]; resolve({ ok: true, state: 'waiting' }); } }, TEXT_WAIT_MS);
+    textWaiters[id] = o => {
+      clearTimeout(timer);
+      resolve(o.state === 'sent' ? { ok: true, state: 'sent' } : { ok: false, why: o.state === 'unsure' ? 'unsure' : (o.why || 'failed') });
+    };
+  });
+}
+/* The app's news: the phone's word on a text, or his answer to the phone's own "Let Pluto text this number?" */
+window.passText = function(json){
+  let o = null;
+  try{ o = typeof json === 'string' ? JSON.parse(json) : json; }catch(e){ o = null; }
+  if(!o) return;
+  if(o.t === 'text' && o.id){
+    passTextSettle(o.id, o.state);            // first, so "Sent" is never said before the order is marked
+    const w = textWaiters[o.id];
+    if(w){ delete textWaiters[o.id]; w(o); }
+  } else if(o.t === 'text-allow' && !ROOM){
+    if(o.ok) showToast('Pluto can text this number now');
+    else if(o.why && o.why !== 'no') showToast(o.why === 'permission' ? 'Android didn’t allow texts, so Pluto can’t send them'
+      : o.why === 'number' ? 'That isn’t a mobile number Pluto can text' : 'Couldn’t allow that number');
+    bgRender();
+  }
+};
+/* A text the phone answered while this page slept, or that the other copy of the page handed over (the hidden room,
+   the tab): settled from the app's own log. One the app never heard of is dropped after three minutes: it never went.
+   One the app still calls "unsure" a day after it was handed over is let go: nothing is ever marked sent for it. */
+function passTextReconcile(){
+  const l = textPending();
+  if(!l.length) return false;
+  const h = textHost();
+  let log = [];
+  try{ log = h && typeof h.textLog === 'function' ? JSON.parse(h.textLog()) : []; }catch(e){ log = []; }
+  if(!Array.isArray(log)) log = [];
+  let changed = false;
+  l.forEach(x => {
+    if(!x || !x.id) return;
+    const e = log.find(y => y && y.id === x.id);
+    if(e && e.state === 'unsure' && Date.now() - (x.at || 0) > TEXT_UNSURE_MS){ textPendingTake(x.id); changed = true; }
+    else if(e && e.state !== 'sending'){ if(passTextSettle(x.id, e.state)) changed = true; }
+    else if(!e && Date.now() - (x.at || 0) > TEXT_LOST_MS){ textPendingTake(x.id); changed = true; }
+  });
+  return changed;
+}
+/* Review Order's line about Pluto's texts: only in the app's tab (1.36+), for a supplier ordered by text */
+function textAllowHTML(s){
+  const st = ROOM ? null : passTextState(s);
+  if(!st || !st.can) return '';
+  if(st.allowed) return `<div class="text-allow on">Pluto can text this order for you after your yes: up to 8 items and $800. Longer or dearer orders stay your tap.<button data-text-forget="${escapeHtml(s.id)}">Stop Pluto texting this number</button></div>`;
+  return `<div class="text-allow">Pluto can send this order by text itself, after reading it back and your yes.<button data-text-allow="${escapeHtml(s.id)}">Let Pluto text this number</button></div>`;
 }
 
 /* "Marked as not sent": the order never went, so it isn't history either.
@@ -5801,6 +5938,7 @@ function renderTicket(supplierId){
       <a class="stamp" id="send-stamp" data-supplier="${s.id}" href="${initLink}">Send<br>Order</a>
     </div>
     <div class="fallback-note">Tap opens ${channel} with the order filled in.<br>If nothing opens, use Copy below.</div>
+    ${textAllowHTML(s)}
     <div style="margin-top:14px;">
       <button class="btn btn-block btn-ghost" id="copy-btn" data-supplier="${s.id}">Copy Order Text</button>
       <textarea class="copybox" id="copy-area" style="display:none;" readonly></textarea>
@@ -6289,6 +6427,23 @@ function attachHandlers(){
       }, 100);
     });
   }
+
+  /* v3.11.73: Pluto's texts: he allows this supplier's number on the phone's own dialog (the page only asks), or takes it off */
+  document.querySelectorAll('[data-text-allow]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const s = findSupplier(el.dataset.textAllow), h = textHost();
+      if(!s || !h || typeof h.textAllow !== 'function') return;
+      try{ h.textAllow(JSON.stringify({ number: String(s.contact), name: s.name })); }catch(e){}
+    });
+  });
+  document.querySelectorAll('[data-text-forget]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const s = findSupplier(el.dataset.textForget), h = textHost();
+      if(!s || !h || typeof h.textForget !== 'function') return;
+      try{ h.textForget(String(s.contact)); }catch(e){}
+      render(); showToast('Pluto won’t text this number');
+    });
+  });
 
   const copyBtn = document.getElementById('copy-btn');
   if(copyBtn){
@@ -7587,6 +7742,8 @@ window.addEventListener('popstate', ()=>{
 
 loadData();
 if(!ROOM) refreshFromServer();   // v3.11.4: a room fetches nothing until Pluto asks it something
+// v3.11.73: a text handed to the app while this page was closed: settled from the app's log as it opens
+if(!ROOM){ try{ if(passTextReconcile()) bgRender(); }catch(e){} }
 // v3.11.3: his data was just brought in (Move my data): Home says so once
 try{ if(sessionStorage.getItem('the-pass-brought-in')){ sessionStorage.removeItem('the-pass-brought-in'); state.broughtIn = true; render(); } }catch(e){}
 
@@ -7638,6 +7795,7 @@ document.addEventListener('visibilitychange', ()=>{
   visibleAt = Date.now();   // v3.11.15
   // v3.9.2: another copy of The Pass may have changed the list meanwhile
   if(refreshSuppliersFromStorage()) bgRender();
+  try{ if(passTextReconcile()) bgRender(); }catch(e){}   // v3.11.73: a text the phone answered meanwhile
   // v3.9.4: and the roster and timesheet, before the Monday roll below
   const rosterNew = refreshRosterFromStorage(), timesheetNew = refreshTimesheetFromStorage();
   if(rosterNew || timesheetNew) bgRender();
@@ -7655,16 +7813,16 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.72"></script>
+<script src="move-data.js?v=3.11.73"></script>
 <!-- v3.11.28: the function doc reader. A separate file too: if it fails, only "From management's doc" says so. -->
-<script src="function-reader.js?v=3.11.72"></script>
+<script src="function-reader.js?v=3.11.73"></script>
 <!-- v3.11.30: the invoice rules. A separate file too: if it fails, only bringing in an invoice says so. -->
-<script src="invoice-engine.js?v=3.11.72"></script>
+<script src="invoice-engine.js?v=3.11.73"></script>
 <!-- v3.11.31: the supplier readers for a scanned invoice (Aziz's so far). -->
-<script src="invoice-readers.js?v=3.11.72"></script>
+<script src="invoice-readers.js?v=3.11.73"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.72"></script>
-<script src="voice-brain.js?v=3.11.72"></script>
-<script src="voice.js?v=3.11.72"></script>
+<script src="roster-engine.js?v=3.11.73"></script>
+<script src="voice-brain.js?v=3.11.73"></script>
+<script src="voice.js?v=3.11.73"></script>
 </body>
 </html>

@@ -79,6 +79,20 @@ var host = {
   },
   lastOrder: function(sid){ return getLastOrder(sid); },
   sentToday: function(sid){ return sentToday(sid); },
+  /* v3.11.73 (his #701; his answer of 14 Nov; ../Pluto/plans/S-send-text.md): an order texted by the Pluto app itself.
+     textState: can this supplier's number be texted ({ can, granted, allowed }; null where the app can't: Chrome, an
+     older app, an email). orderTotal: what the order comes to at the kept prices, as the order's own header counts it
+     (null when the prices can't be read). sendOrder: Review Order's own text handed to the app, answered with the
+     phone's word; the order is marked sent and cleared only on "sent" (index.html passSendNow, passTextSettle). */
+  textState: function(sid){ return typeof passTextState === 'function' ? passTextState(findSupplier(sid)) : null; },
+  orderTotal: function(sid){
+    var s = findSupplier(sid);
+    if(!s || typeof InvoiceEngine === 'undefined' || typeof invLoad !== 'function') return null;
+    var items = s.products.filter(function(p){ return p.qty > 0; });
+    var r = InvoiceEngine.cartTotal({ items: items.map(function(p){ return { productId: p.id, qty: p.qty, unit: p.unit }; }), prices: invLoad(INV_PRICES_KEY, []), supplierId: s.id });
+    return { total: r.total, items: r.items, priced: r.priced, unpriced: r.unpriced };
+  },
+  sendOrder: function(sid){ return typeof passSendNow === 'function' ? passSendNow(sid) : Promise.resolve({ ok: false, why: 'no-app' }); },
   // v3.11.51 (his asks, 25 Oct): the orders sent from The Pass, read only ("when did I last order squid")
   orderHistory: function(){ return typeof readOrderHistory === 'function' ? readOrderHistory() : null; },
   // v3.11.54 (memories stage 2, his picks of 31 Oct): notes on products, kept on this phone (index.html pnAll…)
@@ -432,6 +446,8 @@ function roomFresh(){
     var k = keptPrep();
     if(k){ state.prepLines = k.lines; roomKeptAt = k.at; }
   }
+  // v3.11.73: a text the phone answered while the room slept is settled first (sent: marked and cleared), from the app's log
+  if(typeof passTextReconcile === 'function'){ try{ passTextReconcile(); }catch(e){} }
   if(typeof refreshSuppliersFromStorage === 'function') refreshSuppliersFromStorage();
   if(typeof loadPrepItems === 'function') loadPrepItems();
   if(typeof loadRecipesLocal === 'function') loadRecipesLocal();
