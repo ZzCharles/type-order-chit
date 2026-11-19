@@ -518,6 +518,39 @@ a.btn-block{display:block;}
 .text-allow.on{background:#F0F5EE;border-color:#D3E2CE;color:#2F5F39;}
 .text-allow button{display:block;margin-top:6px;background:none;border:none;font-family:inherit;font-size:12.5px;
   font-weight:700;color:inherit;text-decoration:underline;cursor:pointer;padding:2px 0;text-align:left;}
+/* ===== v3.11.74: Send later, a timed text (only inside the Pluto app 1.37+) ===== */
+.send-later{display:block;width:100%;margin:12px 0 0;padding:11px 12px;border:1.5px solid #B9862F;border-radius:8px;background:#FFF8EA;
+  color:#7A5410;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;}
+.sl-sheet{margin:12px 0 0;padding:12px;border:1.5px solid #B9862F;border-radius:10px;background:#FFFBF2;font-size:13px;color:#3A352B;}
+.sl-head{display:flex;justify-content:space-between;align-items:center;font-weight:800;font-size:15px;}
+.sl-head button{background:none;border:none;font-size:18px;cursor:pointer;color:#7A5410;padding:0 4px;}
+.sl-intro{color:#6B665A;font-size:12px;margin-top:4px;}
+.sl-row{margin-top:11px;}
+.sl-label{font-size:10.5px;font-weight:800;letter-spacing:.9px;text-transform:uppercase;color:#7A5410;margin-bottom:5px;}
+.sl-btns{display:flex;flex-wrap:wrap;gap:6px;}
+.sl-btns button,.sl-btns label{border:1px solid #D9C9A6;background:#fff;border-radius:16px;padding:6px 11px;font-family:inherit;font-size:12.5px;color:#3A352B;cursor:pointer;position:relative;}
+.sl-btns .on{background:#7A5410;border-color:#7A5410;color:#fff;font-weight:700;}
+.sl-btns label input{position:absolute;inset:0;opacity:0;width:100%;cursor:pointer;}
+.sl-time{font-family:inherit;font-size:15px;padding:6px 8px;border:1px solid #D9C9A6;border-radius:8px;background:#fff;}
+.sl-words{margin:0;white-space:pre-wrap;}
+.sl-tries{margin-top:10px;font-size:12px;color:#6B665A;line-height:1.45;}
+.sl-why{margin-top:8px;font-size:12.5px;font-weight:700;color:#9A2E1F;}
+.sl-go{display:block;width:100%;margin-top:10px;padding:12px;border:none;border-radius:8px;background:#7A5410;color:#fff;font-family:inherit;font-size:14.5px;font-weight:800;cursor:pointer;}
+.sl-go[disabled]{opacity:.4;cursor:default;}
+.sl-not{display:block;width:100%;margin-top:6px;padding:8px;border:none;background:none;font-family:inherit;font-size:13px;color:#6B665A;text-decoration:underline;cursor:pointer;}
+.timed-stamp{margin:18px auto 6px;width:150px;padding:12px 8px;border:3px solid #B9862F;border-radius:10px;color:#7A5410;text-align:center;transform:rotate(-3deg);}
+.timed-stamp b{display:block;font-size:20px;letter-spacing:2px;text-transform:uppercase;}
+.timed-stamp span{display:block;font-size:14px;font-weight:700;margin-top:2px;}
+.timed-acts{display:flex;gap:8px;margin-top:10px;}
+.timed-acts button{flex:1;padding:10px 6px;border:1.5px solid #B9862F;border-radius:8px;background:#fff;font-family:inherit;font-size:13px;font-weight:700;color:#7A5410;cursor:pointer;}
+.timed-note{margin-top:8px;font-size:12px;color:#6B665A;line-height:1.45;}
+.timed-band{display:flex;align-items:center;justify-content:space-between;gap:10px;background:#FFF3D6;border:1.5px solid #D9A441;
+  border-radius:8px;padding:9px 12px;margin-bottom:10px;font-size:12.5px;font-weight:700;color:#6B4708;}
+.timed-band.off{background:#FBEDEA;border-color:#E3B4AA;color:#8A2D1D;}
+.timed-band button{background:none;border:none;font-family:inherit;font-size:12px;font-weight:800;color:inherit;text-decoration:underline;cursor:pointer;padding:2px 0;white-space:nowrap;}
+.timed-line{font-size:11.5px;font-weight:700;color:#8A5A0B;margin-top:4px;letter-spacing:.2px;}
+.timed-line.off{color:#9A2E1F;}
+.timed-clock{color:#B9862F;margin-right:4px;}
 </style>
 
 <style>
@@ -859,7 +892,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.73';
+const APP_VERSION = 'v3.11.74';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -1447,8 +1480,8 @@ const COURSE_ORDER = ['Starter','Entrée','Main','Dessert'];
 
 /* Service day, not calendar day: before 5am still counts as last night, so a
    function doesn't vanish off the screen while you're closing down. */
-function serviceDateKey(){
-  const d = new Date();
+function serviceDateKey(at){
+  const d = at ? new Date(+at) : new Date();   // v3.11.74: or the service day of a time (a timed text, at the phone's own time)
   if(d.getHours() < 5) d.setDate(d.getDate() - 1);
   const m = String(d.getMonth()+1).padStart(2,'0');
   const day = String(d.getDate()).padStart(2,'0');
@@ -2520,6 +2553,7 @@ function saveData(){
     localStorage.setItem(STORAGE_KEY, raw);
     suppliersSeen = raw;
   }catch(e){ showToast('Not saved - storage unavailable'); }
+  try{ passTimedCheck(); }catch(e){}   // v3.11.74: a change to a timed order cancels its text (every road comes through here)
   schedulePublish();
 }
 window.addEventListener('storage', (e)=>{
@@ -2602,9 +2636,12 @@ function saveLastOrder(supplier){
    Clears on the 5am service-day boundary, same as functions. */
 function lastSentKey(id){ return 'order-chit-lastsent-'+id; }
 
-function saveLastSent(id){
+function saveLastSent(id, at, timed){
   try{
-    localStorage.setItem(lastSentKey(id), JSON.stringify({ day: serviceDateKey(), at: Date.now() }));
+    // v3.11.74: a text Pluto sent is stamped at the phone's own time (at), and a timed one says so
+    const t = +at > 0 ? +at : Date.now(), rec = { day: serviceDateKey(t), at: t };
+    if(timed) rec.timed = true;
+    localStorage.setItem(lastSentKey(id), JSON.stringify(rec));
   }catch(e){}
 }
 
@@ -2689,19 +2726,23 @@ function textPendingTake(id){
    sent (a line he changed after his yes stays on the list: that's a new want). Anything else: the order stays as it is.
    "unsure" (S's check, 15 Nov): the app's minute passed with no word, but the phone may still say "sent" or "failed"
    later, and then the app only writes it in its log. So it keeps waiting, for passTextReconcile to settle (or let go). */
-function passTextSettle(id, st){
+function passTextSettle(id, st, doneAt, why){
   if(st === 'unsure') return false;
   const x = textPendingTake(id);
   if(!x) return false;
-  if(st !== 'sent') return true;
+  if(st !== 'sent'){
+    if(x.due) timedNote(x.sid, why === 'missed' ? 'missed' : 'failed', x.due);   // v3.11.74: a timed one that didn't go says so
+    return true;
+  }
   refreshSuppliersFromStorage();
-  const s = findSupplier(x.sid), at = Date.now();
+  // v3.11.74: filed at the phone's own time (the app's log has it), not when the page looked
+  const s = findSupplier(x.sid), at = +doneAt > 0 ? +doneAt : Date.now();
   try{ localStorage.setItem(lastOrderKey(x.sid), JSON.stringify(x.items)); }catch(e){}
-  saveLastSent(x.sid);
+  saveLastSent(x.sid, at, !!x.due);
   try{
     const cutoff = at - ORDER_HISTORY_DAYS * 24 * 3600 * 1000;
     const h = readOrderHistory().filter(e => e && e.at >= cutoff);
-    h.push({ at: at, day: serviceDateKey(), sup: x.sid, mode: 'tomorrow', for: x.for || null, items: x.items });
+    h.push({ at: at, day: serviceDateKey(at), sup: x.sid, mode: x.mode === 'calendar' ? 'calendar' : 'tomorrow', for: x.for || null, items: x.items });
     localStorage.setItem(ORDER_HISTORY_KEY, JSON.stringify(h));
   }catch(e){}
   if(s){
@@ -2722,6 +2763,7 @@ function passSendNow(sid){
     refreshSuppliersFromStorage();
     const s = findSupplier(sid);
     if(!s) return resolve({ ok: false, why: 'gone' });
+    if(timedFor(s.id)) return resolve({ ok: false, why: 'timed' });   // v3.11.74: one road at a time: never while a text is timed
     if(s.contactType !== 'sms' || !s.contact) return resolve({ ok: false, why: 'email' });
     const items = s.products.filter(p => p.qty > 0);
     if(!items.length) return resolve({ ok: false, why: 'empty' });
@@ -2760,19 +2802,26 @@ window.passText = function(json){
    the tab): settled from the app's own log. One the app never heard of is dropped after three minutes: it never went.
    One the app still calls "unsure" a day after it was handed over is let go: nothing is ever marked sent for it. */
 function passTextReconcile(){
+  // v3.11.74: first, a timed text whose order changed meanwhile (in the other copy of the page, or a bring-in) is cancelled
+  refreshSuppliersFromStorage();
+  let changed = passTimedCheck();
   const l = textPending();
-  if(!l.length) return false;
+  if(!l.length) return changed;
   const h = textHost();
   let log = [];
   try{ log = h && typeof h.textLog === 'function' ? JSON.parse(h.textLog()) : []; }catch(e){ log = []; }
   if(!Array.isArray(log)) log = [];
-  let changed = false;
+  const live = l.some(x => x && x.due) ? timedLive() : null;   // v3.11.74: the timed texts the app still holds
   l.forEach(x => {
     if(!x || !x.id) return;
-    const e = log.find(y => y && y.id === x.id);
-    if(e && e.state === 'unsure' && Date.now() - (x.at || 0) > TEXT_UNSURE_MS){ textPendingTake(x.id); changed = true; }
-    else if(e && e.state !== 'sending'){ if(passTextSettle(x.id, e.state)) changed = true; }
-    else if(!e && Date.now() - (x.at || 0) > TEXT_LOST_MS){ textPendingTake(x.id); changed = true; }
+    const e = log.find(y => y && y.id === x.id), from = Math.max(x.at || 0, x.due || 0);
+    if(x.due && live){
+      if(live.some(y => y && y.id === x.id)) return;   // v3.11.74: still timed in the app: it waits, however long
+      if(!e){ textPendingTake(x.id); changed = true; return; }   // taken off by the app unsent (its number taken off, or the timed hand off): it never goes
+    }
+    if(e && e.state === 'unsure' && Date.now() - from > TEXT_UNSURE_MS){ textPendingTake(x.id); changed = true; }
+    else if(e && e.state !== 'sending'){ if(passTextSettle(x.id, e.state, e.doneAt, e.why)) changed = true; }
+    else if(!e && Date.now() - from > TEXT_LOST_MS){ textPendingTake(x.id); changed = true; }
   });
   return changed;
 }
@@ -2782,6 +2831,239 @@ function textAllowHTML(s){
   if(!st || !st.can) return '';
   if(st.allowed) return `<div class="text-allow on">Pluto can text this order for you after your yes: up to 8 items and $800. Longer or dearer orders stay your tap.<button data-text-forget="${escapeHtml(s.id)}">Stop Pluto texting this number</button></div>`;
   return `<div class="text-allow">Pluto can send this order by text itself, after reading it back and your yes.<button data-text-allow="${escapeHtml(s.id)}">Let Pluto text this number</button></div>`;
+}
+
+/* ===== v3.11.74: Send later, a timed text by his tap (../Pluto/plans/S2a-send-later.md) =====
+   Inside the Pluto app 1.37+ (its textTime door), on Review Order for a number he allowed: the sheet shows when it goes,
+   which day the order is for, and the words exactly as they will go; his tap on "Time it" hands them to the app, which
+   keeps them and texts them by itself at the time, with every one of its guards again. The order STAYS on the list (his
+   pick, 15 Nov), with a clock on the supplier's tile and its items. If the text The Pass would build now differs from the
+   timed one (an amount, an item, Clear, Repeat Last Order, a staff order, a bring-in, the template or the number), the
+   timed text is cancelled (passTimedCheck, from saveData and passTextReconcile: every road comes through one of them).
+   "Sent" only from the app's log, at the phone's own time. Nothing new in Chrome, with an older app, or on a starter or
+   backup copy. Only one-shot timers (none added). */
+const TEXT_NOTES_KEY = 'pass-text-notes';   // a timed text cancelled by a change, or one that didn't go: this phone only (not "order-chit-": Move my data leaves it)
+const TIMED_MAX_DAYS = 7, TIMED_FOR_HOUR = 6, TIMED_TRY_MIN = 30, TIMED_NOTE_MS = 2 * 86400000;
+let timedCancelledNow = [];   // cancelled by a change in this copy of the page: the voice says it once (timedCancelledTake)
+let sendLaterOpen = null;     // the Send later sheet: { sid, goes: day key, at: 'HH:MM', forKey: day key or null }
+
+function timedHost(){
+  const h = textHost();
+  return h && typeof h.textTime === 'function' && typeof h.textTimed === 'function' && typeof h.textTimedCancel === 'function' ? h : null;
+}
+/* the timed texts the app still holds ([{ id, due, state, tries }]), or null where it can't be asked */
+function timedLive(){
+  const h = timedHost();
+  if(!h) return null;
+  try{ const l = JSON.parse(h.textTimed()); return Array.isArray(l) ? l : null; }catch(e){ return null; }
+}
+/* this supplier's timed text the app still holds (the page's kept entry), or null */
+function timedFor(sid, live){
+  const l = textPending().filter(x => x && x.due && x.sid === sid);
+  if(!l.length) return null;
+  const w = live || timedLive();
+  return w ? l.find(x => w.some(y => y && y.id === x.id)) || null : null;
+}
+function dayOfKey(k){ const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(k || ''); return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null; }
+function daysApart(a, b){ return Math.round((dayOfKey(localDateKey(b)) - dayOfKey(localDateKey(a))) / 86400000); }
+function timedClock(at){
+  try{ return new Date(+at).toLocaleTimeString('en-AU', { hour: 'numeric', minute: '2-digit' }).replace(/\s+/g, ' ').toLowerCase(); }catch(e){ return ''; }
+}
+/* "Tue 5:00 am", or with the date "Tue 17 Nov 5:00 am" */
+function timedWhen(at, withDate){
+  const d = new Date(+at);
+  return d.toLocaleDateString('en-AU', { weekday: 'short' }) + (withDate ? ' ' + d.getDate() + ' ' + d.toLocaleDateString('en-AU', { month: 'short' }) : '') + ' ' + timedClock(at);
+}
+/* The day rule (his, 15 Nov), one function, also S2b's: the order is FOR the day the text goes if it goes before 6:00 am,
+   else the next day; a day he sets wins; never a day before it goes. The words keep today's: 'tomorrow' when it is for
+   the day after it goes, else the date as Review Order writes it ("17th November"). Refused: a time gone or less than a
+   minute away ('past'), more than 7 days on ('far'), a day before it goes ('before'). */
+function passTimedDay(goes, forKey, now){
+  const g = new Date(+goes), n = new Date(now == null ? Date.now() : +now);
+  if(isNaN(g.getTime()) || isNaN(n.getTime())) return { ok: false, why: 'bad' };
+  if(g.getTime() < n.getTime() + 60000) return { ok: false, why: 'past' };
+  if(daysApart(n, g) > TIMED_MAX_DAYS) return { ok: false, why: 'far' };
+  let f;
+  if(forKey){ f = dayOfKey(forKey); if(!f) return { ok: false, why: 'bad' }; }
+  else f = new Date(g.getFullYear(), g.getMonth(), g.getDate() + (g.getHours() < TIMED_FOR_HOUR ? 0 : 1));
+  const d = daysApart(g, f);
+  if(d < 0) return { ok: false, why: 'before' };
+  return { ok: true, forKey: localDateKey(f), word: d === 1 ? 'tomorrow' : formatDate(f), mode: d === 1 ? 'tomorrow' : 'calendar' };
+}
+/* About how many texts a message makes (the app counts it for real at "Time it"): more than 12 can't be timed */
+function textParts(body){
+  const b = String(body || ''), wide = /[^\n\r !"#$%&'()*+,\-./0-9:;<=>?@A-Z_a-z£¥èéùìòÇØøÅåÄÖÑÜ§¿äöñüà]/.test(b);
+  const one = wide ? 70 : 160, each = wide ? 67 : 153;
+  return b.length <= one ? 1 : Math.ceil(b.length / each);
+}
+/* Can a text to this supplier be timed (the app 1.37+, his allowed number, a real copy)? And does Review Order offer it
+   here (Send later: the tab only, never the hidden room)? */
+function timedCanText(s){
+  if(!s || copyRole() || !timedHost()) return false;
+  const st = passTextState(s);
+  return !!(st && st.can && st.allowed && st.timed);
+}
+function sendLaterCan(s){ return !ROOM && timedCanText(s); }
+/* His tap on "Time it": the words built now, kept on this phone until the app says what became of them, and handed to the
+   app with the time. { ok, id, due } or { ok: false, why } (nothing is timed then). */
+function passSendLater(sid, at, forKey){
+  const h = timedHost();
+  if(!h) return { ok: false, why: 'no-app' };
+  if(copyRole()) return { ok: false, why: 'copy' };
+  refreshSuppliersFromStorage();
+  const s = findSupplier(sid);
+  if(!s) return { ok: false, why: 'gone' };
+  if(s.contactType !== 'sms' || !s.contact) return { ok: false, why: 'email' };
+  const items = s.products.filter(p => p.qty > 0);
+  if(!items.length) return { ok: false, why: 'empty' };
+  if(timedFor(s.id)) return { ok: false, why: 'taken' };
+  const day = passTimedDay(at, forKey);
+  if(!day.ok) return { ok: false, why: day.why };
+  const body = buildMessage(s, items, day.word);
+  if(textParts(body) > 12) return { ok: false, why: 'long' };
+  const id = 't' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const snap = {}; items.forEach(p => { snap[p.id] = p.qty; });
+  const l = textPending();
+  l.push({ id: id, sid: s.id, at: Date.now(), items: snap, for: day.forKey, mode: day.mode, word: day.word, due: +at, to: String(s.contact), body: body });
+  textPendingSave(l);
+  let r = null;
+  try{ r = JSON.parse(h.textTime(JSON.stringify({ id: id, to: String(s.contact), name: s.name, body: body, at: +at, sid: s.id }))); }catch(e){ r = null; }
+  if(!r || !r.ok){ textPendingTake(id); return { ok: false, why: (r && r.why) || 'error' }; }
+  timedNoteClear(s.id);
+  return { ok: true, id: id, due: +at };
+}
+/* Takes a timed text off (why 'changed': the order changed; else his tap). False when the app no longer holds it waiting
+   (a try is with the phone this moment, or it ended): then the app's log settles it. */
+function passTimedCancel(id, why){
+  const x = textPending().find(y => y && y.id === id && y.due);
+  if(!x) return false;
+  const h = timedHost();
+  let done = false;
+  try{ done = !!(h && h.textTimedCancel(id, why === 'changed' ? 'changed' : 'tap')); }catch(e){ done = false; }
+  if(!done) return false;
+  textPendingTake(id);
+  if(why === 'changed'){ timedNote(x.sid, 'changed', x.due); timedCancelledNow.push({ sid: x.sid, due: x.due }); }
+  return true;
+}
+/* Each timed text the app still holds waiting: the text The Pass would build now, from the list as it is, must be the
+   timed one word for word, to the same number; any difference (or the supplier gone) cancels it. */
+function passTimedCheck(){
+  const l = textPending().filter(x => x && x.due);
+  if(!l.length) return false;
+  const live = timedLive();
+  if(!live) return false;
+  let changed = false;
+  l.forEach(x => {
+    const w = live.find(y => y && y.id === x.id);
+    if(!w || w.state === 'sending' || w.state === 'unsure') return;   // ended (its log settles it), or already with the phone
+    const s = findSupplier(x.sid), items = s ? s.products.filter(p => p.qty > 0) : [];
+    const same = !!(s && s.contactType === 'sms' && String(s.contact) === x.to && items.length && buildMessage(s, items, x.word) === x.body);
+    if(!same && passTimedCancel(x.id, 'changed')) changed = true;
+  });
+  return changed;
+}
+/* why his Cancel was refused: a try the phone never answered may have gone; one with the phone now is about to be known */
+function timedCancelNo(id){
+  const w = (timedLive() || []).find(y => y && y.id === id);
+  return w && w.state === 'unsure' ? 'The phone hasn’t said if it went. Check Messages before you send it again.' : 'It’s with the phone right now. Check again in a moment.';
+}
+/* the timed texts a change cancelled in this copy of the page since the last look (taken once) */
+function timedCancelledTake(){ const l = timedCancelledNow; timedCancelledNow = []; return l; }
+/* a supplier's note: 'changed' (cancelled by a change), 'failed' or 'missed' (it didn't go); until he opens that order */
+function timedNotes(){ const l = readStoredJSON(TEXT_NOTES_KEY); return Array.isArray(l) ? l.filter(n => n && n.sid && Date.now() - (n.at || 0) < TIMED_NOTE_MS) : []; }
+function timedNote(sid, kind, due){
+  const l = timedNotes().filter(n => n.sid !== sid);
+  l.push({ sid: sid, kind: kind, due: due, at: Date.now() });
+  try{ localStorage.setItem(TEXT_NOTES_KEY, JSON.stringify(l.slice(-20))); }catch(e){}
+}
+function timedNoteFor(sid){ return timedNotes().filter(n => n.sid === sid)[0] || null; }
+function timedNoteClear(sid){
+  const l = readStoredJSON(TEXT_NOTES_KEY);
+  if(!Array.isArray(l) || !l.some(n => n && n.sid === sid)) return;
+  try{ localStorage.setItem(TEXT_NOTES_KEY, JSON.stringify(l.filter(n => n && n.sid !== sid))); }catch(e){}
+}
+/* the Ordering row's line for a timed text, or one that didn't go */
+function timedRowHTML(s, tm){
+  if(tm) return `<div class="timed-line">&#9201; Timed text &middot; goes ${escapeHtml(timedWhen(tm.due).replace(/ (am|pm)$/, '$1'))}</div>`;
+  const n = timedNoteFor(s.id);
+  if(n && n.kind !== 'changed') return `<div class="timed-line off">&#10005; The ${escapeHtml(timedClock(n.due).replace(' ', ''))} text did NOT go. Still on the list.</div>`;
+  return '';
+}
+/* the supplier's screen: the amber band while timed; "cancelled" or "did NOT go" after */
+function timedBandHTML(s, tm){
+  if(tm) return `<div class="timed-band"><span>&#9201; Timed text: goes ${escapeHtml(timedWhen(tm.due, true))}.</span><button data-timed-cancel="${escapeHtml(tm.id)}">Cancel</button></div>`;
+  const n = timedNoteFor(s.id);
+  if(!n) return '';
+  if(n.kind === 'changed') return `<div class="timed-band off"><span>The ${escapeHtml(timedClock(n.due))} text is cancelled: the order changed.</span><button data-timed-again="${escapeHtml(s.id)}">Time it again</button></div>`;
+  return `<div class="timed-band off"><span>&#10005; The ${escapeHtml(timedClock(n.due).replace(' ', ''))} text did NOT go. Still on the list.</span></div>`;
+}
+/* the next 5:00 am at least a minute away, as the sheet first offers it */
+function sendLaterStart(sid){
+  const n = new Date(), d = new Date(n.getFullYear(), n.getMonth(), n.getDate(), 5, 0);
+  if(d.getTime() < n.getTime() + 60000) d.setDate(d.getDate() + 1);
+  return { sid: sid, goes: localDateKey(d), at: '05:00', forKey: null };
+}
+function sendLaterDue(o){
+  const day = dayOfKey(o.goes), m = /^(\d{1,2}):(\d{2})$/.exec(o.at || '');
+  return day && m ? new Date(day.getFullYear(), day.getMonth(), day.getDate(), +m[1], +m[2]).getTime() : NaN;
+}
+function sendLaterWhy(why, due){
+  switch(why){
+    case 'past': return due && daysApart(new Date(), new Date(due)) === 0 ? timedClock(due) + ' has gone today. Pick a later time.' : 'That time has gone. Pick a later time.';
+    case 'far': return 'Pluto can time a text up to 7 days ahead.';
+    case 'before': return 'The order can’t be for a day before it’s sent.';
+    case 'long': return 'This order is too long for Pluto to text (more than 12 text messages). Send it now with the stamp, or split it.';
+    case 'taken': return 'This supplier already has a timed text.';
+    case 'full': return 'Pluto already has 12 texts timed. Wait for one to go.';
+    case 'permission': return 'Android doesn’t let Pluto send texts any more.';
+    case 'not-allowed': return 'Pluto isn’t allowed to text this number any more.';
+    case 'sim': return 'The phone has no SIM set for texts.';
+    case 'empty': return 'Nothing is on this order.';
+    default: return 'Pluto couldn’t time this text.';
+  }
+}
+/* Review Order's Send later sheet, or its button */
+function sendLaterHTML(s, items){
+  if(!sendLaterCan(s) || !items.length) return '';
+  const o = sendLaterOpen && sendLaterOpen.sid === s.id ? sendLaterOpen : null;
+  if(!o) return `<button class="send-later" data-send-later="${escapeHtml(s.id)}">&#9201; Send later</button>`;
+  const due = sendLaterDue(o), day = passTimedDay(due, o.forKey);
+  const today = new Date(), tom = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+  const short = d => d.toLocaleDateString('en-AU', { weekday: 'short' }) + ' ' + d.getDate();
+  const goesDay = dayOfKey(o.goes) || today, after = new Date(goesDay.getFullYear(), goesDay.getMonth(), goesDay.getDate() + 1);
+  const forOn = day.ok ? day.forKey : o.forKey;
+  const picked = (k, list) => list.indexOf(k) < 0 && k;
+  const maxDay = new Date(today.getFullYear(), today.getMonth(), today.getDate() + TIMED_MAX_DAYS);
+  const body = day.ok ? buildMessage(s, items, day.word) : '';
+  let why = day.ok ? '' : sendLaterWhy(day.why, due);
+  if(!why && textParts(body) > 12) why = sendLaterWhy('long');
+  const btn = (attr, k, label) => `<button ${attr}="${k}" class="${k === (attr === 'data-sl-goes' ? o.goes : forOn) ? 'on' : ''}">${escapeHtml(label)}</button>`;
+  const goesList = [localDateKey(today), localDateKey(tom)], forList = [localDateKey(goesDay), localDateKey(after)];
+  return `<div class="sl-sheet" id="sl-sheet">
+      <div class="sl-head"><span>&#9201; Send later</span><button data-sl-close="1" aria-label="close">&times;</button></div>
+      <div class="sl-intro">Pluto texts this to ${escapeHtml(s.name)} by itself, from your phone, at the time you pick.</div>
+      <div class="sl-row"><div class="sl-label">Goes</div><div class="sl-btns">
+        ${btn('data-sl-goes', goesList[0], 'Today')}${btn('data-sl-goes', goesList[1], short(tom))}
+        <label class="${picked(o.goes, goesList) ? 'on' : ''}">${picked(o.goes, goesList) ? escapeHtml(short(goesDay)) : 'Pick a day'}<input type="date" id="sl-goes-pick" min="${localDateKey(today)}" max="${localDateKey(maxDay)}"></label></div></div>
+      <div class="sl-row"><div class="sl-label">At</div><input class="sl-time" type="time" id="sl-at" value="${escapeHtml(o.at)}"></div>
+      <div class="sl-row"><div class="sl-label">Order for</div><div class="sl-btns">
+        ${btn('data-sl-for', forList[0], short(goesDay))}${btn('data-sl-for', forList[1], short(after))}
+        <label class="${picked(forOn, forList) ? 'on' : ''}">${picked(forOn, forList) ? escapeHtml(short(dayOfKey(forOn))) : 'Pick a day'}<input type="date" id="sl-for-pick" min="${localDateKey(goesDay)}"></label></div></div>
+      <div class="sl-row"><div class="sl-label">The text, word for word</div><div class="preview-box sl-words" id="sl-words">${escapeHtml(body)}</div></div>
+      ${day.ok ? `<div class="sl-tries">If it can’t go at ${escapeHtml(timedClock(due))}, Pluto tries again every 5 minutes until ${escapeHtml(timedClock(due + TIMED_TRY_MIN * 60000))}, then rings you. It never goes later than that.</div>` : ''}
+      ${why ? `<div class="sl-why" id="sl-why">${escapeHtml(why)}</div>` : ''}
+      <button class="sl-go" data-sl-go="${escapeHtml(s.id)}" ${why ? 'disabled' : ''}>Time it${day.ok ? ' &middot; ' + escapeHtml(timedWhen(due, true)) : ''}</button>
+      <button class="sl-not" data-sl-close="1">Not now</button>
+    </div>`;
+}
+/* Review Order once timed: the stamp steps aside (so one tap can't text twice); the words as they will go */
+function timedTicketHTML(s, tm){
+  return `<div class="date-pick"><div class="date-current">Order for <span id="date-word-display">${escapeHtml(tm.word || '')}</span></div></div>
+    <div class="sl-label" style="margin-top:12px">Goes ${escapeHtml(timedWhen(tm.due))}, word for word</div>
+    <div class="preview-box" id="msg-preview">${escapeHtml(tm.body || '')}</div>
+    <div class="timed-stamp" id="timed-stamp"><b>Timed</b><span>${escapeHtml(timedWhen(tm.due))}</span></div>
+    <div class="timed-acts"><button data-timed-now="${escapeHtml(tm.id)}">Send now instead</button><button data-timed-cancel="${escapeHtml(tm.id)}">Cancel timed text</button></div>
+    <div class="timed-note">Change the order and the timed text is cancelled. You’ll see it on the supplier’s screen and hear it from Pluto.</div>`;
 }
 
 /* "Marked as not sent": the order never went, so it isn't history either.
@@ -2801,14 +3083,23 @@ function unrecordOrderSent(id){
 }
 
 /* Returns the record only if it belongs to the current service day, so the tick
-   expires by itself with no clean-up job anywhere. */
+   expires by itself with no clean-up job anywhere. v3.11.74 (S2a check, fix 2): a timed text
+   Pluto sent in the small hours (before 5am) also shows through the service day that begins
+   that morning, so "✓ Sent 4:30am · timed" is there when he looks after 5am. By-hand and
+   voice sends keep the service-day rule. */
 function sentToday(id){
   try{
     const raw = localStorage.getItem(lastSentKey(id));
     if(!raw) return null;
     const rec = JSON.parse(raw);
-    if(!rec || rec.day !== serviceDateKey()) return null;
-    return rec;
+    if(!rec) return null;
+    const today = serviceDateKey();
+    if(rec.day === today) return rec;
+    if(rec.timed && +rec.at > 0 && Date.now() - (+rec.at) < 24 * 3600000){   // S2a re-check fix 5: never a time a day old
+      const d = new Date(+rec.at); d.setHours(12, 0, 0, 0);   // its calendar day (noon is never before 5am)
+      if(serviceDateKey(d.getTime()) === today) return rec;
+    }
+    return null;
   }catch(e){ return null; }
 }
 
@@ -3164,6 +3455,8 @@ function goto(view){
   if(view.name !== 'invPrices'){ state.psEdit = ''; state.psText = null; state.dl = null; }   // v3.11.34; v3.11.64: Download pricing's ticks
   if(view.name !== 'invHist' || view.fid !== state.view.fid){ state.prEdit = null; state.prDraft = null; }   // v3.11.35
   if(view.name !== 'invHist') state.histFrom = null;   // v3.11.63: a price history opened from Edit Product goes back there
+  if(view.name !== 'ticket') sendLaterOpen = null;   // v3.11.74: the Send later sheet closes when he leaves Review Order
+  else if(view.id && !ROOM) timedNoteClear(view.id);  // v3.11.74: he opened the order: its "cancelled" or "did NOT go" note has done its job (never on a redraw)
   state.view = view; animate(render);   // v3.11.45: no history step per screen (the phone's Back goes one level up: upBack)
 }
 function findSupplier(id){ return state.suppliers.find(s=>s.id===id); }
@@ -5470,14 +5763,16 @@ function renderAddStaff(){
 }
 
 function renderList(){
+  const live = ROOM ? null : timedLive();   // v3.11.74: the timed texts, asked once for the whole list
   let rows = state.suppliers.map(s => {
-    const sent = sentToday(s.id);
+    const sent = sentToday(s.id), tm = live ? timedFor(s.id, live) : null;
     return `
     <div class="card supplier-row" data-open-supplier="${s.id}">
       <div>
-        <div class="supplier-name">${sent ? '<span class="sent-tick">&#10003;</span>' : ''}${escapeHtml(s.name)} <span class="badge ${s.contactType}">${s.contactType==='sms'?'SMS':'EMAIL'}</span></div>
+        <div class="supplier-name">${sent ? '<span class="sent-tick">&#10003;</span>' : ''}${tm ? '<span class="timed-clock">&#9201;</span>' : ''}${escapeHtml(s.name)} <span class="badge ${s.contactType}">${s.contactType==='sms'?'SMS':'EMAIL'}</span></div>
         <div class="supplier-meta">${s.products.length} item${s.products.length===1?'':'s'} on file${s.address ? ' &middot; '+escapeHtml(s.address) : ''}</div>
-        ${sent ? `<div class="sent-line">Sent ${sentTimeLabel(sent.at)}</div>` : ''}
+        ${sent ? `<div class="sent-line">Sent ${sentTimeLabel(sent.at)}${sent.timed ? ' &middot; timed' : ''}</div>` : ''}
+        ${live ? timedRowHTML(s, tm) : ''}
       </div>
       <div class="chev">&rsaquo;</div>
     </div>
@@ -5726,10 +6021,11 @@ function renderSupplier(id){
   if(!s) return `<div class="empty">Supplier not found.</div>`;
   const fresh = plNewSet();   // v3.11.32: items a price list added, marked NEW
   const pc = priceContext();  // v3.11.37: prices where he orders
+  const tm = ROOM ? null : timedFor(s.id);   // v3.11.74: a clock on each item in the timed text
   let lines = s.products.map(p => { const pl = priceLinesFor(s.id, p.id, pc), pn = pnStripHTML(p.id); return `
     <div class="product-line${pn ? ' has-pn' : ''}">
       <div class="product-info">
-        <div class="product-name">${escapeHtml(p.name)}${fresh.has(p.id) ? '<span class="pl-new">NEW</span>' : ''}</div>
+        <div class="product-name">${tm && tm.items && tm.items[p.id] != null ? '<span class="timed-clock" title="in the timed text">&#9201;</span>' : ''}${escapeHtml(p.name)}${fresh.has(p.id) ? '<span class="pl-new">NEW</span>' : ''}</div>
         <div class="product-unit">${escapeHtml(p.unit)}${(p.inc && p.inc!==1) ? ' &middot; +'+formatQty(p.inc)+'/tap' : ''}${pl.price ? ' &middot; ' + escapeHtml(pl.price) : ''}</div>
         ${pl.other ? `<div class="product-else${pl.cheaper ? ' cheaper' : ''}">${escapeHtml(pl.other)}</div>` : ''}
       </div>
@@ -5758,6 +6054,7 @@ function renderSupplier(id){
       ${hasQty ? `<button class="clear-btn" data-clear="${s.id}">Clear</button>` : ''}
     </div>
     ${sentBanner}
+    ${ROOM ? '' : timedBandHTML(s, tm)}
     ${cartHeadHTML(s)}
     <div class="card">${lines}</div>
     <div style="margin-top:10px;"><button class="btn btn-block" data-repeat="${s.id}">&#8635; Repeat Last Order</button></div>
@@ -5913,6 +6210,8 @@ function renderTicket(supplierId){
   const initMsg = buildMessage(s, items, dateWord);
   const initSubject = (s.template.subject||'').replaceAll('{date}', dateWord);
   const initLink = buildSendLink(s, initMsg, initSubject);
+  const tm = ROOM ? null : timedFor(s.id);   // v3.11.74: a timed text waiting: the stamp steps aside
+  if(tm && tm.word) ticketDateWord = tm.word;   // and Copy copies the words as they will go
   return `
     <div class="crumb"><button data-goto="supplier" data-supplier="${s.id}">&larr; Back to items</button></div>
     <div class="ticket">
@@ -5925,7 +6224,7 @@ function renderTicket(supplierId){
         <div class="ticket-total"><span>${items.length} line item${items.length===1?'':'s'}</span><span>chef's copy</span></div>
       </div>
     </div>
-    <div class="date-pick">
+    ${tm ? timedTicketHTML(s, tm) + textAllowHTML(s) : `<div class="date-pick">
       <div class="date-current">Order for <span id="date-word-display">${escapeHtml(dateWord)}</span></div>
       <div class="date-btns">
         <button class="date-btn active" data-date-mode="tomorrow">Tomorrow</button>
@@ -5938,7 +6237,8 @@ function renderTicket(supplierId){
       <a class="stamp" id="send-stamp" data-supplier="${s.id}" href="${initLink}">Send<br>Order</a>
     </div>
     <div class="fallback-note">Tap opens ${channel} with the order filled in.<br>If nothing opens, use Copy below.</div>
-    ${textAllowHTML(s)}
+    ${sendLaterHTML(s, items)}
+    ${textAllowHTML(s)}`}
     <div style="margin-top:14px;">
       <button class="btn btn-block btn-ghost" id="copy-btn" data-supplier="${s.id}">Copy Order Text</button>
       <textarea class="copybox" id="copy-area" style="display:none;" readonly></textarea>
@@ -6412,6 +6712,8 @@ function attachHandlers(){
   if(stampBtn){
     stampBtn.addEventListener('click', (e)=>{
       e.preventDefault();
+      // v3.11.74: never while a text is timed for this order (the stamp is hidden then; this holds if it ever shows)
+      if(timedFor(stampBtn.dataset.supplier)){ showToast('This order has a timed text. Cancel it first.'); return; }
       // v3.11.3: the backup copy asks first, so nothing is ordered twice
       if(copyRole() === 'backup' && !confirm('This is the backup copy. Real orders go from ' + (IN_PLUTO ? 'Chrome' : 'Pluto') + '.\n\nSend from here anyway?')) return;
       const s = findSupplier(stampBtn.dataset.supplier);
@@ -6435,6 +6737,51 @@ function attachHandlers(){
       if(!s || !h || typeof h.textAllow !== 'function') return;
       try{ h.textAllow(JSON.stringify({ number: String(s.contact), name: s.name })); }catch(e){}
     });
+  });
+  /* v3.11.74: Send later (his tap on "Time it" is his yes: the words are in front of him), and a timed text's own buttons */
+  document.querySelectorAll('[data-send-later]').forEach(el=>{
+    el.addEventListener('click', ()=>{ sendLaterOpen = sendLaterStart(el.dataset.sendLater); render(); });
+  });
+  document.querySelectorAll('[data-sl-close]').forEach(el=>{
+    el.addEventListener('click', ()=>{ sendLaterOpen = null; render(); });
+  });
+  document.querySelectorAll('[data-sl-goes]').forEach(el=>{
+    el.addEventListener('click', ()=>{ if(sendLaterOpen){ sendLaterOpen.goes = el.dataset.slGoes; sendLaterOpen.forKey = null; render(); } });
+  });
+  document.querySelectorAll('[data-sl-for]').forEach(el=>{
+    el.addEventListener('click', ()=>{ if(sendLaterOpen){ sendLaterOpen.forKey = el.dataset.slFor; render(); } });
+  });
+  const slGoesPick = document.getElementById('sl-goes-pick');
+  if(slGoesPick) slGoesPick.addEventListener('change', e=>{ if(sendLaterOpen && e.target.value){ sendLaterOpen.goes = e.target.value; sendLaterOpen.forKey = null; render(); } });
+  const slForPick = document.getElementById('sl-for-pick');
+  if(slForPick) slForPick.addEventListener('change', e=>{ if(sendLaterOpen && e.target.value){ sendLaterOpen.forKey = e.target.value; render(); } });
+  const slAt = document.getElementById('sl-at');
+  if(slAt) slAt.addEventListener('change', e=>{ if(sendLaterOpen && e.target.value){ sendLaterOpen.at = e.target.value; render(); } });
+  document.querySelectorAll('[data-sl-go]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      const o = sendLaterOpen;
+      if(!o || o.sid !== el.dataset.slGo || el.disabled) return;
+      const due = sendLaterDue(o), r = passSendLater(o.sid, due, o.forKey);
+      if(r.ok){ sendLaterOpen = null; render(); showToast('Timed: goes ' + timedWhen(r.due, true)); }
+      else { showToast(sendLaterWhy(r.why, due)); render(); }
+    });
+  });
+  document.querySelectorAll('[data-timed-cancel]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      if(passTimedCancel(el.dataset.timedCancel, 'tap')) showToast('Timed text cancelled');
+      else showToast(timedCancelNo(el.dataset.timedCancel));
+      render();
+    });
+  });
+  document.querySelectorAll('[data-timed-now]').forEach(el=>{
+    el.addEventListener('click', ()=>{
+      if(passTimedCancel(el.dataset.timedNow, 'tap')) showToast('Timed text cancelled. Tap Send Order to send it now.');
+      else showToast(timedCancelNo(el.dataset.timedNow));
+      render();
+    });
+  });
+  document.querySelectorAll('[data-timed-again]').forEach(el=>{
+    el.addEventListener('click', ()=>{ sendLaterOpen = sendLaterStart(el.dataset.timedAgain); goto({ name: 'ticket', id: el.dataset.timedAgain }); });
   });
   document.querySelectorAll('[data-text-forget]').forEach(el=>{
     el.addEventListener('click', ()=>{
@@ -7813,16 +8160,16 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.73"></script>
+<script src="move-data.js?v=3.11.74"></script>
 <!-- v3.11.28: the function doc reader. A separate file too: if it fails, only "From management's doc" says so. -->
-<script src="function-reader.js?v=3.11.73"></script>
+<script src="function-reader.js?v=3.11.74"></script>
 <!-- v3.11.30: the invoice rules. A separate file too: if it fails, only bringing in an invoice says so. -->
-<script src="invoice-engine.js?v=3.11.73"></script>
+<script src="invoice-engine.js?v=3.11.74"></script>
 <!-- v3.11.31: the supplier readers for a scanned invoice (Aziz's so far). -->
-<script src="invoice-readers.js?v=3.11.73"></script>
+<script src="invoice-readers.js?v=3.11.74"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.73"></script>
-<script src="voice-brain.js?v=3.11.73"></script>
-<script src="voice.js?v=3.11.73"></script>
+<script src="roster-engine.js?v=3.11.74"></script>
+<script src="voice-brain.js?v=3.11.74"></script>
+<script src="voice.js?v=3.11.74"></script>
 </body>
 </html>

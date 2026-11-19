@@ -4399,7 +4399,36 @@ function createRoom(host){
     card.go = true;      // through Pluto: The Pass's tab opens at Review Order once this is said (contract 6.5)
     return ans('answer', { say: say, show: card, keep: false, log: log });
   }
+  /* v3.11.74 (../Pluto/plans/S2a-send-later.md): three small things by voice, nothing more (timing by voice is S2b). A text
+     already timed for the order: "send it" says so and opens Review Order, never a second text. A time said where Review
+     Order can time it: says where. A change by voice that cancels a timed text: said (timedSaid: handle, confirm, undo). */
+  var DAY_SAY = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  function timedClockSay(at){ var d = new Date(+at); return timeSay(pad2(d.getHours()) + ':' + pad2(d.getMinutes())); }
+  function timedDaySay(at){ var d = new Date(+at), n = d.getDate(); return DAY_SAY[d.getDay()] + ' the ' + n + (n % 100 > 10 && n % 100 < 14 ? 'th' : ['th', 'st', 'nd', 'rd'][n % 10] || 'th'); }
+  function timedWaiting(ss){ var t = null; try{ t = host.textTimed ? host.textTimed(ss.id) : null; }catch(e){ t = null; } return t && t.due ? t : null; }
+  function timedLine(name, t){ return supSay(name) + ' has a text timed for ' + timedClockSay(t.due) + ' on ' + timedDaySay(t.due) + '.'; }
+  function timedOpen(ss, say, mode, log){
+    if(mode !== 'pluto' && host.open) host.open({ view: 'ticket', id: ss.id });
+    var card = sendCard(ss, supSay(ss.name) + ' order', 'ticket');
+    card.go = true;      // through Pluto: The Pass's tab opens at Review Order once this is said (contract 6.5)
+    return ans('answer', { say: say, show: card, keep: false, log: log });
+  }
+  function timedSaid(fn){
+    return async function(){
+      try{ if(host.timedCancelled) host.timedCancelled(); }catch(e){}   // one from before this turn was not this turn's
+      var out = await fn.apply(null, arguments), tc = [];
+      try{ tc = host.timedCancelled ? host.timedCancelled() || [] : []; }catch(e){ tc = []; }
+      if(tc.length && out && Array.isArray(out.say)){
+        var said = tc.map(function(c){ return 'That cancels the ' + timedClockSay(c.due) + ' text to ' + supSay(c.name || '') + ': the order changed.'; });
+        out.say = out.say.slice(0, 1).concat(said, out.say.slice(1));
+        if(out.say.length > 3){ out.more = out.say.slice(3).concat(out.more || []); out.say = out.say.slice(0, 3); }
+      }
+      return out;
+    };
+  }
   function sendAsk(ss, lines, mode, text){
+    var tmw = timedWaiting(ss);   // v3.11.74
+    if(tmw) return timedOpen(ss, [timedLine(ss.name, tmw)], mode, 'send timed supplier=' + supSay(ss.name));
     var sup = supSay(ss.name), n = lines.length, tot = sendTotal(ss.id), can = sendText(ss.id);
     var dear = !!(tot && tot.priced && tot.total > SEND_MAX_DOLLARS), long = n > SEND_MAX_LINES;
     if(long || dear){
@@ -4407,6 +4436,8 @@ function createRoom(host){
       return sendOnScreen(ss, big + ': that’s one to check on screen.', mode, 'send on screen supplier=' + sup + ' lines=' + n + (dear ? ' over $' + SEND_MAX_DOLLARS : ''));
     }
     var when = can ? sendWhen(text) : '';
+    // v3.11.74: where Review Order can time it, a time said is told where; elsewhere as before
+    if(when === 'later' && host.sendLater && host.sendLater(ss.id)) return timedOpen(ss, ['I can’t time a text by voice yet.', 'It’s on screen: you can time it there with Send later.'], mode, 'send on screen supplier=' + sup + ' lines=' + n + ' later sendlater');
     if(when) return sendOnScreen(ss, when === 'later' ? 'I can’t time a text yet.' : 'By voice I can only send an order for tomorrow.', mode, 'send on screen supplier=' + sup + ' lines=' + n + ' ' + when);
     var rb = [sup + ' order for tomorrow: ' + joinAnd(lines.map(lineOf)) + '.'];
     if(can && tot && tot.priced) rb.push('About ' + sendMoney(tot.total) + (tot.unpriced ? ', with ' + tot.unpriced + (tot.unpriced === 1 ? ' item' : ' items') + ' not priced.' : '.'));
@@ -6806,6 +6837,8 @@ function createRoom(host){
         // only what was read back is ever sent: changed since (his taps, the other copy of the page), it's asked again
         if(JSON.stringify(sendSnap(sn)) !== JSON.stringify(c.snap)) return cant('The ' + supN + ' order changed after I read it out. Ask me again.', 'send now changed');
         if(!sendText(sn.id)) return cant('I can’t text ' + supN + ' right now. It’s still on the list: send it from Review Order.', 'send now no hand');
+        var twN = timedWaiting(sn);   // v3.11.74: timed on screen since the read-back: never a second text
+        if(twN) return ans('cant', { say: [timedLine(sn.name, twN)], keep: false, log: 'send now timed' });
         var card = sendCard(sn, supN + ' order, sent', 'supplier'), sr = null;
         try{ sr = await host.sendOrder(sn.id); }catch(e){ sr = null; }
         if(sr && sr.ok && sr.state === 'sent'){
@@ -6994,13 +7027,13 @@ function createRoom(host){
     return it ? it.words.join(' ') : '';
   }
 
-  return { hello: hello, menu: menu, handle: handle, confirm: confirm, undo: undo, reset: reset, noteItems: noteItems,
+  return { hello: hello, menu: menu, handle: timedSaid(handle), confirm: timedSaid(confirm), undo: timedSaid(undo), reset: reset, noteItems: noteItems,
            pendingAsk: function(){ return pending ? { id: pending.id, kind: pending.kind, options: pending.options } : null; },
            words: words, checkWord: checkWord, teachWord: teachWord, forgetWord: forgetWord, choices: choices, guessWord: guessWord };
 }
 
 return {
-  version: 'v3.11.73',
+  version: 'v3.11.74',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,

@@ -93,6 +93,15 @@ var host = {
     return { total: r.total, items: r.items, priced: r.priced, unpriced: r.unpriced };
   },
   sendOrder: function(sid){ return typeof passSendNow === 'function' ? passSendNow(sid) : Promise.resolve({ ok: false, why: 'no-app' }); },
+  /* v3.11.74 (../Pluto/plans/S2a-send-later.md): textTimed: this supplier's text timed in the app ({ due }) or null;
+     sendLater: can a text to this supplier be timed (Review Order's Send later is there for it); timedCancelled: the
+     timed texts a change in this copy of the page cancelled since the last look ([{ sid, name, due }], taken once). */
+  textTimed: function(sid){ var x = typeof timedFor === 'function' ? timedFor(sid) : null; return x ? { due: x.due } : null; },
+  sendLater: function(sid){ return typeof timedCanText === 'function' ? timedCanText(findSupplier(sid)) : false; },
+  timedCancelled: function(){
+    if(typeof timedCancelledTake !== 'function') return [];
+    return timedCancelledTake().map(function(c){ var s = findSupplier(c.sid); return { sid: c.sid, name: s ? s.name : '', due: c.due }; });
+  },
   // v3.11.51 (his asks, 25 Oct): the orders sent from The Pass, read only ("when did I last order squid")
   orderHistory: function(){ return typeof readOrderHistory === 'function' ? readOrderHistory() : null; },
   // v3.11.54 (memories stage 2, his picks of 31 Oct): notes on products, kept on this phone (index.html pnAll…)
