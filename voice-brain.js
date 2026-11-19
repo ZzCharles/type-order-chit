@@ -47,7 +47,10 @@ function clean(s){
     .replace(/[^a-z0-9\u0001\u0002 ]+/g, ' ')
     .replace(/(\d)(?=[a-z])/g, '$1 ').replace(/([a-z])(?=\d)/g, '$1 ')
     .replace(/\u0001/g, '.').replace(/\u0002/g, '/')
-    .replace(/\s+/g, ' ').trim();
+    .replace(/\s+/g, ' ').trim()
+    /* v3.11.75 (Pluto's Z1; his log, 13 Nov: "sun dried" to "Which one?" was dropped, his item is "Sundried Tomatoes"):
+       Google writes it as two words; one word on both sides, names and speech */
+    .replace(/\bsun dri(?:ed)?\b/g, 'sundried');
 }
 
 /* Plurals folded so "tomatoes", "boxes" and "punnets" meet their names.
@@ -57,12 +60,16 @@ var IRREG = { tomatoes: 'tomato', potatoes: 'potato', leaves: 'leaf', halves: 'h
      "Marinated Peppers or Marinated Olives?" for Chicken Thigh Marination; "veg
      stock" asked "Prawn Stock or Vegetable Stock?"): one root each */
   marinated: 'marinate', marinade: 'marinate', marinades: 'marinate', marination: 'marinate', marinations: 'marinate', marinating: 'marinate',
-  veg: 'vegetable', veggie: 'vegetable', veggies: 'vegetable', vegies: 'vegetable' };
+  veg: 'vegetable', veggie: 'vegetable', veggies: 'vegetable', vegies: 'vegetable',
+  // v3.11.75 (Pluto's Z1; his log #815: "panino mix" for a name with "Mixed" in it): one root
+  mixed: 'mix' };
 /* v3.10.2: kitchen words Google writes as everyday ones (his log, 12 Oct:
    "config garlic cream" for Confit Garlic Cream) */
 var HEARD_AS = { config: 'confit', configs: 'confit',
   // v3.11.1 (his log, 13 Oct): "barbecue sauce" is BBQ Sauce (it asked "Did you mean …?" every time)
-  barbecue: 'bbq', barbeque: 'bbq', barbecues: 'bbq', barbeques: 'bbq' };
+  barbecue: 'bbq', barbeque: 'bbq', barbecues: 'bbq', barbeques: 'bbq',
+  // v3.11.75 (Pluto's Z1; his log #815, 15 Nov: "the price of penino mix"): Panino
+  penino: 'panino', peninu: 'panino', pennino: 'panino', peninos: 'panino' };
 /* v3.11.10 (his test through Pluto, 15 Oct: "add sliced spec to the list", twice): Google's words fixed in a
    one-off's name ("Sliced speck"). Speck itself is found from "spec" already (a name's start, like "mozz") */
 var SHOWN_FIX = { spec: 'speck', specs: 'speck', config: 'confit', configs: 'confit' };
@@ -115,7 +122,14 @@ function heardFix(text){
     .replace(/\bmicro fresh\b/gi, "Michael's Fresh")
     .replace(/\b(make (?:it|that|them|those)) for(?=\s*[.!?]*\s*$|\s+(?:\d|kilos?|kgs?|kg|boxes|box|bunch(?:es)?|packets?|punnets?|trays?|tins?|cans?|bags?|bottles?|tubs?|plates?)\b)/gi, '$1 four')
     // v3.11.27 (his log, 23 Oct #384: "can you add savior Rd biscuits"): Google's ways of writing Savoiardi
-    .replace(/\b(?:savior|saviour|savoir|savoy|savio)\s*(?:rd|road|ardi|ardy|ardee|yardi|yardy)\b|\bsavoyardi\b/gi, 'Savoiardi');
+    .replace(/\b(?:savior|saviour|savoir|savoy|savio)\s*(?:rd|road|ardi|ardy|ardee|yardi|yardy)\b|\bsavoyardi\b/gi, 'Savoiardi')
+    /* v3.11.75 (Pluto's Z1; his log #727, #810, #811, 9 and 15 Nov): Google's ways of writing Fior di Latte ("fuel de
+       latte", "fuel dilate", "Fior delatay", "fiorate"). "fuel" only before a "latte"-like word */
+    .replace(/\b(?:fuel|fior|fiore|fiora)\s+(?:(?:de|di|del|della|dee)\s+(?:lattes?|lotte|lotto|latay|lati|latti|late|lat)|lattes?|lotte|lotto|latay|lati|latti|delati|delatte|delatay|delat|delate|dilate|dilati|dilatte|dilatay|dilatti)\b|\bfiorate\b/gi, 'fior di latte')
+    // v3.11.75 (Z1; his log #754, 12 Nov: "4 boxes of pizza dough on the Aura"): Google's "the order"
+    .replace(/\b(on|to|onto|off|from|in) (?:(the|my) aura|deora)\b/gi, function(all, prep, the){ return prep + ' ' + (the || 'the') + ' order'; })
+    // v3.11.75 (Z1; his log, 13 Nov: "add sundry tomatoes as a new ordering item"): Sundried, before tomatoes
+    .replace(/\bsundry(?=\s+tomato)/gi, 'sundried');
 }
 function stem(w){
   if(IRREG[w]) return IRREG[w];   // v3.11.17: before the short-word rule, for "veg"
@@ -391,6 +405,8 @@ var VERBS = [
 
 /* "order" and "order more" mean the supplier list; "make" without a number means prep */
 var ORDER_VERBS = { 'order': 1, 'order more': 1, 'order some': 1 };
+/* v3.11.75 (Pluto's Z2): an add with nothing after it, as clean() leaves it ("can you also add", "could you add", "add") */
+var ADD_CUT = /^(?:(?:and|so|ok|okay|also|um|uh|oh) )*(?:(?:can|could|would|will) you (?:please )?(?:also )?(?:please )?|please (?:also )?|also |i (?:want|need) to (?:also )?)?add(?: (?:also|please|some|more|on))?(?: please)?$/;
 
 var LISTS = [
   [['prep', 'list'], 'prep'], [['prep', 'lists'], 'prep'], [['prep', 'sheet'], 'prep'], [['to', 'do', 'list'], 'prep'],
@@ -944,7 +960,8 @@ function rbClause(c, find, maybeNew){
    items by the words in their name. Taught words (from "Did you mean…")
    are added on top, per phone. */
 var PRODUCT_ALIASES = {
-  p35: ['fior di latte', 'fiordilatte', 'fior', 'fiore', 'fdl', 'fear the latte', 'fior de latte', 'fiore di latte', 'for de latte', 'fear de latte', 'fior di late'],
+  p35: ['fior di latte', 'fiordilatte', 'fior', 'fiore', 'fdl', 'fear the latte', 'fior de latte', 'fiore di latte', 'for de latte', 'fear de latte', 'fior di late',
+    'fuel de latte', 'fuel di latte', 'fuel dilate', 'fior delatay', 'fior delati'],   // v3.11.75 (Z1, his log #727, #810, #811): so Pluto's router sends them here too
   az01: ['mozz', 'mozza', 'mozzarella', 'mozarella', 'mozzerella', 'moz', 'mots', 'mozzarella cheese'],
   az02: ['parm', 'parmo', 'parmigiano', 'parmesan cheese', 'parmesan'],
   az03: ['ricotta cheese'],
@@ -3566,6 +3583,16 @@ function createRoom(host){
     var said = it.stems.join(' ');
     return namePieces(itemSay(f.list[0].name)).some(function(p){ return p.split(' ').map(stem).join(' ') === said; });
   }
+  /* v3.11.75 (Pluto's Z1; his log #816, 15 Nov: "mixed olives" for a long name that holds both words, not side by side):
+     two or more words said, every one in exactly one item's name (or alias) and in no other item's, is that item.
+     Two or more items with all the words: as before (through Pluto, not this room's without a cue). */
+  function onlyOne(it, found, have){
+    if(!it.stems || contentSet(it.stems).length < 2) return false;
+    // another list's item that only sounds close ("Marinated Olives" for "mixed olives") doesn't have every word
+    var sup = have.filter(function(k){ return found[k].how === 'superset'; });
+    if(sup.length !== 1 || have.some(function(k){ return found[k].how === 'exact' || found[k].how === 'subset'; })) return false;
+    return dedupe(found[sup[0]].list).length === 1;
+  }
   function menu(){
     var d = host.data(), cat = catalogue(d, taught());
     var strong = [], cues = ['prep', 'order', 'orders', 'ordered', 'supplier', 'how much', 'whats on the', 'prep list', 'the list', 'made', 'done', 'ticked off'];   // v3.11.51: "ordered" ("when we last ordered rocket" went to Ask)
@@ -3606,6 +3633,11 @@ function createRoom(host){
        command with one reaches this room, which asks "Did you mean …?" when the name is only close. */
     ['breath list', 'breathless', 'prayer list', 'press list', 'purpose'].forEach(put2);
     ['recipe', 'recipes'].forEach(put2);
+    /* v3.11.75 (Pluto's Z2; his log #773, #774, 13 Nov: "tomatoes to the ordering list", the "add" lost, got "Sorry, I
+       didn't catch that": "ordering" alone was a cue, under Pluto's line). The list's name is this room's own word */
+    ['ordering list', 'order list', 'orders list'].forEach(put2);
+    // v3.11.75 (Z1): a name with "Sundried" in it, as Google writes it ("sun-dried tomatoes"); clean() would join it again
+    strong.slice().forEach(function(w){ if(/\bsundried\b/.test(w)){ var two = w.replace(/\bsundried\b/g, 'sun dried'); if(strong.indexOf(two) < 0) strong.push(two); } });
     ['ordering', 'boxes', 'kilos', 'kilo', 'tins', 'packets', 'punnets', 'bunches', 'cartons', 'trays'].forEach(function(w){ if(cues.indexOf(w) < 0 && strong.indexOf(w) < 0) cues.push(w); });
     cues = cues.filter(function(c){ return strong.indexOf(c) < 0; });
     return { room: 'almo', label: 'Almo', contract: 1, help: 'your prep list, orders, timesheet and functions', busy: 'Checking the list\u2026',
@@ -3965,7 +3997,7 @@ function createRoom(host){
          only close is asked about first ("Did you mean …?"), never acted on */
       // an order item named exactly, when only the prep list was looked at ("add chopped parsley"), is his kitchen too
       var orderTwin = !have.length && kinds.length === 1 && kinds[0] === 'prep' && findItems(it, cat, ['order']).how === 'exact';
-      if(mode === 'pluto' && !hasCue && !orderTwin && !wholePiece(it, found.order) && !have.some(function(k){ return found[k].how === 'exact'; })){
+      if(mode === 'pluto' && !hasCue && !orderTwin && !wholePiece(it, found.order) && !onlyOne(it, found, have) && !have.some(function(k){ return found[k].how === 'exact'; })){
         // a verb he actually said: a lone name ("tomatoes") mid-conversation stays chatter, as before
         if(!(cmd.followUp && have.length && cmd.verbWords && ['add', 'set', 'remove', 'tick', 'untick'].indexOf(v) > -1)) return notmine('no cue');
         cmd.askFirst = true;
@@ -4053,7 +4085,10 @@ function createRoom(host){
       }
       var few = list.slice(0, 3);
       return asking('item', list.length > 3 ? 'Which one? There are ' + list.length + ', like ' + joinOr(few.map(label)) + '.' : 'Which one: ' + joinOr(few.map(label)) + '?',
-        few.map(function(e){ return { label: label(e), value: e.id }; }).concat([{ label: 'None of these', value: 'none' }]), { cmd: cmd, item: i }, 'item');
+        few.map(function(e){ return { label: label(e), value: e.id }; }).concat([{ label: 'None of these', value: 'none' }]),
+        /* v3.11.75 (Pluto's Z1; his log, 13 Nov: "Which one? There are 4, like …" answered "sun dried", the 4th, not
+           said, was dropped): the ones not said can be picked by name too */
+        { cmd: cmd, item: i, more: list.slice(3).map(function(e){ return { label: label(e), value: e.id }; }) }, 'item');
     }
     return null;
   }
@@ -5098,6 +5133,20 @@ function createRoom(host){
       var rce = recipeCat((await fresh()).cat).entries.filter(function(e){ return e.cid === rch; })[0];
       return rce ? openRecipe(rce, mode) : cant("That recipe isn't in your book now.", 'recipe gone');
     }
+    /* v3.11.75 (Pluto's Z2): "Add what?" answered. Names (with or without an amount) are added; a sentence with its own
+       verb ("what's on the Aziz order") is taken as said; nothing named leaves it, as "5 kilos of what?" does */
+    if(p.kind === 'addwhat'){
+      pending = null;
+      if(!clean(text) || DROP_RE.test(clean(text)) || /^(?:nothing|none|thats it|thats all)\b/.test(clean(text))) return ans('answer', { say: ['Left it. Nothing changed.'], log: 'addwhat dropped' });
+      // cut short again (his log, 15 Nov: "can you also add", then "can you add"): asked again, the mic still open
+      if(ADD_CUT.test(clean(text))) return asking('addwhat', 'Add what?', [], { verb: 'add' }, 'item');
+      var awCut = noCut(text), aw = parse(awCut != null ? awCut : text, (await fresh()).cat);
+      if(awCut != null && !aw.items.length) return ans('answer', { say: ['Left it. Nothing changed.'], log: 'addwhat dropped' });
+      if(aw.verb && aw.verb !== 'add') return await handle(Object.assign({}, req, { reply: null }));
+      if(!aw.items.length) return ans('answer', { say: ['Left it. Nothing changed.'], log: 'addwhat dropped' });
+      aw.fromAsk = true;
+      return run(aw, req, mode);
+    }
     if(p.kind === 'ofwhat'){                                      // v3.9.13: "5 kilos of what?"
       pending = null;
       var ow = parse(noCut(text) || text, (await fresh()).cat);   // v3.11.62: "no, mozzarella" names it; the "no" never takes it off
@@ -5225,6 +5274,8 @@ function createRoom(host){
         log: 'ask ' + p.kind + ' no (said more: not a pick)' });
     }
     if(choice == null && p.options.length) choice = matchOption(text, p.options);
+    // v3.11.75 (Z1): one not said, by its name only (never a yes, a number, "the first" or a new request with its own verb)
+    if(choice == null && p.more && p.more.length && !yesNo(text) && !numbersIn(text).length && !parse(text, (await fresh()).cat).verb) choice = matchOption(text, p.more);
     if(choice == null){
       // not one of the options: a new sentence starts over, anything else drops the question
       var maybe2 = parse(text, (await fresh()).cat);
@@ -5908,6 +5959,15 @@ function createRoom(host){
       var names = {}; hits.forEach(function(e){ names[clean(e.name)] = 1; });
       if(Object.keys(names).length > 1) return { many: hits };
       return { pids: hits.map(function(e){ return e.pid; }), name: hits[0].name, homes: hits.map(function(e){ return e.sid; }) };
+    }
+    /* v3.11.75 (Pluto's Z1; his log #815, #816, 15 Nov: "the price of penino mix", "price of mixed olives" for a long
+       name holding those words, not side by side): as an add finds it, two or more of the words said that items'
+       names have, all of them in one item's name (the same product with two suppliers is one) */
+    var known = catWords(cat), said = contentSet(w.filter(function(x){ return x && known[x] && !STOP[x] && !UNIT_WORDS[x] && !WORD_OF_N[x] && !/^[0-9]/.test(x); }));
+    if(said.length >= 2){
+      var sf = cat.entries.filter(function(e){ return e.kind === 'order' && e.keys.some(function(x){ return x.set && x.set.length && said.every(function(y){ return x.set.indexOf(y) > -1; }); }); });
+      var sfNames = {}; sf.forEach(function(e){ sfNames[clean(e.name)] = 1; });
+      if(sf.length && Object.keys(sfNames).length === 1) return { pids: sf.map(function(e){ return e.pid; }), name: sf[0].name, homes: sf.map(function(e){ return e.sid; }) };
     }
     if(/\b(it|that|them|those|this)\b/.test(clean(text)) && prFocus && now() - prFocus.at <= PR_FOLLOW_MS) return prFocus;
     return null;
@@ -6791,6 +6851,10 @@ function createRoom(host){
       if(/\bof( the| some)?$/.test(clean(said)) && !c1.items.length && c1.looseQty){
         return asking('ofwhat', cap(amount(c1.looseQty.n, c1.looseQty.unit)) + ' of what?', [], { verb: c1.verb || 'add', q: c1.looseQty }, 'item');
       }
+      /* v3.11.75 (Pluto's Z2; his log #806, #807, #814, 15 Nov: "can you also add", "can you add", "could you add", the
+         rest cut off by the mic, got "Sorry, I didn't catch that."): an add with nothing after it asks "Add what?", so
+         the mic stays open, and the answer is the add ("10 kilos of …") */
+      if(ADD_CUT.test(clean(said)) && !c1.items.length && !c1.looseQty && !c1.refs) return asking('addwhat', 'Add what?', [], { verb: 'add' }, 'item');
       // v3.11.0: "add the following (to the prep list)": he reads the list out, then it's read back
       if(mode === 'tab' && (!c1.verb || c1.verb === 'add') && !c1.question && isFollowing(said)) return await dictStart(c1, f.cat);
       // v3.11.6 (his log, 14 Oct): "show me the recipe for polenta" opens that recipe
@@ -7033,7 +7097,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.74',
+  version: 'v3.11.75',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
