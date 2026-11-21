@@ -140,7 +140,9 @@ var host = {
       // v3.11.66: the items kept for prices only (names, for finding them by voice)
       items: j('order-chit-price-items', []).filter(function(x){ return x && x.id; }).map(function(x){ return { id: x.id, name: x.name, supplierId: x.supplierId }; }),
       names: sup, retired: function(id){ return typeof retiredName === 'function' ? retiredName(id) : ''; },
-      invoices: j('order-chit-invoices', {}), week: typeof getCurrentWeekStart === 'function' ? getCurrentWeekStart() : '', today: addDaysKey(0) };
+      invoices: j('order-chit-invoices', {}), week: typeof getCurrentWeekStart === 'function' ? getCurrentWeekStart() : '', today: addDaysKey(0),
+      // Y (his picks of 21 Nov): the week's real spend, Monday to Sunday, this week and last (worked out only when asked)
+      spend: typeof spendNow === 'function' ? function(){ var sp = spendNow(true); if(!sp) return null; var from = spMonday(); return { now: sp.week(from), last: sp.week(InvoiceEngine.addDays(from, -7)) }; } : null };
   },
   addPrep: async function(lines){
     var before = (state.prepLines || []).length;
@@ -551,6 +553,20 @@ function roomInvoices(){
   };
   (state.suppliers || []).forEach(function(s){ add(s.id); });
   Object.keys(wk).forEach(function(sid){ if(!seen[sid]) add(sid); });   // a supplier since removed: its invoices still count, as on the screen
+  /* Y (his picks of 21 Nov; ../Pluto/plans/Y-real-spend.md; the check's fix 1): `week`, `weekly` and `weekTotal` stay exactly
+     as before, the Wednesday week the Pluto page checks and labels ("From Wed 18 Nov"). The Monday-to-Sunday week rides
+     along in new fields only, for the Pluto page's own change later: weekFrom (its Monday), spent (invoices + orders not
+     invoiced yet), ordered, unpriced, next (next week so far), spentBy (per supplier, in his supplier order). */
+  var sp = typeof spendNow === 'function' ? spendNow(true) : null, cw = sp ? sp.week(spMonday()) : null, more = {};
+  if(cw){
+    var by = [], had = {}, put = function(x){
+      had[x.sid] = true;
+      by.push({ name: cut(supName(x.sid) || 'Removed supplier', 60), count: x.invoices.length, invoiced: x.invoiced, ordered: x.ordered, total: x.total });
+    };
+    (state.suppliers || []).forEach(function(s){ cw.suppliers.filter(function(y){ return y.sid === s.id; }).forEach(put); });
+    cw.suppliers.forEach(function(x){ if(!had[x.sid]) put(x); });
+    more = { weekFrom: cw.from, spent: cw.total, ordered: cw.ordered, unpriced: cw.unpriced, next: sp.week(InvoiceEngine.addDays(cw.from, 7)).total, spentBy: by };
+  }
   var kept = readJSON('order-chit-inv-kept');
   kept = Array.isArray(kept) ? kept.filter(function(k){ return k && k.id; }) : [];
   var list = kept.slice(0, ROOM_INV_KEPT).map(function(k){
@@ -564,7 +580,7 @@ function roomInvoices(){
   });
   var weekTotal = Math.round(weekly.reduce(function(t, s){ return t + s.total; }, 0) * 100) / 100;
   return { v: 1, status: 'answer', say: [], keep: false, log: 'invoices: ' + weekly.length + ' suppliers this week, ' + list.length + ' of ' + kept.length + ' kept',
-    data: { ok: true, at: Date.now(), week: week, weekly: weekly, weekTotal: weekTotal, kept: list, keptCount: kept.length } };
+    data: Object.assign({ ok: true, at: Date.now(), week: week, weekly: weekly, weekTotal: weekTotal, kept: list, keptCount: kept.length }, more) };
 }
 /* ---------- v3.11.42: his functions in Pluto (shown in full, and changed part by part) ---------- */
 function fnStr(x, n){ return String(x == null ? '' : x).trim().slice(0, n); }

@@ -6130,9 +6130,35 @@ function createRoom(host){
     var how = x.dir === 'up' ? 'is up ' + x.pct + '%' : x.dir === 'down' ? 'is down ' + Math.abs(x.pct) + '%' : 'hasn’t changed';
     return ans('answer', { say: [s + ' ' + how + ': ' + prMoney(x.rec.price) + ' on ' + prWhen(x.rec.date) + (x.dir === 'same' ? ', the same as on ' + prWhen(p.date) + '.' : ', from ' + prMoney(p.price) + ' on ' + prWhen(p.date) + '.')], log: 'price change ' + x.dir });
   }
-  /* "how much did we spend this week (with Aziz)?": the Invoices screen's totals, this week (from Wednesday) or last */
+  /* Y (his words of 20 Nov, his picks of 21 Nov; ../Pluto/plans/Y-real-spend.md): the week's real spend, Monday to Sunday
+     by delivery: its invoices, and its orders not invoiced yet at the kept prices ("about"), as the black header says it.
+     w: InvoiceEngine.spend's week */
+  function prSpendWeek(pd, c, w, last){
+    // Y's check, fix 2 (his words, 21 Nov): a past week's order says only what's known, "no invoice kept" (it may have been
+    // invoiced: typed amounts were kept 2 weeks only, and kept invoices began on 23 Oct)
+    var when = last ? 'last week' : 'this week', open = last ? 'no invoice kept' : 'not invoiced yet';
+    var list = (w.suppliers || []).map(function(s){ return { name: prSupName(pd, s.sid), total: s.total, invoiced: s.invoiced, ordered: s.ordered, n: s.invoices.length, open: s.orders.length }; });
+    var one = list.filter(function(x){ var k = clean(x.name); return k && (' ' + c + ' ').indexOf(' ' + k + ' ') > -1; })[0];
+    if(one){
+      var bits = [];
+      if(one.n) bits.push(prMoney(one.invoiced) + ' from ' + one.n + ' invoice' + (one.n === 1 ? '' : 's'));
+      if(one.open) bits.push(one.ordered > 0 ? 'about ' + prMoney(one.ordered) + ' ordered, ' + open : last ? 'an order with no invoice or prices kept' : 'an order ' + open + ' with no prices kept');
+      return ans('answer', { say: [one.name + ' ' + when + ': ' + (bits.length > 1 && one.ordered > 0 ? prMoney(one.total) + ', ' + bits.join(' and ') : bits.join(', and ')) + '.'], log: 'spend one' });
+    }
+    if(!list.length) return ans('answer', { say: [last ? 'Nothing was invoiced or ordered last week on this phone.' : 'Nothing spent this week yet: no invoices or orders on this phone.'], log: 'spend none' });
+    // a supplier whose only order has no prices kept is never said as "$0.00"
+    var parts = list.slice(0, 4).map(function(x){ return x.name + (x.total > 0 || !x.open ? ' ' + prMoney(x.total) : ' (no prices yet)'); });
+    if(list.length > 4) parts.push(list.length - 4 + ' more');
+    var tail = w.ordered > 0 ? ' ' + prMoney(w.ordered) + ' of it ordered, ' + open + '.' : '';
+    if(w.unpriced) tail += ' ' + w.unpriced + (w.unpriced === 1 ? ' item has' : ' items have') + ' no price yet.';
+    return ans('answer', { say: [cap(when) + (last ? '' : ' so far') + ': ' + joinAnd(parts) + '. ' + prMoney(w.total) + ' in all.' + tail], log: 'spend ' + list.length });
+  }
+  /* "how much did we spend this week (with Aziz)?": the Invoices screen's totals, this week (from Wednesday) or last
+     (Y: the real spend, Monday to Sunday, wherever the page can work it out) */
   function prSpend(pd, text){
     var c = clean(text), last = /\blast week\b/.test(c), wk = pd.week;
+    var sw = typeof pd.spend === 'function' ? pd.spend() : null;
+    if(sw && sw.now && sw.last) return prSpendWeek(pd, c, last ? sw.last : sw.now, last);
     if(last && wk){ var d = new Date(wk + 'T12:00:00'); d.setDate(d.getDate() - 7); wk = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
     var week = (pd.invoices || {})[wk] || {}, list = Object.keys(week).map(function(sid){
       var es = week[sid] || [], t = 0; es.forEach(function(e){ t += +e.amount || 0; });
@@ -7097,7 +7123,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.75',
+  version: 'v3.11.76',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,

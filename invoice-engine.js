@@ -260,7 +260,8 @@
     (o.items || []).forEach(function(it){
       if(!(Number(it.qty) > 0)) return;
       out.items++;
-      var rec = currentPrice(o.prices, o.supplierId, it.productId), measure = MEASURE[String(it.unit || '').toLowerCase()], cost = null, why = '';
+      // Y (21 Nov): o.priceOf(supplier, productId), when given, is the current price looked up once for a whole history
+      var rec = o.priceOf ? o.priceOf(o.supplierId, it.productId) : currentPrice(o.prices, o.supplierId, it.productId), measure = MEASURE[String(it.unit || '').toLowerCase()], cost = null, why = '';
       var pk = rec && rec.pack && rec.pack.amount > 0 ? rec.pack : null;
       /* v3.11.63: need = what he could type to price it, for the "Not priced yet" screen: 'price' (none kept), 'box' (how
          many kg in the box he orders by: setBoxSize), 'pack' (how many kg in the supplier's pack: setPack), '' (none) */
@@ -646,9 +647,248 @@
     return { rows: rows, text: blocks.join('\n\n'), csv: '﻿' + lines.join('\r\n') + '\r\n', count: rows.length };
   }
 
+  /* ---------- Y (his words of 15 and 20 Nov, his picks of 21 Nov; ../Pluto/plans/Y-real-spend.md): the week's real spend ----------
+     The money week runs Monday to Sunday, by delivery. An invoice counts in the week of its own day (a kept invoice: its
+     printed date; an amount typed on Invoices: the day it was typed). An order counts at its ordered amount ("about", at
+     the kept prices) in the week of its delivery day, until an invoice from that supplier replaces it: at least 3 of the
+     order's products on the invoice (all of them, for an order of 1 or 2), its delivery day from 6 days before the
+     invoice's day to 1 day after. An amount typed on Invoices has no products to check, so (his answer of 21 Nov, "Yes,
+     replace it") it replaces that supplier's newest order not replaced yet, delivered from 6 days before the day it was
+     typed to that day, once the kept invoices have taken theirs. Days are 'YYYY-MM-DD'. */
+  function keyOf(ms){ return new Date(ms).toISOString().slice(0, 10); }
+  function addDays(key, n){ var t = day(key); return t === t ? keyOf(t + n * DAY) : ''; }
+  function weekday(key){ var t = day(key); return t === t ? new Date(t).getUTCDay() : -1; }   // 0 Sunday … 6 Saturday
+  function mondayOf(key){ var w = weekday(key); return w < 0 ? '' : addDays(key, -((w + 6) % 7)); }
+  /* the day an order should arrive: the day its ticket asked for; none kept, the day after it was sent; a Sunday is
+     Monday (no deliveries on Sundays) */
+  function deliveryDay(e){
+    var d = e && day(e.for) === day(e.for) ? e.for : addDays(e && e.day, 1);
+    return d && weekday(d) === 0 ? addDays(d, 1) : d;
+  }
+  var MON3 = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+  function pad2(n){ return (n < 10 ? '0' : '') + n; }
+  /* a week's amount's own day: its date words ("Mon 16 Nov · invoice 4410", "Mon, 16 Nov"), in the year that puts it
+     nearest the day it was logged; no date words: the day it was logged. No time kept either: the week it's kept under
+     (wk, its Wednesday) stands in. dayOf(ms) -> the phone's own day for a time. */
+  function entryDay(en, dayOf){
+    var at = Date.parse(en && en.ts), logged = at === at ? (dayOf || keyOf)(at) : en && day(en.wk) === day(en.wk) ? en.wk : '';
+    var m = /^\s*(?:[a-z]{3,4},?\s+)?(\d{1,2})\s+([a-z]{3})/i.exec(String((en && en.label) || '')), mo = m ? MON3[m[2].toLowerCase()] : null;
+    if(mo && logged){
+      var y = +logged.slice(0, 4), best = '';
+      [y - 1, y, y + 1].forEach(function(yy){
+        var k = yy + '-' + pad2(mo) + '-' + pad2(+m[1]);
+        if(day(k) !== day(k) || keyOf(day(k)) !== k) return;
+        if(!best || Math.abs(day(k) - day(logged)) < Math.abs(day(best) - day(logged))) best = k;
+      });
+      if(best) return best;
+    }
+    return logged;
+  }
+  /* which kept invoice each of the week's amounts is: the same supplier, the same day, the same amount, and its number in
+     the date words when it has one. Each kept invoice is one amount at most. entries: [{ sid, amount, label, ts, … }]
+     -> the same entries with day and keptId ('' for a typed amount) */
+  function linkEntries(entries, kept, dayOf){
+    var used = {};
+    return (entries || []).map(function(en){
+      var d = entryDay(en, dayOf), label = String(en.label || '');
+      var k = (kept || []).filter(function(x){
+        return x && x.id && !used[x.id] && x.supplierId === en.sid && x.date === d && cents(x.total) === cents(en.amount)
+          && (x.number ? label.indexOf('invoice ' + x.number) > -1 : label.indexOf(' · invoice ') < 0);
+      })[0];
+      if(k) used[k.id] = 1;
+      return Object.assign({}, en, { day: d, keptId: k ? k.id : '' });
+    });
+  }
+  /* his rule: which order each invoice replaces. invoices: [{ id, sid, day, pids: { productId: 1 } }, or for an amount
+     typed on Invoices { id, sid, day, typed: true, at (when typed) }], orders: [{ sup, deliver, pids: [productId], at }]
+     -> { invoice id: the order's index }. The kept invoices first (they have products to check), the earliest first; for
+     each, the order with the nearest delivery day, then the most products in common, then the newest. Then the typed
+     amounts, the oldest first (his answer of 21 Nov): each takes that supplier's newest order left, with no product
+     check: the latest delivery day from 6 days before the day it was typed to that day (never an order still to come:
+     tomorrow's is often sent before today's invoice is typed), then the latest sent. One each way. */
+  function replaces(invoices, orders){
+    var out = {}, taken = {}, list = (invoices || []).filter(function(x){ return x; });
+    var byDay = function(a, b){ return a.day < b.day ? -1 : a.day > b.day ? 1 : (a.at || 0) - (b.at || 0); };
+    var keptOne = function(inv){
+      var t = day(inv.day), best = null;
+      if(t !== t) return;
+      (orders || []).forEach(function(o, k){
+        if(taken[k] || !o || o.sup !== inv.sid) return;
+        var d = day(o.deliver), n = (o.pids || []).length;
+        if(d !== d || d < t - 6 * DAY || d > t + DAY || !n) return;
+        var hit = o.pids.filter(function(p){ return inv.pids && inv.pids[p]; }).length;
+        if(hit < Math.min(3, n)) return;
+        var c = { k: k, gap: Math.abs(d - t), hit: hit, at: o.at || 0 };
+        if(!best || c.gap < best.gap || (c.gap === best.gap && (c.hit > best.hit || (c.hit === best.hit && c.at > best.at)))) best = c;
+      });
+      if(best){ out[inv.id] = best.k; taken[best.k] = 1; }
+    };
+    var typedOne = function(inv){
+      var t = day(inv.day), best = null;
+      if(t !== t) return;
+      (orders || []).forEach(function(o, k){
+        if(taken[k] || !o || o.sup !== inv.sid) return;
+        var d = day(o.deliver);
+        if(d !== d || d < t - 6 * DAY || d > t) return;
+        if(!best || d > best.d || (d === best.d && (o.at || 0) > best.at)) best = { k: k, d: d, at: o.at || 0 };
+      });
+      if(best){ out[inv.id] = best.k; taken[best.k] = 1; }
+    };
+    list.filter(function(x){ return !x.typed; }).sort(byDay).forEach(keptOne);
+    list.filter(function(x){ return x.typed; }).sort(byDay).forEach(typedOne);
+    return out;
+  }
+  /* the current price of every product, looked up once: (supplier, productId) -> its record or null */
+  function priceIndex(prices){
+    var ix = {};
+    (prices || []).forEach(function(h){
+      if(!h || h.once) return;
+      var k = h.supplier + '\u0001' + h.productId;
+      if(!ix[k] || newer(h, ix[k])) ix[k] = h;
+    });
+    return function(supplier, productId){ return ix[supplier + '\u0001' + productId] || null; };
+  }
+  /* one order from the history at today's kept prices: { at, day (sent), for, deliver, sup, items: n, priced, unpriced,
+     amount, lines: [{ productId, qty, unit, cost }] }; an item no longer in The Pass (no unit) is counted, never priced */
+  function orderAt(e, priceOf, units){
+    var known = [], gone = [];
+    Object.keys(e.items || {}).forEach(function(id){
+      var q = Number(e.items[id]);
+      if(!(q > 0)) return;
+      if(Object.prototype.hasOwnProperty.call(units || {}, id)) known.push({ productId: id, qty: q, unit: units[id] }); else gone.push({ productId: id, qty: q, unit: '', cost: null });
+    });
+    var r = cartTotal({ items: known, priceOf: priceOf, supplierId: e.sup });
+    var lines = known.map(function(it, i){ return { productId: it.productId, qty: it.qty, unit: it.unit, cost: r.lines[i] ? r.lines[i].cost : null }; }).concat(gone);
+    return { at: e.at || 0, day: e.day || '', for: e.for || '', deliver: deliveryDay(e), sup: e.sup, items: r.items + gone.length, priced: r.priced,
+      unpriced: r.unpriced + gone.length, amount: r.total, lines: lines };
+  }
+  function goodOrder(e){ return e && e.sup && e.items && typeof e.items === 'object' && Object.keys(e.items).some(function(id){ return Number(e.items[id]) > 0; }); }
+  /* every week's real spend. o = { entries: the week's amounts as kept, each { sid, amount, label (its date words), ts
+     (when logged), wk, idx (where it's kept) }, kept: the kept invoices, orders: the order history, prices, units: {
+     productId: its unit now }, dayOf(ms) } -> { weeks: [newest first: { from, to, invoiced, ordered, total, unpriced,
+     invoices: n, open: n (orders not invoiced), suppliers: [most spent first: { sid, invoiced, ordered, total, unpriced,
+     invoices: [{ day, amount, label, number, keptId, typed, wk, idx, replaced: an order or null }], orders: [orders not
+     replaced] }] }], week(monday) -> that week (an empty one when nothing's in it) } */
+  function spend(o){
+    o = o || {};
+    var priceOf = priceIndex(o.prices), keptBy = {};
+    (o.kept || []).forEach(function(k){ if(k && k.id) keptBy[k.id] = k; });
+    var ents = linkEntries((o.entries || []).filter(function(en){ return en && en.sid && Number(en.amount) === Number(en.amount); }), o.kept, o.dayOf);
+    var orders = (o.orders || []).map(function(e, i){ return { e: e, i: i }; }).filter(function(x){ return goodOrder(x.e); }).map(function(x){
+      var r = orderAt(x.e, priceOf, o.units);
+      r.i = x.i;   // where it is in the history, to open it
+      r.pids = Object.keys(x.e.items).filter(function(id){ return Number(x.e.items[id]) > 0; });
+      return r;
+    });
+    var invs = [], SAID = /· invoice (.+)$/;
+    ents.forEach(function(en, n){
+      var k = en.keptId ? keptBy[en.keptId] : null;
+      // an amount typed on Invoices (no kept invoice, no number in its words): his answer of 21 Nov, it replaces an order too
+      if(!k){ if(!SAID.test(String(en.label || ''))) invs.push({ id: n, sid: en.sid, day: en.day, typed: true, at: Date.parse(en.ts) || 0 }); return; }
+      var pids = {};
+      (k.lines || []).forEach(function(l){ if(l && l.productId) pids[l.productId] = 1; });
+      invs.push({ id: n, sid: en.sid, day: en.day, pids: pids });
+    });
+    var rep = replaces(invs, orders), gone = {}, weeks = {};
+    Object.keys(rep).forEach(function(n){ gone[rep[n]] = 1; });
+    var wk = function(from){
+      return weeks[from] || (weeks[from] = { from: from, to: addDays(from, 6), invoiced: 0, ordered: 0, total: 0, unpriced: 0, invoices: 0, open: 0, sup: {} });
+    };
+    var sup = function(w, sid){ return w.sup[sid] || (w.sup[sid] = { sid: sid, invoiced: 0, ordered: 0, total: 0, unpriced: 0, invoices: [], orders: [] }); };
+    var plain = function(r){ return { i: r.i, at: r.at, day: r.day, for: r.for, deliver: r.deliver, sup: r.sup, items: r.items, priced: r.priced, unpriced: r.unpriced, amount: r.amount, lines: r.lines }; };
+    ents.forEach(function(en, n){
+      var from = mondayOf(en.day);
+      if(!from) return;
+      var k = en.keptId ? keptBy[en.keptId] : null, w = wk(from), s = sup(w, en.sid), c = cents(en.amount);
+      // an invoice's number: the kept one's, else from its date words (a kept invoice since deleted); neither: typed by him
+      var said = SAID.exec(String(en.label || '')), number = k ? k.number || '' : said ? said[1].trim() : '';
+      s.invoices.push({ day: en.day, amount: c / 100, label: String(en.label || ''), number: number, keptId: en.keptId, typed: !en.keptId && !said,
+        wk: en.wk, idx: en.idx, replaced: rep[n] != null ? plain(orders[rep[n]]) : null });
+      s.invoiced += c; w.invoiced += c; w.invoices++;
+    });
+    orders.forEach(function(r, k){
+      if(gone[k]) return;
+      var from = mondayOf(r.deliver);
+      if(!from) return;
+      var w = wk(from), s = sup(w, r.sup), c = cents(r.amount);
+      s.orders.push(plain(r));
+      s.ordered += c; s.unpriced += r.unpriced; w.ordered += c; w.unpriced += r.unpriced; w.open++;
+    });
+    var done = function(w){
+      var list = Object.keys(w.sup).map(function(sid){
+        var s = w.sup[sid];
+        s.total = (s.invoiced + s.ordered) / 100; s.invoiced /= 100; s.ordered /= 100;
+        s.invoices.sort(function(a, b){ return a.day < b.day ? -1 : a.day > b.day ? 1 : 0; });
+        s.orders.sort(function(a, b){ return a.deliver < b.deliver ? -1 : a.deliver > b.deliver ? 1 : a.at - b.at; });
+        return s;
+      }).sort(function(a, b){ return b.total - a.total; });
+      return { from: w.from, to: w.to, invoiced: w.invoiced / 100, ordered: w.ordered / 100, total: (w.invoiced + w.ordered) / 100, unpriced: w.unpriced,
+        invoices: w.invoices, open: w.open, suppliers: list };
+    };
+    var out = Object.keys(weeks).sort().reverse().map(function(f){ return done(weeks[f]); }), by = {};
+    out.forEach(function(w){ by[w.from] = w; });
+    return { weeks: out, week: function(from){ return by[from] || { from: from, to: addDays(from, 6), invoiced: 0, ordered: 0, total: 0, unpriced: 0, invoices: 0, open: 0, suppliers: [] }; } };
+  }
+  /* the orders tab (his 15 Nov mock-up): every order sent from `from` on (a day; '' for all), at today's kept prices.
+     o = { orders, prices, units, from, sup: '' or one supplier, sort: 'date' | 'amount' | 'supplier' } -> { rows: orders
+     (date: newest first; amount: biggest first, those with no price at all last), suppliers (sort 'supplier': [{ sup,
+     amount, orders, items, unpriced, last }], most first), count, amount, unpriced, oldest (the first day kept) } */
+  function orderList(o){
+    o = o || {};
+    var priceOf = priceIndex(o.prices), all = (o.orders || []).filter(goodOrder), oldest = '';
+    all.forEach(function(e){ if(e.day && (!oldest || e.day < oldest)) oldest = e.day; });
+    var rows = all.filter(function(e){ return (!o.from || (e.day || '') >= o.from) && (!o.sup || e.sup === o.sup); }).map(function(e, i){
+      var r = orderAt(e, priceOf, o.units); r.i = (o.orders || []).indexOf(e); return r;
+    });
+    var amount = 0, unpriced = 0;
+    rows.forEach(function(r){ amount += cents(r.amount); unpriced += r.unpriced; });
+    // biggest first; an order with no price at all is $0, so it comes last (a price is never 0 or less)
+    if(o.sort === 'amount') rows.sort(function(a, b){ return b.amount - a.amount || b.at - a.at; });
+    else rows.sort(function(a, b){ return b.at - a.at; });
+    var sups = [];
+    if(o.sort === 'supplier'){
+      var by = {};
+      rows.forEach(function(r){
+        var s = by[r.sup] || (by[r.sup] = { sup: r.sup, amount: 0, orders: 0, items: 0, unpriced: 0, last: '' });
+        s.amount += cents(r.amount); s.orders++; s.items += r.items; s.unpriced += r.unpriced; if(r.day > s.last) s.last = r.day;
+      });
+      sups = Object.keys(by).map(function(k){ by[k].amount /= 100; return by[k]; }).sort(function(a, b){ return b.amount - a.amount || b.orders - a.orders; });
+    }
+    return { rows: rows, suppliers: sups, count: rows.length, amount: amount / 100, unpriced: unpriced, oldest: oldest };
+  }
+  /* "when did we order capsicum last?" (his 15 Nov mock-up): the items whose name has every word said (a word may be the
+     start of a name's word, or said with an "s"), newest order first. o = { orders, products: [{ id, name, unit, sup,
+     qty (on the order now) }], q, from (the window's first day), sup } -> { words, items: [{ id, name, unit, sup, now,
+     last: { day, qty } | null, recent: up to 5, more: n older in the window, times, qty (in the window), before: the
+     newest before the window or null }] } */
+  function itemSearch(o){
+    o = o || {};
+    var words = String(o.q || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/).filter(function(w){ return w.length > 1; });
+    if(!words.length) return { words: [], items: [] };
+    var fits = function(name){
+      var nw = String(name || '').toLowerCase().replace(/[^a-z0-9 ]+/g, ' ').split(/\s+/);
+      return words.every(function(w){
+        var s = w.length > 3 && /s$/.test(w) ? w.slice(0, -1) : w;
+        return nw.some(function(x){ return x.indexOf(w) === 0 || x.indexOf(s) === 0; });
+      });
+    };
+    var sent = (o.orders || []).filter(goodOrder).slice().sort(function(a, b){ return (b.at || 0) - (a.at || 0); });
+    var items = (o.products || []).filter(function(p){ return p && fits(p.name) && (!o.sup || p.sup === o.sup); }).map(function(p){
+      var got = sent.filter(function(e){ return e.sup === p.sup && Number(e.items[p.id]) > 0; }).map(function(e){ return { day: e.day, qty: Number(e.items[p.id]) }; });
+      var inside = got.filter(function(g){ return !o.from || g.day >= o.from; }), q = 0;
+      inside.forEach(function(g){ q += g.qty; });
+      return { id: p.id, name: p.name, unit: p.unit || '', sup: p.sup, now: Number(p.qty) > 0 ? Number(p.qty) : 0, last: inside[0] || null,
+        recent: inside.slice(1, 6), more: Math.max(0, inside.length - 6), times: inside.length, qty: round(q, 3),
+        before: inside.length ? null : got[0] || null };
+    }).sort(function(a, b){ return (b.last ? b.last.day : '') < (a.last ? a.last.day : '') ? -1 : (b.last ? b.last.day : '') > (a.last ? a.last.day : '') ? 1 : 0; });
+    return { words: words, items: items };
+  }
+
   return { COLS: COLS, cents: cents, money: money, num: num, csvRows: csvRows, readCSV: readCSV, checkLine: checkLine, checkInvoice: checkInvoice,
     readPack: readPack, perBase: perBase, nameKey: nameKey, findMatch: findMatch, suggest: suggest, priceRecord: priceRecord, priceChange: priceChange, currentPrice: currentPrice, cartTotal: cartTotal, historyOf: historyOf,
     orderedVsInvoiced: orderedVsInvoiced, sentOrders: sentOrders, editLine: editLine, undoEdit: undoEdit, credits: credits, compareSuppliers: compareSuppliers, hasContact: hasContact,
     looseKey: looseKey, readPriceList: readPriceList, listRecord: listRecord, samePrice: samePrice, setPack: setPack, editPrice: editPrice, suppliersFor: suppliersFor, cheaperElsewhere: cheaperElsewhere,
-    typedPrice: typedPrice, setBoxSize: setBoxSize, weekOrdered: weekOrdered, priceExport: priceExport };
+    typedPrice: typedPrice, setBoxSize: setBoxSize, weekOrdered: weekOrdered, priceExport: priceExport,
+    addDays: addDays, mondayOf: mondayOf, deliveryDay: deliveryDay, entryDay: entryDay, linkEntries: linkEntries, replaces: replaces,
+    priceIndex: priceIndex, orderAt: orderAt, spend: spend, orderList: orderList, itemSearch: itemSearch };
 });

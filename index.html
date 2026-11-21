@@ -726,6 +726,39 @@ body:has(.cart-head){align-items:flex-start;}   /* the page grows with the list 
 .spend-head{position:sticky;top:8px;z-index:6;background:#000;color:#fff;border-radius:14px;padding:12px 16px 14px;margin-bottom:12px;box-shadow:0 8px 22px rgba(0,0,0,.25);}
 .spend-label{font-size:12.5px;font-weight:600;letter-spacing:.3px;color:#fff;}
 .spend-total{font-size:30px;font-weight:800;letter-spacing:-0.6px;line-height:1.15;margin-top:3px;color:#fff;}
+/* Y (his pick "One number, one line", 21 Nov): the black header says what the spend is made of, and opens the history */
+.spend-tap{display:block;cursor:pointer;}
+.spend-sub{position:relative;font-size:12.5px;line-height:1.4;color:rgba(255,255,255,.8);margin-top:4px;padding-right:20px;}
+.spend-chev{position:absolute;right:0;top:50%;transform:translateY(-50%);font-size:22px;line-height:1;color:#fff;}
+.spend-days{display:block;margin-top:-4px;}   /* .staff-legend is hidden until shown */
+.sp-door{margin:-2px 0 12px;}
+.sp-door .btn{width:100%;}
+.sp-title{font-size:22px;font-weight:800;margin:4px 2px 10px;color:var(--ink);}
+.sp-tabs{display:flex;gap:6px;margin-bottom:12px;}
+.sp-tab{flex:1;border:1px solid var(--line);background:var(--card);border-radius:10px;padding:9px 6px;font:inherit;font-weight:700;font-size:13px;color:var(--ink-soft);cursor:pointer;}
+.sp-tab.on{background:#000;color:#fff;border-color:#000;}
+.sp-row{display:flex;align-items:center;gap:10px;cursor:pointer;}
+.sp-row > div:first-child{flex:1;min-width:0;}
+.sp-name{font-weight:700;font-size:15px;color:var(--ink);overflow-wrap:anywhere;}
+.sp-meta{font-size:12px;color:var(--muted);margin-top:2px;}
+.sp-amt{font-weight:800;font-size:14.5px;color:var(--ink);white-space:nowrap;}
+.sp-day{font-size:11.5px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);margin:14px 2px 6px;}
+.sp-chips,.sp-sorts{display:flex;gap:6px;overflow-x:auto;margin-bottom:8px;padding-bottom:2px;}
+.sp-chip,.sp-sort{flex:none;border:1px solid var(--line);background:var(--card);border-radius:99px;padding:6px 12px;font:inherit;font-size:12.5px;color:var(--ink-soft);cursor:pointer;}
+.sp-chip.on,.sp-sort.on{background:var(--ink);color:#fff;border-color:var(--ink);}
+.sp-search{display:block;width:100%;box-sizing:border-box;border:1px solid var(--line);background:var(--card);border-radius:10px;padding:10px 12px;font:inherit;font-size:15px;color:var(--ink);margin-bottom:10px;}
+.sp-sum{font-size:12.5px;color:var(--ink-soft);margin:4px 2px 8px;}
+.sp-inv[data-sp-kept],.sp-ord,.sp-open-order{cursor:pointer;}
+.sp-line{display:flex;align-items:center;gap:10px;}
+.sp-line span:first-child{flex:1;min-width:0;}
+.sp-was{font-size:12px;color:var(--muted);margin-top:4px;}
+.sp-was[data-sp-order]{cursor:pointer;}
+.sp-rec{display:flex;gap:10px;font-size:13px;padding:5px 0;border-top:1px solid var(--line);}
+.sp-rec span:first-child{flex:1;min-width:0;}
+.sp-said{font-size:13.5px;margin-top:6px;color:var(--ink);}
+.sp-stat{margin-top:6px;}
+.sp-now{font-size:12.5px;margin-top:6px;color:var(--ink);font-weight:600;}
+.sp-about{color:var(--ink-soft);}
 body:has(.week-head),body:has(.spend-head){align-items:flex-start;}
 .up-name{font-size:15px;font-weight:700;}
 .up-why{font-size:12.5px;color:#8A5A16;margin-top:3px;line-height:1.4;}
@@ -892,7 +925,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.75';
+const APP_VERSION = 'v3.11.76';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -953,11 +986,11 @@ function saveInvoices(){
 function setDirty(v){ try{ localStorage.setItem(INVOICES_DIRTY_KEY, v ? '1' : '0'); }catch(e){} }
 function isDirty(){ try{ return localStorage.getItem(INVOICES_DIRTY_KEY) === '1'; }catch(e){ return false; } }
 
-/* Only this week and last are kept. Everything older is archived outside the
-   app, so holding it here is just clutter waiting to go stale. */
+/* Y (21 Nov): kept 400 days (was this week and last only), as the order history is, so Order history has every
+   week's amounts. Only this week goes to the cloud, as before. */
 function pruneInvoiceWeeks(){
-  const weeks = Object.keys(state.invoices).sort();
-  weeks.slice(0, -2).forEach(w => { delete state.invoices[w]; });
+  const cut = localDateKey(new Date(Date.now() - SPEND_KEEP_DAYS * 864e5));
+  Object.keys(state.invoices).forEach(w => { if(w < cut) delete state.invoices[w]; });
 }
 
 /* ---- Chef key ---- */
@@ -2505,6 +2538,7 @@ function loadData(){
   rollRosterWeek();
   loadTimesheet();
   loadInvoices();
+  if(!ROOM) spendBackfill();   // Y: once, his kept invoices from older weeks into the history
   loadCategories();
   backfillCategories();
   const deniMove = moveDeniToTwoProvidores();
@@ -3457,6 +3491,8 @@ function goto(view){
   if(view.name !== 'invHist') state.histFrom = null;   // v3.11.63: a price history opened from Edit Product goes back there
   if(view.name !== 'ticket') sendLaterOpen = null;   // v3.11.74: the Send later sheet closes when he leaves Review Order
   else if(view.id && !ROOM) timedNoteClear(view.id);  // v3.11.74: he opened the order: its "cancelled" or "did NOT go" note has done its job (never on a redraw)
+  if(SPEND_VIEWS.indexOf(view.name) < 0){ state.sp = null; state.spFrom = ''; state.spOrderFrom = null; }   // Y
+  if(view.name !== 'invKept') state.keptFrom = null;
   state.view = view; animate(render);   // v3.11.45: no history step per screen (the phone's Back goes one level up: upBack)
 }
 function findSupplier(id){ return state.suppliers.find(s=>s.id===id); }
@@ -3499,7 +3535,7 @@ function buildSendLink(supplier, message, subject){
 
 /* Screens where the user is typing. A background poll must never redraw these
    or half-entered forms vanish — which is what wiped function names and pax. */
-const EDIT_VIEWS = ['fnEdit','fnTiers','fnDoc','invPaste','invCheck','invMatch','plPaste','plCheck','recipeEdit','addSupplier','addProduct','editProduct','recipeImport','access','prepItems','voiceTeach','welcome','move'];
+const EDIT_VIEWS = ['spendOrders','fnEdit','fnTiers','fnDoc','invPaste','invCheck','invMatch','plPaste','plCheck','recipeEdit','addSupplier','addProduct','editProduct','recipeImport','access','prepItems','voiceTeach','welcome','move'];
 function isEditing(){ return EDIT_VIEWS.indexOf(state.view.name) > -1; }
 function bgRender(){ if(isEditing()) return; render(); }
 
@@ -3538,6 +3574,11 @@ function render(){
   else if(v.name === "rosterBuild") html += renderRosterBuild();
   else if(v.name === "timesheet") html += renderTimesheet();
   else if(v.name === "invoices") html += renderInvoices();
+  else if(v.name === "spendHist") html += renderSpendHist();          // Y: Order history, Spend by week
+  else if(v.name === "spendOrders") html += renderSpendOrders();      // Y: Order history, Orders
+  else if(v.name === "spendWeek") html += renderSpendWeek(v.wk);
+  else if(v.name === "spendSup") html += renderSpendSup(v.wk, v.sid);
+  else if(v.name === "spendOrder") html += renderSpendOrder(v.at, v.sid);
   else if(v.name === "notifications") html += renderNotifications();
   else if(v.name === "prep") html += renderPrep();
   else if(v.name === "access") html += renderAccess();
@@ -3822,6 +3863,8 @@ function accessHint(){
 }
 
 function invoiceHint(){
+  const sp = spendNow();   // Y: the week's real spend, Monday to Sunday
+  if(sp){ const t = sp.week(spMonday()).total; return t > 0 ? spMoney(t) + ' spent this week' : 'Weekly spend tracker'; }
   const wk = getCurrentWeekStart();
   const w = state.invoices[wk] || {};
   let total = 0;
@@ -3830,57 +3873,6 @@ function invoiceHint(){
 }
 
 function renderInvoices(){
-  const weekKey = getCurrentWeekStart();
-  const weekInvoices = state.invoices[weekKey] || {};
-  let totalWeek = 0;
-  const supplierRows = state.suppliers.map(s => {
-    const entries = weekInvoices[s.id] || [];
-    const supplierTotal = entries.reduce((sum, e) => sum + e.amount, 0);
-    totalWeek += supplierTotal;
-    const entriesHtml = entries.map((e, idx) => `
-      <div class="invoice-entry">
-        <span class="invoice-amount">$${e.amount.toFixed(2)}</span>
-        <span class="invoice-date">${escapeHtml(e.date || invoiceDate(e))}</span>
-        <button class="invoice-del" data-invoice-del="${s.id}" data-index="${idx}">&times;</button>
-      </div>
-    `).join('');
-    return `
-      <div class="card">
-        <div class="invoice-header">
-          <span class="supplier-name">${escapeHtml(s.name)}</span>
-          <div class="invoice-form-inline">
-            <input type="number" id="inv-amount-${s.id}" placeholder="Amount" min="0" step="0.01">
-            <button class="btn" data-invoice-add="${s.id}">Add</button>
-          </div>
-        </div>
-        ${entriesHtml || '<div style="font-size:12px;color:var(--muted);margin-bottom:4px;">No invoices yet</div>'}
-        <div class="invoice-supplier-total">Supplier total: $${supplierTotal.toFixed(2)}</div>
-      </div>
-    `;
-  }).join('');
-  /* Invoices already logged this week for a supplier that's since been removed
-     still count and still show, they just can't take new amounts. */
-  const orphanRows = Object.keys(weekInvoices).filter(sid => !findSupplier(sid) && (weekInvoices[sid]||[]).length).map(sid => {
-    const entries = weekInvoices[sid];
-    const supplierTotal = entries.reduce((sum, e) => sum + e.amount, 0);
-    totalWeek += supplierTotal;
-    const entriesHtml = entries.map((e, idx) => `
-      <div class="invoice-entry">
-        <span class="invoice-amount">$${e.amount.toFixed(2)}</span>
-        <span class="invoice-date">${escapeHtml(e.date || invoiceDate(e))}</span>
-        <button class="invoice-del" data-invoice-del="${escapeHtml(sid)}" data-index="${idx}">&times;</button>
-      </div>
-    `).join('');
-    return `
-      <div class="card">
-        <div class="invoice-header"><span class="supplier-name">${escapeHtml(invPriceSup(sid) ? invPriceSup(sid).name : retiredName(sid) || 'Removed supplier')}</span></div>
-        ${entriesHtml}
-        <div class="invoice-supplier-total">Supplier total: $${supplierTotal.toFixed(2)}</div>
-      </div>
-    `;
-  }).join('');
-  const hasAny = totalWeek > 0 || Object.keys(weekInvoices).length > 0;
-
   if(!getChefKey()){
     return `
       <div class="crumb"><button data-goto="home">&larr; Home</button> / Invoices</div>
@@ -3893,16 +3885,55 @@ function renderInvoices(){
       </div>
     `;
   }
+  /* Y (his picks of 21 Nov): this week is Monday to Sunday, by delivery. Each supplier's card shows the week's amounts
+     wherever they're kept (an invoice dated Monday, kept on Thursday, sits under last Wednesday's week: Z5's #745) and
+     its orders not invoiced yet; its total is both. The × takes an amount off the week it's kept under. */
+  const sp = spendNow(), w = sp ? sp.week(spMonday()) : null, bySid = {};
+  if(w) w.suppliers.forEach(s => { bySid[s.sid] = s; });
+  const card = (sid, name, canAdd) => {
+    const s = bySid[sid] || { invoices: [], orders: [], total: 0, ordered: 0 };
+    const ents = s.invoices.map(e => `
+      <div class="invoice-entry">
+        <span class="invoice-amount">${invMoney(e.amount)}</span>
+        <span class="invoice-date">${escapeHtml(e.label || spDay(e.day))}</span>
+        <button class="invoice-del" data-invoice-del="${escapeHtml(sid)}" data-wk="${escapeHtml(e.wk)}" data-index="${e.idx}">&times;</button>
+      </div>`).join('');
+    const ords = s.orders.map(o => `
+      <div class="invoice-entry sp-open-order" role="button" tabindex="0" data-sp-order="${o.at}" data-sid="${escapeHtml(o.sup)}">
+        <span class="invoice-amount sp-about">${o.priced ? invMoney(o.amount) : '—'}</span>
+        <span class="invoice-date">Ordered ${escapeHtml(spDay(o.day))}, not invoiced yet${o.priced ? ' (about)' : ''}${o.unpriced ? ' · ' + o.unpriced + ' not priced' : ''}</span>
+        <span class="chev">&rsaquo;</span>
+      </div>`).join('');
+    return `
+      <div class="card">
+        <div class="invoice-header">
+          <span class="supplier-name">${escapeHtml(name)}</span>
+          ${canAdd ? `<div class="invoice-form-inline">
+            <input type="number" id="inv-amount-${sid}" placeholder="Amount" min="0" step="0.01">
+            <button class="btn" data-invoice-add="${sid}">Add</button>
+          </div>` : ''}
+        </div>
+        ${ents + ords || '<div style="font-size:12px;color:var(--muted);margin-bottom:4px;">No invoices yet</div>'}
+        <div class="invoice-supplier-total">Supplier total: ${invMoney(s.total)}${s.ordered ? ' · ' + invMoney(s.ordered) + ' of it not invoiced yet' : ''}</div>
+      </div>
+    `;
+  };
+  const supplierRows = state.suppliers.map(s => card(s.id, s.name, true)).join('');
+  /* this week's amounts for a supplier that's since been removed (or one kept for prices only) still count and still
+     show, they just can't take new amounts */
+  const orphanRows = w ? w.suppliers.filter(s => !findSupplier(s.sid)).map(s => card(s.sid, spSupName(s.sid), false)).join('') : '';
+  const hasAny = !!(w && w.invoices);
 
   let banner = '';
   if(state.invoiceSync === 'badkey') banner = `<div class="sync-line sync-bad">That chef key was rejected. <button data-chef-reset="1">Enter it again</button></div>`;
   else if(state.invoiceSync === 'noworkerkey') banner = `<div class="sync-line sync-bad">No chef key is set on the Worker yet, so nothing can sync.</div>`;
   else if(state.invoiceSync === 'offline') banner = `<div class="sync-line sync-bad">Offline. Saved on this phone, not yet in the cloud.</div>`;
+  if(!sp) banner += `<div class="sync-line sync-bad">The spend rules didn’t load, so this week can’t be added up. Reload The Pass.</div>`;
 
   return `
     <div class="crumb"><button data-goto="home">&larr; Home</button> / Invoices</div>
-    <div class="spend-head"><div class="spend-label">This week’s spend</div><div class="spend-total">$${totalWeek.toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div></div>
-    <div class="staff-legend" style="display:block;">Week beginning ${new Date(weekKey+'T00:00:00').toLocaleDateString('en-AU',{weekday:'long',day:'numeric',month:'short'})} &middot; resets Tuesday midnight</div>
+    ${spendHeadHTML('invoices')}
+    <div class="sp-door"><button class="btn btn-ghost" data-sp-open="invoices">Order history &rsaquo;</button></div>
     ${banner}
     ${invBringHTML()}
     ${supplierRows}
@@ -4589,7 +4620,9 @@ function renderPlCheck(){
 }
 function plUnitWord(u){ const w = (String(u || '').toLowerCase().match(/[a-z]+/) || [''])[0]; return !w || w === 'unit' || w === 'each' ? 'each' : w; }
 function renderInvKept(id){
-  const k = invLoad(INV_KEPT_KEY, []).find(x => x.id === id), crumb = `<div class="crumb"><button data-goto="invoices">&larr; Invoices</button></div>`;
+  const k = invLoad(INV_KEPT_KEY, []).find(x => x.id === id), crumb = state.keptFrom   // Y: opened from Order history: back there
+    ? `<div class="crumb"><button data-sp-back="kept">&larr; ${escapeHtml(state.keptFrom.label)}</button></div>`
+    : `<div class="crumb"><button data-goto="invoices">&larr; Invoices</button></div>`;
   if(!k) return crumb + `<div class="empty">That invoice isn’t kept any more.</div>`;
   const lines = k.lines.map(l => `<div class="cb-line${l.received ? '' : ' cb-off'}"><span class="cb-tick${l.received ? ' on' : ''}">${l.received ? '&#10003;' : ''}</span><div class="iv-body"><div class="cb-top"${l.productId ? ` data-goto="invHist" data-fid="${escapeHtml(l.productId)}"` : ''}><span class="cb-name">${escapeHtml(l.productId ? invProductName(l.productId) : l.description)}</span><span class="cb-amt">${invMoney(l.total)}</span></div><div class="cb-sub${l.received ? '' : ' cb-red'}">${l.received ? (l.qty != null ? l.qty + ' × ' + invMoney(l.price) : invMoney(l.price)) + (l.choice === 'once' ? ' · price approved once' : '') : 'Not delivered · credit to chase'}</div>${l.productId ? `<div class="cb-pr">${escapeHtml(l.description)}</div>` : ''}</div></div>`).join('');
   return crumb + `
@@ -4599,6 +4632,296 @@ function renderInvKept(id){
     <div class="add-row"><button class="btn btn-danger" data-inv-delkept="${escapeHtml(k.id)}">Delete this kept invoice</button></div>
     <div class="sync-line">Deleting takes its prices out of the history. Its weekly total stays: remove it there if you need to.</div>`;
 }
+
+/* ===== Y (his words of 15 and 20 Nov, his picks of 21 Nov; ../Pluto/plans/Y-real-spend.md): the week's real spend,
+   and the order history =====
+   The money week runs Monday to Sunday, by delivery. An invoice counts in the week of its own day; an order counts at its
+   ordered amount (today's kept prices, before GST) in the week it's delivered, until an invoice from that supplier with 3
+   or more of its products (all of them, for an order of 1 or 2) replaces it ("I order stuffs worth $100 and it will stay
+   as ordered … until an invoice … then that will be the real spent"). The rules are InvoiceEngine.spend; here they're
+   handed what's kept. Nothing new is kept: the week's amounts stay where they are (the Wednesday weeks the cloud copy
+   uses), only now for 400 days, so the history has them. His picks: the black header "One number, one line" on Ordering
+   and Invoices; the history from both; weeks › suppliers › invoices; and the orders list of his 15 Nov mock-up. */
+const SPEND_VIEWS = ['spendHist', 'spendOrders', 'spendWeek', 'spendSup', 'spendOrder', 'invKept'];
+const SPEND_KEEP_DAYS = 400, SPEND_FIRST_WEEKS = 8, SPEND_ORDER_DAYS = 61;   // kept 400 days; shown first: 8 weeks, 2 months of orders
+const Y_BACKFILL_KEY = 'order-chit-y-backfill';
+function spMoney(v){ const n = Math.round((Number(v) || 0) * 100) / 100; return (n < 0 ? '-$' : '$') + Math.abs(n).toLocaleString('en-AU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function spMonday(){ return InvoiceEngine.mondayOf(localDateKey(new Date())); }
+function spDay(key){ return invDayLabel(key); }                                            // "Mon 16 Nov"
+function spDayShort(key){ const d = new Date(String(key) + 'T12:00:00'); return isNaN(d) ? '' : d.toLocaleDateString('en-AU', { weekday: 'short' }) + ' ' + d.getDate(); }   // "Sun 15"
+function spDayMonth(key){ const d = new Date(String(key) + 'T12:00:00'); return isNaN(d) ? '' : d.getDate() + ' ' + d.toLocaleDateString('en-AU', { month: 'short' }); }   // "9 Nov"
+/* "Mon 16 – Sun 22 Nov", "Mon 30 Nov – Sun 6 Dec" */
+function spRange(from, to){
+  const m = k => spDayMonth(k).replace(/^\d+ /, '');
+  return spDayShort(from) + (m(from) === m(to) ? '' : ' ' + m(from)) + ' – ' + spDayShort(to) + ' ' + m(to);
+}
+/* "16–22 Nov", "30 Nov – 6 Dec" */
+function spShort(from, to){
+  const a = spDayMonth(from), b = spDayMonth(to);
+  return a.replace(/ .*/, '') === a ? a : (a.split(' ')[1] === b.split(' ')[1] ? a.split(' ')[0] + '–' + b : a + ' – ' + b);
+}
+function spWeekTitle(from){
+  const cur = spMonday();
+  return from === cur ? 'This week' : from === InvoiceEngine.addDays(cur, 7) ? 'Next week' : 'Week of ' + spDayMonth(from);
+}
+function spWeekName(w){ const t = spWeekTitle(w.from); return /^Week of/.test(t) ? t : t + ' · ' + spShort(w.from, w.to); }
+function spSupName(sid){ const s = findSupplier(sid) || invPriceSup(sid); return (s && s.name) || retiredName(sid) || 'Removed supplier'; }
+function spItemName(pid){ const n = invProductName(pid); return n === 'A removed product' ? 'An item no longer in The Pass' : n; }
+function spUnits(){ const u = {}; state.suppliers.forEach(s => (s.products || []).forEach(p => { u[p.id] = p.unit; })); return u; }
+function spPlural(n, one, many){ return n + ' ' + (n === 1 ? one : (many || one + 's')); }
+/* every amount on Invoices, wherever it's kept: { sid, amount, label (its date words), ts, wk, idx } (inv: what's kept,
+   as state.invoices holds it) */
+function spendEntries(inv){
+  const out = [], all = inv || state.invoices || {};
+  Object.keys(all).forEach(wk => {
+    const w = all[wk] || {};
+    Object.keys(w).forEach(sid => (Array.isArray(w[sid]) ? w[sid] : []).forEach((e, idx) => {
+      if(e) out.push({ sid: sid, amount: Number(e.amount), label: e.date || invoiceDate(e), ts: e.timestamp || '', wk: wk, idx: idx });
+    }));
+  });
+  return out;
+}
+/* every week's real spend (InvoiceEngine.spend), or null while the rules haven't loaded. fresh: the week's amounts read
+   from storage (voice and Pluto's room: the tab may have changed them since this page read them), else as on screen */
+function spendNow(fresh){
+  if(typeof InvoiceEngine === 'undefined' || typeof InvoiceEngine.spend !== 'function') return null;
+  const inv = fresh ? readStoredJSON(INVOICES_KEY) : null;
+  return InvoiceEngine.spend({ entries: spendEntries(fresh ? (inv && typeof inv === 'object' ? inv : {}) : null), kept: invLoad(INV_KEPT_KEY, []), orders: readOrderHistory(), prices: invLoad(INV_PRICES_KEY, []),
+    units: spUnits(), dayOf: ms => localDateKey(new Date(ms)) });
+}
+/* the black header (his pick "One number, one line"), on Ordering (where = 'list') and Invoices; a tap opens the history */
+function spendHeadHTML(where){
+  const sp = spendNow();
+  if(!sp) return '';
+  const from = spMonday(), w = sp.week(from), next = sp.week(InvoiceEngine.addDays(from, 7));
+  const parts = [spMoney(w.invoiced) + ' invoiced'];
+  if(w.open) parts.push(spMoney(w.ordered) + ' ordered, not invoiced yet');
+  if(w.unpriced) parts.push(spPlural(w.unpriced, 'item') + ' not priced');
+  const days = where === 'invoices'
+    ? 'Week beginning ' + new Date(from + 'T12:00:00').toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'short' }) + ' · resets Sunday midnight'
+    : spRange(w.from, w.to);
+  // Y's check, fix 3: an order with no prices kept is never said as "$0.00"; one partly priced says what isn't
+  const nxSay = next.total > 0 ? spMoney(next.total) + (next.invoices ? '' : ' ordered') + (next.unpriced ? ' · ' + spPlural(next.unpriced, 'item') + ' not priced' : '')
+    : next.open ? spPlural(next.open, 'order') + ', no prices kept' : '';
+  const nx = nxSay ? `<div>Next week so far: ${escapeHtml(nxSay)}</div>` : '';
+  return `<div class="spend-head spend-tap" role="button" tabindex="0" data-sp-open="${where === 'invoices' ? 'invoices' : 'list'}">`
+    + `<div class="spend-label">Spent this week</div><div class="spend-total">${spMoney(w.total)}</div>`
+    + `<div class="spend-sub">${escapeHtml(parts.join(' · '))}<span class="spend-chev">&rsaquo;</span></div></div>`
+    + `<div class="staff-legend spend-days">${escapeHtml(days)}${nx}</div>`;
+}
+/* Invoices' "Clear this week": the amounts the screen shows (some may be kept under last Wednesday's week); when the
+   cloud's week is left empty, it's cleared there too, as before */
+function spendClearWeek(){
+  const sp = spendNow();
+  if(!sp) return clearInvoiceWeek();
+  const del = {};
+  sp.week(spMonday()).suppliers.forEach(s => s.invoices.forEach(e => { const k = e.wk + '\u0001' + s.sid; (del[k] = del[k] || []).push(e.idx); }));
+  Object.keys(del).forEach(k => {
+    const [wk, sid] = k.split('\u0001'), list = state.invoices[wk] && state.invoices[wk][sid];
+    if(Array.isArray(list)) del[k].sort((a, b) => b - a).forEach(i => list.splice(i, 1));
+  });
+  const cur = getCurrentWeekStart(), left = Object.keys(state.invoices[cur] || {}).some(sid => (state.invoices[cur][sid] || []).length);
+  if(!left) return clearInvoiceWeek();
+  saveInvoices(); render(); showToast('This week cleared');
+}
+/* Once (his kept invoices, 21 Nov): the week's amounts were kept for 2 weeks only, so the history would start empty.
+   Each kept invoice from a week older than the two the old rule kept, and not in the tracker, is added to its week as
+   Keep adds it. This week and last week are never touched; the cloud copy (this week only) never sees these. */
+function spendBackfill(){
+  try{ if(localStorage.getItem(Y_BACKFILL_KEY)) return 0; }catch(e){ return 0; }
+  const cur = getCurrentWeekStart(), d = new Date(cur + 'T12:00:00');
+  d.setDate(d.getDate() - 7);
+  const prev = localDateKey(d), cut = localDateKey(new Date(Date.now() - SPEND_KEEP_DAYS * 864e5)), had = {};
+  Object.keys(state.invoices || {}).forEach(w => { had[w] = 1; });
+  let n = 0;
+  invLoad(INV_KEPT_KEY, []).forEach(k => {
+    if(!k || !k.id || !k.supplierId || !(isFinite(Number(k.total)) && k.total !== null && k.total !== '') || !/^\d{4}-\d{2}-\d{2}$/.test(k.date || '')) return;
+    const wk = invWeekStart(k.date);
+    if(wk >= prev || wk < cut || had[wk]) return;
+    const w = state.invoices[wk] || (state.invoices[wk] = {});
+    (w[k.supplierId] = w[k.supplierId] || []).push({ amount: Math.round(Number(k.total) * 100) / 100,
+      date: invDayLabel(k.date) + (k.number ? ' · invoice ' + k.number : ''), timestamp: new Date(k.keptAt || (k.date + 'T12:00:00')).toISOString() });
+    n++;
+  });
+  try{
+    if(n) localStorage.setItem(INVOICES_KEY, JSON.stringify(state.invoices));
+    localStorage.setItem(Y_BACKFILL_KEY, JSON.stringify({ at: Date.now(), added: n }));
+  }catch(e){}
+  return n;
+}
+
+/* ---- the history: Spend by week (weeks › suppliers › invoices) and Orders (his 15 Nov mock-up) ---- */
+function spState(){ return state.sp || (state.sp = { more: false, sort: 'date', sup: '', q: '', older: false }); }
+function spCrumbUp(){ return state.spFrom === 'invoices' ? `<button data-goto="invoices">&larr; Invoices</button>` : `<button data-goto="list">&larr; Ordering</button>`; }
+function spHead(on){
+  return `<div class="crumb">${spCrumbUp()} / Order history</div><h2 class="sp-title">Order history</h2>
+    <div class="sp-tabs"><button class="sp-tab${on === 'week' ? ' on' : ''}" data-sp-go="spendHist">Spend by week</button><button class="sp-tab${on === 'orders' ? ' on' : ''}" data-sp-go="spendOrders">Orders</button></div>`;
+}
+function spWeekMeta(w, past){
+  const bits = [];
+  if(w.suppliers.length) bits.push(spPlural(w.suppliers.length, 'supplier'));
+  if(w.invoices) bits.push(spPlural(w.invoices, 'invoice'));
+  if(w.open) bits.push(spPlural(w.open, 'order') + (past ? ', no invoice kept' : ' not invoiced yet'));   // Y's check, fix 2 (his words, 21 Nov)
+  return bits.join(' · ') || 'Nothing yet';
+}
+function renderSpendHist(){
+  const sp = spendNow(), st = spState();
+  if(!sp) return spHead('week') + `<div class="empty">The spend rules didn’t load. Reload The Pass.</div>`;
+  const cur = spMonday(), list = sp.weeks.slice();
+  if(!list.some(w => w.from === cur)){ list.push(sp.week(cur)); list.sort((a, b) => a.from < b.from ? 1 : -1); }
+  const shown = st.more ? list : list.slice(0, SPEND_FIRST_WEEKS), hidden = list.length - shown.length;
+  const rows = shown.map(w => `<div class="card sp-row" role="button" tabindex="0" data-sp-go="spendWeek" data-wk="${escapeHtml(w.from)}">
+      <div><div class="sp-name">${escapeHtml(spWeekName(w))}</div><div class="sp-meta">${escapeHtml(spWeekMeta(w, w.from < cur))}</div></div>
+      <div class="sp-amt">${spMoney(w.total)}</div><div class="chev">&rsaquo;</div></div>`).join('');
+  return spHead('week') + rows
+    + (hidden ? `<div class="add-row"><button class="btn btn-ghost" data-sp-more="1">Show older weeks (${hidden})</button></div>` : '')
+    + `<div class="sync-line">Each week runs Monday to Sunday, by delivery: an order sent on a Saturday or Sunday counts the next week. An order counts at today’s kept prices (before GST) until an invoice with 3 or more of its products replaces it. An amount typed on Invoices replaces that supplier’s newest order not invoiced yet.</div>`;
+}
+function renderSpendWeek(wk){
+  const sp = spendNow(), crumb = `<div class="crumb"><button data-sp-go="spendHist">&larr; Order history</button> / ${escapeHtml(wk ? spWeekTitle(wk) : '')}</div>`;
+  if(!sp || !/^\d{4}-\d{2}-\d{2}$/.test(wk || '')) return crumb + `<div class="empty">Nothing to show.</div>`;
+  const w = sp.week(wk), past = wk < spMonday();
+  const head = `<div class="recipe-head"><div class="recipe-eyebrow">${escapeHtml(spWeekTitle(wk) + ' · ' + spRange(w.from, w.to))}</div><h2 class="recipe-title">${spMoney(w.total)}</h2>
+    <div class="cb-sum">${spMoney(w.invoiced)} invoiced${w.open ? ' · ' + spMoney(w.ordered) + (past ? ' ordered, no invoice kept' : ' ordered, not invoiced yet') : ''}${w.unpriced ? ' · ' + spPlural(w.unpriced, 'item') + ' not priced' : ''}</div></div>`;
+  const rows = w.suppliers.map(s => {
+    const meta = [s.invoices.length ? spPlural(s.invoices.length, 'invoice') : 'no invoice', s.orders.length ? spPlural(s.orders.length, 'order') + (past ? ', no invoice kept' : ' not invoiced yet') : ''].filter(Boolean).join(' · ');
+    return `<div class="card sp-row" role="button" tabindex="0" data-sp-go="spendSup" data-wk="${escapeHtml(wk)}" data-sid="${escapeHtml(s.sid)}">
+      <div><div class="sp-name">${escapeHtml(spSupName(s.sid))}</div><div class="sp-meta">${escapeHtml(meta)}</div></div>
+      <div class="sp-amt">${spMoney(s.total)}</div><div class="chev">&rsaquo;</div></div>`;
+  }).join('');
+  return crumb + head + (rows || `<div class="empty">Nothing ${past ? 'was' : 'is'} invoiced or ordered this week.</div>`);
+}
+function spOrderLine(o){ return o.priced ? 'about ' + invMoney(o.amount) : 'no prices kept'; }
+function renderSpendSup(wk, sid){
+  const sp = spendNow(), name = spSupName(sid);
+  const crumb = `<div class="crumb"><button data-sp-go="spendWeek" data-wk="${escapeHtml(wk || '')}">&larr; ${escapeHtml(wk ? spWeekTitle(wk) : 'Back')}</button> / ${escapeHtml(name)}</div>`;
+  if(!sp || !/^\d{4}-\d{2}-\d{2}$/.test(wk || '')) return crumb + `<div class="empty">Nothing to show.</div>`;
+  const w = sp.week(wk), past = wk < spMonday(), s = w.suppliers.find(x => x.sid === sid);
+  if(!s) return crumb + `<div class="empty">Nothing from ${escapeHtml(name)} this week.</div>`;
+  const head = `<div class="recipe-head"><div class="recipe-eyebrow">${escapeHtml(spWeekTitle(wk) + ' · ' + spRange(w.from, w.to))}</div><h2 class="recipe-title">${escapeHtml(name)}</h2>
+    <div class="cb-sum">${spMoney(s.total)}${s.ordered || s.orders.length ? ' · ' + spMoney(s.invoiced) + ' invoiced, ' + spMoney(s.ordered) + (past ? ' ordered, no invoice kept' : ' not invoiced yet') : ''}</div></div>`;
+  const items = s.invoices.map(e => ({ day: e.day, html: `<div class="card sp-inv"${e.keptId ? ` role="button" tabindex="0" data-sp-kept="${escapeHtml(e.keptId)}"` : ''}>
+      <div class="sp-line"><span>${escapeHtml(spDay(e.day))}${e.number ? ' · invoice ' + escapeHtml(e.number) : e.typed ? ' · typed on Invoices' : ''}</span><b>${invMoney(e.amount)}</b>${e.keptId ? '<span class="chev">&rsaquo;</span>' : ''}</div>
+      ${e.replaced ? `<div class="sp-was" role="button" tabindex="0" data-sp-order="${e.replaced.at}" data-sid="${escapeHtml(e.replaced.sup)}">was ${escapeHtml(spOrderLine(e.replaced))} ordered ${escapeHtml(spDay(e.replaced.day))} &rsaquo;</div>` : ''}
+    </div>` }))
+    .concat(s.orders.map(o => ({ day: o.deliver, html: `<div class="card sp-inv sp-ord" role="button" tabindex="0" data-sp-order="${o.at}" data-sid="${escapeHtml(o.sup)}">
+      <div class="sp-line"><span>Ordered ${escapeHtml(spDay(o.day))} · for ${escapeHtml(spDayShort(o.deliver))}</span><b>${escapeHtml(spOrderLine(o))}</b><span class="chev">&rsaquo;</span></div>
+      <div class="sp-was">${past ? 'No invoice kept' : 'Not invoiced yet'} · ${spPlural(o.items, 'item')}${o.unpriced ? ' · ' + o.unpriced + ' not priced' : ''}</div>
+    </div>` })))
+    .sort((a, b) => a.day < b.day ? -1 : a.day > b.day ? 1 : 0).map(x => x.html).join('');
+  return crumb + head + items;
+}
+/* the Orders tab: the search box stays put while the list under it is redrawn (#sp-results) */
+function renderSpendOrders(){
+  const st = spState();
+  return spHead('orders') + `<input id="sp-q" class="sp-search" type="search" placeholder="Search an item, like capsicum" value="${escapeHtml(st.q)}" autocomplete="off">
+    <div id="sp-results">${spOrdersBody()}</div>`;
+}
+function spAgo(key){
+  const n = Math.round((new Date(localDateKey(new Date()) + 'T12:00:00') - new Date(key + 'T12:00:00')) / 864e5);
+  return n <= 0 ? 'today' : n === 1 ? 'yesterday' : n < 14 ? n + ' days ago' : n < 63 ? Math.round(n / 7) + ' weeks ago' : Math.round(n / 30) + ' months ago';
+}
+function spWindow(){ return spState().older ? '' : localDateKey(new Date(Date.now() - SPEND_ORDER_DAYS * 864e5)); }
+function spOrdersBody(){
+  const st = spState(), from = spWindow(), orders = readOrderHistory();
+  if(typeof InvoiceEngine === 'undefined' || typeof InvoiceEngine.orderList !== 'function') return `<div class="empty">The order rules didn’t load. Reload The Pass.</div>`;
+  const sups = [];
+  orders.forEach(e => { if(e && e.sup && sups.indexOf(e.sup) < 0) sups.push(e.sup); });
+  const chips = `<div class="sp-chips"><button class="sp-chip${st.sup ? '' : ' on'}" data-sp-sup="">All suppliers</button>${sups.map(id => `<button class="sp-chip${st.sup === id ? ' on' : ''}" data-sp-sup="${escapeHtml(id)}">${escapeHtml(spSupName(id))}</button>`).join('')}</div>`;
+  if(st.q.trim()) return chips + spSearchHTML(st, from, orders);
+  const sorts = `<div class="sp-sorts">${[['date', 'Date'], ['amount', 'Amount'], ['supplier', 'Supplier']].map(x => `<button class="sp-sort${st.sort === x[0] ? ' on' : ''}" data-sp-sort="${x[0]}">${x[1]}</button>`).join('')}</div>`;
+  const r = InvoiceEngine.orderList({ orders: orders, prices: invLoad(INV_PRICES_KEY, []), units: spUnits(), from: from, sup: st.sup, sort: st.sort });
+  const older = from && r.oldest && r.oldest < from ? `<div class="add-row"><button class="btn btn-ghost" data-sp-older="1">Older orders &rsaquo;</button></div>` : '';
+  const when = from ? 'Last 2 months' : 'Every order kept';
+  if(!r.count) return chips + sorts + `<div class="empty">No orders sent from The Pass${st.sup ? ' to ' + escapeHtml(spSupName(st.sup)) : ''}${from ? ' in the last 2 months' : ''}.</div>` + older;
+  const sum = `<div class="sp-sum">${when}${st.sort === 'amount' ? ', biggest first' : st.sort === 'supplier' ? ', most spent first' : ''}: ${spPlural(r.count, 'order')} · about ${spMoney(r.amount)}${r.unpriced ? ' · ' + spPlural(r.unpriced, 'item') + ' not priced' : ''}</div>`;
+  let body = '';
+  if(st.sort === 'supplier'){
+    body = r.suppliers.map(s => `<div class="card sp-row" role="button" tabindex="0" data-sp-sup="${escapeHtml(s.sup)}" data-sp-sortto="date">
+      <div><div class="sp-name">${escapeHtml(spSupName(s.sup))}</div><div class="sp-meta">${escapeHtml(spPlural(s.orders, 'order') + ' · last ' + spDay(s.last) + (s.unpriced ? ' · ' + spPlural(s.unpriced, 'item') + ' not priced' : ''))}</div></div>
+      <div class="sp-amt">about ${spMoney(s.amount)}</div><div class="chev">&rsaquo;</div></div>`).join('');
+  } else if(st.sort === 'amount'){
+    const none = r.rows.filter(o => !o.priced).length;
+    body = r.rows.map(o => spOrderRow(o, true)).join('') + (none ? `<div class="sp-sum">${spPlural(none, 'order')} with no prices kept ${none === 1 ? 'comes' : 'come'} last.</div>` : '');
+  } else {
+    let day = '';
+    r.rows.forEach(o => {
+      if(o.day !== day){ body += `<div class="sp-day">${escapeHtml(spDay(o.day))}</div>`; day = o.day; }
+      body += spOrderRow(o, false);
+    });
+  }
+  return chips + sorts + sum + body + older;
+}
+function spOrderRow(o, withDay){
+  const meta = (withDay ? spDay(o.day) + ' · ' : '') + spPlural(o.items, 'item') + (o.for ? ' · for ' + spDayShort(o.for) : '') + (o.unpriced ? ' · ' + o.unpriced + ' not priced' : '');
+  return `<div class="card sp-row" role="button" tabindex="0" data-sp-order="${o.at}" data-sid="${escapeHtml(o.sup)}">
+    <div><div class="sp-name">${escapeHtml(spSupName(o.sup))}</div><div class="sp-meta">${escapeHtml(meta)}</div></div>
+    <div class="sp-amt">${o.priced ? 'about ' + spMoney(o.amount) : 'no prices kept'}</div><div class="chev">&rsaquo;</div></div>`;
+}
+/* "when did we order capsicum last" (his 15 Nov mock-up, 3a and 3b) */
+function spSearchHTML(st, from, orders){
+  const products = [];
+  state.suppliers.forEach(s => (s.products || []).forEach(p => products.push({ id: p.id, name: p.name, unit: p.unit, sup: s.id, qty: p.qty })));
+  const r = InvoiceEngine.itemSearch({ orders: orders, products: products, q: st.q, from: from, sup: st.sup });
+  const since = from ? spDay(from) : '';
+  const olderBtn = from ? `<div class="add-row"><button class="btn btn-ghost" data-sp-older="1">Search older orders &rsaquo;</button></div>` : '';
+  if(!r.items.length) return `<div class="empty sp-none">No item called “${escapeHtml(st.q.trim())}” is in The Pass${st.sup ? ' for ' + escapeHtml(spSupName(st.sup)) : ''}.${from ? ' The history here goes back to ' + escapeHtml(since) + ' (the last 2 months; older is a tap away).' : ''} Orders by phone, or typed in Messages yourself, aren’t kept.</div>`;
+  return r.items.map(x => {
+    const u = x.unit ? ' ' + x.unit : '', sup = spSupName(x.sup), q = v => formatQty(v) + u;
+    const now = x.now ? `<div class="sp-now">${escapeHtml(q(x.now))} on the ${escapeHtml(sup)} order now, not sent yet.</div>` : '';
+    const head = `<div class="sp-name">${escapeHtml(x.name)}</div><div class="sp-meta">${escapeHtml(sup + (x.unit ? ' · ' + x.unit : ''))}</div>`;
+    if(!x.last) return `<div class="card sp-item">${head}<div class="sp-said">${escapeHtml(x.name + ' (' + sup + ') hasn’t been ordered from The Pass' + (from ? ' since ' + since : ' yet') + '.'
+      + (x.before ? ' The last time was ' + spDay(x.before.day) + ': ' + q(x.before.qty) + '.' : ''))}</div>${now}${from && !x.before ? olderBtn : ''}</div>`;
+    return `<div class="card sp-item">${head}
+      <div class="sp-said">Last ordered <b>${escapeHtml(spDay(x.last.day))}</b> (${escapeHtml(spAgo(x.last.day))}): <b>${escapeHtml(q(x.last.qty))}</b></div>
+      ${x.recent.map(g => `<div class="sp-rec"><span>${escapeHtml(spDay(g.day))}</span><span>${escapeHtml(q(g.qty))}</span></div>`).join('')}
+      ${x.more ? `<div class="sp-meta">…and ${x.more} more${from ? ' since ' + escapeHtml(since) : ''}</div>` : ''}
+      <div class="sp-meta sp-stat">${from ? 'Last 2 months' : 'Every order kept'}: ${escapeHtml(spPlural(x.times, 'time') + ' · ' + q(x.qty))}</div>${now}</div>`;
+  }).join('') + (from ? olderBtn : '');
+}
+/* one order, opened (his 15 Nov mock-up, 2b): its lines at today's kept prices; found by when it went and its supplier */
+function renderSpendOrder(at, sid){
+  const back = state.spOrderFrom || { view: { name: 'spendOrders' }, label: 'Order history' };
+  const crumb = `<div class="crumb"><button data-sp-back="order">&larr; ${escapeHtml(back.label)}</button></div>`;
+  const e = readOrderHistory().find(x => x && x.at === +at && x.sup === sid);
+  if(!e || typeof InvoiceEngine === 'undefined') return crumb + `<div class="empty">That order isn’t kept any more.</div>`;
+  const r = InvoiceEngine.orderAt(e, InvoiceEngine.priceIndex(invLoad(INV_PRICES_KEY, [])), spUnits());
+  const lines = r.lines.map(l => `<div class="sp-rec"><span>${escapeHtml(spItemName(l.productId))}</span><span>${escapeHtml(formatQty(l.qty) + (l.unit ? ' ' + l.unit : ''))}</span><b>${l.cost == null ? '—' : invMoney(l.cost)}</b></div>`).join('');
+  return crumb + `<div class="recipe-head"><div class="recipe-eyebrow">${escapeHtml('Sent ' + spDay(r.day) + ', ' + sentTimeLabel(r.at) + ' · for ' + spDay(r.for || r.deliver))}</div>
+      <h2 class="recipe-title">${escapeHtml(spSupName(r.sup))}</h2><div class="cb-sum">${escapeHtml(spPlural(r.items, 'line item') + ' · ' + spOrderLine(r))}</div></div>
+    <div class="card tight">${lines}</div>
+    <div class="sync-line">At today’s kept prices, before GST.${r.unpriced ? ' ' + escapeHtml(spPlural(r.unpriced, 'item') + (r.unpriced === 1 ? ' has' : ' have') + ' no price kept: counted, not guessed.') : ''}</div>`;
+}
+function spBackLabel(){
+  const v = state.view;
+  if(v.name === 'invoices') return 'Invoices';
+  if(v.name === 'spendSup') return spSupName(v.sid);
+  if(v.name === 'spendWeek') return spWeekTitle(v.wk);
+  return 'Order history';
+}
+/* the Orders tab's list redrawn under the search box (a full redraw would close the phone's keyboard) */
+function spRefresh(){
+  const box = document.getElementById('sp-results');
+  if(state.view.name === 'spendOrders' && box) box.innerHTML = spOrdersBody(); else render();
+}
+/* one listener for all of it (the screen is redrawn often: these never need binding again) */
+function spClick(ev){
+  const el = ev.target && ev.target.closest ? ev.target.closest('[data-sp-open],[data-sp-go],[data-sp-order],[data-sp-kept],[data-sp-back],[data-sp-more],[data-sp-sort],[data-sp-sup],[data-sp-older]') : null;
+  if(!el) return;
+  const d = el.dataset;
+  if(d.spOpen != null){ state.spFrom = d.spOpen === 'invoices' ? 'invoices' : 'list'; goto({ name: 'spendHist' }); return; }
+  if(d.spGo != null){ goto({ name: d.spGo, wk: d.wk, sid: d.sid }); return; }
+  if(d.spOrder != null){ state.spOrderFrom = { view: Object.assign({}, state.view), label: spBackLabel() }; goto({ name: 'spendOrder', at: +d.spOrder, sid: d.sid }); return; }
+  if(d.spKept != null){ state.keptFrom = { view: Object.assign({}, state.view), label: spBackLabel() }; goto({ name: 'invKept', fid: d.spKept }); return; }
+  if(d.spBack != null){ const b = d.spBack === 'kept' ? state.keptFrom : state.spOrderFrom; goto(b ? b.view : { name: 'spendHist' }); return; }
+  const st = spState();
+  if(d.spMore != null){ st.more = true; render(); return; }
+  if(d.spSort != null){ st.sort = d.spSort; spRefresh(); return; }
+  if(d.spSup != null){ st.sup = d.spSup; if(d.spSortto) st.sort = d.spSortto; spRefresh(); return; }
+  if(d.spOlder != null){ st.older = true; spRefresh(); }
+}
+function spInput(ev){ if(ev.target && ev.target.id === 'sp-q'){ spState().q = ev.target.value; spRefresh(); } }
+(function(){ const app = document.getElementById('app'); if(app && !ROOM){ app.addEventListener('click', spClick); app.addEventListener('input', spInput); } })();
 
 function invoiceDate(e){
   if(e.date) return e.date;
@@ -5790,7 +6113,7 @@ function renderList(){
 
   return `
     <div class="crumb"><button data-goto="home">&larr; Home</button> / Ordering</div>
-    ${weekHeadHTML()}
+    ${spendHeadHTML('list')}
     ${waiting}
     ${rows}
     <div class="add-row"><button class="btn" data-goto="addSupplier">+ Add Supplier</button></div>
@@ -5900,22 +6223,8 @@ function cartHeadHTML(s){
   if(!r.priced) return `<div class="cart-head">${n} · ${tap('no prices kept yet')}</div>`;
   return `<div class="cart-head">About <b>${invMoney(r.total)}</b> · ${n}${r.unpriced ? ` · ${tap(r.unpriced + ' not priced yet')}` : ''}</div>`;
 }
-/* v3.11.63 (his note, 1 Nov: "a header within the ordering tab to show this week total order"; his pick A of
-   ../Pluto/design/pass-notes-mockup.html): what he's sent since Wednesday (the week Invoices uses), each order at its
-   supplier's kept prices before GST (InvoiceEngine.weekOrdered), so "about". It floats like a supplier's order head.
-   What's in a cart counts once it's sent. Here only: never a message, an email or Pluto. */
-function weekHeadHTML(){
-  if(typeof InvoiceEngine === 'undefined') return '';
-  const from = getCurrentWeekStart(), units = {};
-  state.suppliers.forEach(s => (s.products || []).forEach(p => { units[p.id] = p.unit; }));
-  const r = InvoiceEngine.weekOrdered({ orders: readOrderHistory(), from: from, prices: invLoad(INV_PRICES_KEY, []), units: units });
-  const since = 'since ' + invDayLabel(from);
-  if(!r.orders) return `<div class="week-head">This week: nothing sent yet<div class="week-sub">${escapeHtml(since)}</div></div>`;
-  const sent = r.orders + ' order' + (r.orders === 1 ? '' : 's') + ' sent ' + since;
-  const un = r.unpriced ? ` · <span class="cart-un">${r.unpriced} item${r.unpriced === 1 ? '' : 's'} not priced yet</span>` : '';
-  if(!r.priced) return `<div class="week-head">This week: <b>${escapeHtml(sent)}</b><div class="week-sub"><span class="cart-un">no prices kept for them yet</span></div></div>`;
-  return `<div class="week-head">This week: about <b>${invMoney(r.total)}</b> ordered<div class="week-sub">${escapeHtml(sent)}${un}</div></div>`;
-}
+/* v3.11.63's white "This week: about $X ordered" line was here; Y (his pick, 21 Nov) puts the black "Spent this week"
+   header (spendHeadHTML) in its place. */
 /* v3.11.63: a unit as The Pass's prices read it (InvoiceEngine's MEASURE): kg or L, or '' for a box, a bunch, each… */
 function upMeasure(u){ u = String(u || '').toLowerCase(); return /^(kg|kgs)$/.test(u) ? 'kg' : /^(l|lt|ltr|litre|litres)$/.test(u) ? 'L' : ''; }
 function upPer(u){ return u === 'each' ? 'each' : 'per ' + u; }
@@ -6835,7 +7144,7 @@ function attachHandlers(){
   if(invClear){
     invClear.addEventListener('click', ()=>{
       if(!confirm('Clear every invoice logged this week? Your archive elsewhere is untouched.')) return;
-      clearInvoiceWeek();
+      spendClearWeek();   // Y: this Monday-to-Sunday week's amounts
     });
   }
   document.querySelectorAll('[data-invoice-add]').forEach(btn => {
@@ -6862,7 +7171,7 @@ function attachHandlers(){
     btn.addEventListener('click', () => {
       const supplierId = btn.dataset.invoiceDel;
       const index = parseInt(btn.dataset.index, 10);
-      const weekKey = getCurrentWeekStart();
+      const weekKey = btn.dataset.wk || getCurrentWeekStart();   // Y: this week's amount may be kept under last Wednesday's week
       const weekData = state.invoices[weekKey];
       if(weekData && weekData[supplierId]) {
         weekData[supplierId].splice(index, 1);
@@ -8160,16 +8469,16 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.75"></script>
+<script src="move-data.js?v=3.11.76"></script>
 <!-- v3.11.28: the function doc reader. A separate file too: if it fails, only "From management's doc" says so. -->
-<script src="function-reader.js?v=3.11.75"></script>
+<script src="function-reader.js?v=3.11.76"></script>
 <!-- v3.11.30: the invoice rules. A separate file too: if it fails, only bringing in an invoice says so. -->
-<script src="invoice-engine.js?v=3.11.75"></script>
+<script src="invoice-engine.js?v=3.11.76"></script>
 <!-- v3.11.31: the supplier readers for a scanned invoice (Aziz's so far). -->
-<script src="invoice-readers.js?v=3.11.75"></script>
+<script src="invoice-readers.js?v=3.11.76"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.75"></script>
-<script src="voice-brain.js?v=3.11.75"></script>
-<script src="voice.js?v=3.11.75"></script>
+<script src="roster-engine.js?v=3.11.76"></script>
+<script src="voice-brain.js?v=3.11.76"></script>
+<script src="voice.js?v=3.11.76"></script>
 </body>
 </html>
