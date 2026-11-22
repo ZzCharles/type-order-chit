@@ -129,7 +129,10 @@ function heardFix(text){
     // v3.11.75 (Z1; his log #754, 12 Nov: "4 boxes of pizza dough on the Aura"): Google's "the order"
     .replace(/\b(on|to|onto|off|from|in) (?:(the|my) aura|deora)\b/gi, function(all, prep, the){ return prep + ' ' + (the || 'the') + ' order'; })
     // v3.11.75 (Z1; his log, 13 Nov: "add sundry tomatoes as a new ordering item"): Sundried, before tomatoes
-    .replace(/\bsundry(?=\s+tomato)/gi, 'sundried');
+    .replace(/\bsundry(?=\s+tomato)/gi, 'sundried')
+    /* v3.11.77 (Pluto's Z9a; his log #819, 15 Nov: "add full bottles of Coke"): Google's "full" for "four", after an add
+       word and only before a plural count word ("full cream milk", "a full box of …" and "the fridge is full" stay) */
+    .replace(/(^|\b(?:add|order|get|need|plus|and|also)\s+)full(?=\s+(?:bottles|boxes|kilos|kgs|packets|packs|punnets|trays|tins|cans|bags|tubs|cartons|cases|bunches|litres|liters|blocks|rolls|jars|sleeves|pieces|plates|loaves|buckets)\b)/gi, '$1four');
 }
 function stem(w){
   if(IRREG[w]) return IRREG[w];   // v3.11.17: before the short-word rule, for "veg"
@@ -7123,7 +7126,7 @@ function createRoom(host){
 }
 
 return {
-  version: 'v3.11.76',
+  version: 'v3.11.77',
   parseClock: parseClock, clockMin: clockMin, timeSay: timeSay, hoursSay: hoursSay, serviceDate: serviceDate, tsIntent: tsIntent, rosterIntent: rosterIntent,
   rosterTime: rbTime, rosterClauses: rbClauses, heardFix: heardFix,
   clean: clean, toks: toks, stem: stem, readNumber: readNumber, readQty: readQty, numbersIn: numbersIn, teenTen: teenTen,
