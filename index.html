@@ -811,6 +811,9 @@ body:has(.week-head),body:has(.spend-head){align-items:flex-start;}
 .rstaff .sn-strip{margin:0 0 8px;}
 .rday-tab{position:relative;}
 .sn-dot{position:absolute;top:4px;right:6px;width:6px;height:6px;border-radius:50%;background:#D99A2B;}
+/* Z8 (his #836 and his pick B, 22 Nov): a gold edge on a roster day that has a function */
+.rday-tab.has-fn{border:2px solid var(--mustard);padding:8px 0;}
+.rday-tab.has-fn.active{border-color:var(--mustard);box-shadow:inset 0 0 0 2px var(--mustard);}
 .pl-fold{display:flex;justify-content:space-between;align-items:baseline;margin-top:16px;}
 .pl-q{font-size:13.5px;font-weight:700;margin-top:8px;}
 .pl-acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;align-items:center;}
@@ -925,7 +928,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.77';
+const APP_VERSION = 'v3.11.78';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -1633,6 +1636,7 @@ async function fetchFunctions(){
     // never redraw over a form being filled in, or typing is lost
     const editing = state.view.name === 'fnEdit' || state.view.name === 'fnTiers';
     if(state.view.name && state.view.name.indexOf('fn') === 0) bgRender();
+    if(state.view.name === 'rosterBuild') rosterFnEdges();   // Z8: the gold edges, in place
   }catch(e){
     if(!state.tiers.length) state.tiers = TIER_SEED.slice();
   }
@@ -5975,6 +5979,11 @@ function renderTimesheet(){
   `;
 }
 
+/* Z8 (his #836 and his pick B, 22 Nov): a day of the week shown on Build Roster that has one of The Pass's functions */
+function rosterFnOn(k){ const d = rosterDateOf(rosterWeek, k); return (state.functions||[]).some(f => f && f.date === d); }
+/* Z8: when the functions arrive with Build Roster open, its gold edges are set in place, never by a redraw
+   (Build Roster isn't one of the EDIT_VIEWS, so a redraw would close a shift time being picked) */
+function rosterFnEdges(){ document.querySelectorAll('.rday-tab[data-rday]').forEach(b => b.classList.toggle('has-fn', rosterFnOn(b.dataset.rday))); }
 function renderRosterBuild(){
   const roster = rosterFor(rosterWeek);
   const weekWord = rosterWeek === 'next' ? 'next week' : 'this week';
@@ -5983,7 +5992,8 @@ function renderRosterBuild(){
   const dayTabs = [['wed','Wed'],['thu','Thu'],['fri','Fri'],['sat','Sat'],['sun','Sun']];
   // v3.11.58: a dot on a day with a note about someone on the staff list
   const snDot = k => snOn(rosterDateOf(rosterWeek, k)).some(n => state.staff.some(st => String(st.id) === n.sid));
-  const tabs = dayTabs.map(([k,lbl])=>`<button class="rday-tab ${rosterDay===k?'active':''}" data-rday="${k}">${lbl}${snDot(k) ? '<i class="sn-dot"></i>' : ''}</button>`).join('');
+  // Z8 (his pick B): a gold edge on a day with a function
+  const tabs = dayTabs.map(([k,lbl])=>`<button class="rday-tab ${rosterDay===k?'active':''}${rosterFnOn(k)?' has-fn':''}" data-rday="${k}">${lbl}${snDot(k) ? '<i class="sn-dot"></i>' : ''}</button>`).join('');
   const entries = roster[rosterDay] || {};
   const dayDate = rosterDateOf(rosterWeek, rosterDay);
   const isOn = st => !!(entries[st.id] && entries[st.id].start);
@@ -8469,16 +8479,16 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.77"></script>
+<script src="move-data.js?v=3.11.78"></script>
 <!-- v3.11.28: the function doc reader. A separate file too: if it fails, only "From management's doc" says so. -->
-<script src="function-reader.js?v=3.11.77"></script>
+<script src="function-reader.js?v=3.11.78"></script>
 <!-- v3.11.30: the invoice rules. A separate file too: if it fails, only bringing in an invoice says so. -->
-<script src="invoice-engine.js?v=3.11.77"></script>
+<script src="invoice-engine.js?v=3.11.78"></script>
 <!-- v3.11.31: the supplier readers for a scanned invoice (Aziz's so far). -->
-<script src="invoice-readers.js?v=3.11.77"></script>
+<script src="invoice-readers.js?v=3.11.78"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.77"></script>
-<script src="voice-brain.js?v=3.11.77"></script>
-<script src="voice.js?v=3.11.77"></script>
+<script src="roster-engine.js?v=3.11.78"></script>
+<script src="voice-brain.js?v=3.11.78"></script>
+<script src="voice.js?v=3.11.78"></script>
 </body>
 </html>
