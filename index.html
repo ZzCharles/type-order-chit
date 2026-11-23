@@ -814,6 +814,16 @@ body:has(.week-head),body:has(.spend-head){align-items:flex-start;}
 /* Z8 (his #836 and his pick B, 22 Nov): a gold edge on a roster day that has a function */
 .rday-tab.has-fn{border:2px solid var(--mustard);padding:8px 0;}
 .rday-tab.has-fn.active{border-color:var(--mustard);box-shadow:inset 0 0 0 2px var(--mustard);}
+/* Z10 (his pick A, 23 Nov): the switch for the week's functions on the published roster, above Publish */
+.rfn-row{display:flex;align-items:center;gap:10px;width:100%;margin-top:18px;padding:10px 12px;border:2px solid var(--mustard);border-radius:12px;background:#FBF4E6;font-family:inherit;color:var(--ink);text-align:left;cursor:pointer;}
+.rfn-star{color:var(--mustard);font-size:18px;line-height:1;}
+.rfn-t{flex:1;min-width:0;font-size:12px;line-height:1.35;}
+.rfn-t b{display:block;font-size:12.5px;}
+.rfn-t span{color:var(--muted);font-size:11px;}
+.rfn-sw{position:relative;flex:none;width:44px;height:26px;border-radius:13px;background:#ccc8b8;}
+.rfn-sw::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:left .15s;}
+.rfn-row.on .rfn-sw{background:var(--mustard);}
+.rfn-row.on .rfn-sw::after{left:21px;}
 .pl-fold{display:flex;justify-content:space-between;align-items:baseline;margin-top:16px;}
 .pl-q{font-size:13.5px;font-weight:700;margin-top:8px;}
 .pl-acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;align-items:center;}
@@ -928,7 +938,7 @@ function categoryChipsHTML(selected){
   `;
 }
 /* Single place the version lives. Update this and the header follows. */
-const APP_VERSION = 'v3.11.78';
+const APP_VERSION = 'v3.11.79';
 
 let state = {
   suppliers: [], staff: [], roster: {}, rosterNext: {}, timesheet: {}, invoices: {},
@@ -954,6 +964,7 @@ let ticketDateMode = 'tomorrow';
 let rosterDay = 'wed';
 let rosterShowAll = false;
 let rosterWeek = 'this';   // which week Build Roster is editing: 'this' or 'next'
+let rosterFnShow = '';     // Z10: the Monday of the week whose functions go on the published roster ('' = off); never kept
 const ROSTER_KEY = 'order-chit-roster';
 const STATIONS = ['Oven','Dough','Pasta','Toppings','Finisher','KH'];
 const ROSTER_DAY_KEYS = ['wed','thu','fri','sat','sun'];
@@ -2027,7 +2038,32 @@ function syncTimeField(el){
   span.classList.toggle('tf-empty', !el.value);
 }
 function stationRank(s){ const i = STATIONS.indexOf(s); return i<0 ? 99 : i; }
-function buildRosterText(which){
+/* Z10 (his ask and his picks A, P1, W1, 23 Nov; ../Pluto/plans/Z10-roster-publish-functions.md): the week's
+   functions on the published roster, only when he switches it on (Build Roster, above Publish; off each time
+   Build Roster opens, and for that week only). Only "Function", the day and the head count: never the
+   function's name (the client), its time, notes or anything else. Switched off, nothing is passed to the text
+   or the picture, so they are exactly as before. */
+function rosterFnDays(which){
+  const fns = state.functions || [];
+  return ROSTER_DAY_KEYS.map(k => {
+    const d = rosterDateOf(which, k);
+    const pax = fns.filter(f => f && f.date === d).map(f => Math.max(0, Math.round(+f.pax || 0)));
+    return { k, n: pax.length, pax: pax.filter(p => p > 0) };
+  }).filter(x => x.n > 0);
+}
+function rosterFnOnFor(which){ return rosterFnShow !== '' && rosterFnShow === rosterMonday(which); }
+function rosterFnPax(x){ return x.pax.length ? x.pax.join(' + ') + ' pax' : ''; }
+/* "Note: Function on Friday (40 pax)." / "Note: Functions on Friday (40 pax) and Saturday (25 + 30 pax)." */
+function rosterFnNote(days){
+  if(!days || !days.length) return '';
+  const total = days.reduce((a, x) => a + x.n, 0);
+  const parts = days.map(x => ROSTER_DAY_FULL[x.k] + (x.pax.length ? ' (' + rosterFnPax(x) + ')' : ''));
+  const list = parts.length === 1 ? parts[0] : parts.slice(0, -1).join(', ') + ' and ' + parts[parts.length - 1];
+  return 'Note: ' + (total === 1 ? 'Function' : 'Functions') + ' on ' + list + '.';
+}
+/* the picture's words on the day's line: "Function: 40 pax" / "2 functions: 25 + 30 pax" / "Function" */
+function rosterFnPicWords(x){ return (x.n === 1 ? 'Function' : x.n + ' functions') + (x.pax.length ? ': ' + rosterFnPax(x) : ''); }
+function buildRosterText(which, fnDays){
   const roster = rosterFor(which);
   const blocks = [];
   ROSTER_DAY_KEYS.forEach(k=>{
@@ -2051,8 +2087,10 @@ function buildRosterText(which){
     blocks.push(lines.join('\n'));
   });
   if(blocks.length === 0) return '';
+  const fnNote = rosterFnNote(fnDays);   // Z10: '' unless he switched it on and the week has a function
   return 'Hey guys,\n\nPlease find the roster for ' + (which === 'next' ? 'next week' : 'this week') + ':\n\n'
     + blocks.join('\n\n')
+    + (fnNote ? '\n\n' + fnNote : '')
     + '\n\nThank you';
 }
 
@@ -3337,7 +3375,8 @@ function fmtHM(hhmm){ const p = String(hhmm).split(':'), h = +p[0], m = +p[1]; r
 /* the drawing: "C · Night" */
 const PIC = { W: 1080, pad: 46, font: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
   ink: '#eaf0fb', soft: 'rgba(234,240,251,0.75)', muted: 'rgba(214,226,248,0.6)', day: '#9ccfff', time: '#d5e2f7',
-  card: 'rgba(18,28,58,0.72)', cardLine: 'rgba(150,180,235,0.16)', rowLine: 'rgba(150,180,235,0.10)', head: 'rgba(124,192,255,0.10)', headLine: 'rgba(124,192,255,0.28)' };
+  card: 'rgba(18,28,58,0.72)', cardLine: 'rgba(150,180,235,0.16)', rowLine: 'rgba(150,180,235,0.10)', head: 'rgba(124,192,255,0.10)', headLine: 'rgba(124,192,255,0.28)',
+  fn: '#e8b44c' };   // Z10: a function day's gold (his pick P1)
 function picCircle(cx, cy, r){ return 'M' + (cx - r) + ' ' + cy + 'a' + r + ' ' + r + ' 0 1 0 ' + (2 * r) + ' 0a' + r + ' ' + r + ' 0 1 0 ' + (-2 * r) + ' 0'; }
 /* the sections' small icons (24-unit line drawings) and colours */
 const PIC_ICON = {
@@ -3390,7 +3429,13 @@ function picIcon(ctx, cx, cy, station){
   ctx.stroke(new Path2D(ic[1]));
   ctx.restore();
 }
-function drawRosterPicture(which){
+/* Z10: a five-point star, drawn (not a font's character, which a phone may not have) */
+function picStar(ctx, cx, cy, r, color){
+  ctx.save(); ctx.beginPath();
+  for(let i = 0; i < 10; i++){ const a = -Math.PI / 2 + i * Math.PI / 5, rr = i % 2 ? r * 0.45 : r; ctx.lineTo(cx + rr * Math.cos(a), cy + rr * Math.sin(a)); }
+  ctx.closePath(); ctx.fillStyle = color; ctx.shadowColor = color; ctx.shadowBlur = 14; ctx.fill(); ctx.restore();
+}
+function drawRosterPicture(which, fnDays){
   const roster = rosterFor(which), dates = rosterPicDates(which);
   const days = ROSTER_DAY_KEYS.map((k, i)=>{
     const entries = roster[k] || {};
@@ -3399,7 +3444,7 @@ function drawRosterPicture(which){
       if(ra !== rb) return ra - rb;
       return (entries[a.id].start || '').localeCompare(entries[b.id].start || '');
     }).map(st=>{ const e = entries[st.id]; return { name: st.name, station: e.station || '', time: e.end ? fmtTime(e.start, true) + ' \u2013 ' + fmtTime(e.end, true) : fmtTime(e.start, true) }; });
-    return { label: ROSTER_DAY_FULL[k] + ' ' + picDate(dates[i]).day, rows: rows };
+    return { label: ROSTER_DAY_FULL[k] + ' ' + picDate(dates[i]).day, rows: rows, fn: (fnDays || []).find(x => x.k === k) || null };   // Z10
   });
   const h = 48 + 261 + days.reduce((a, d)=> a + PIC_DAYTOP + Math.max(1, d.rows.length) * PIC_ROW + PIC_DAYEND + 27, 0) + 70;
   const { c, ctx } = picStart(h);
@@ -3409,6 +3454,12 @@ function drawRosterPicture(which){
     const ch = PIC_DAYTOP + Math.max(1, d.rows.length) * PIC_ROW + PIC_DAYEND;
     picBox(ctx, x, y, w, ch, 33, PIC.card, PIC.cardLine);
     picText(ctx, d.label, x + 36, y + 62, 36, 700, PIC.day);
+    if(d.fn){   // Z10 (his pick P1): a gold star and "Function: 40 pax" on the day's line, on the right
+      ctx.font = '700 36px ' + PIC.font;
+      const words = picFit(ctx, rosterFnPicWords(d.fn), w - 72 - ctx.measureText(d.label).width - 90);
+      picText(ctx, words, x + w - 36, y + 62, 36, 700, PIC.fn, 'right');
+      picStar(ctx, x + w - 36 - ctx.measureText(words).width - 30, y + 50, 17, PIC.fn);
+    }
     let ry = y + PIC_DAYTOP;
     if(!d.rows.length) picText(ctx, 'No shifts', x + 36, ry + 72, 39, 400, PIC.muted);
     d.rows.forEach((r, i)=>{
@@ -3497,6 +3548,7 @@ function goto(view){
   else if(view.id && !ROOM) timedNoteClear(view.id);  // v3.11.74: he opened the order: its "cancelled" or "did NOT go" note has done its job (never on a redraw)
   if(SPEND_VIEWS.indexOf(view.name) < 0){ state.sp = null; state.spFrom = ''; state.spOrderFrom = null; }   // Y
   if(view.name !== 'invKept') state.keptFrom = null;
+  if(view.name !== 'rosterBuild') rosterFnShow = '';   // Z10: the functions switch is off again after leaving Build Roster
   state.view = view; animate(render);   // v3.11.45: no history step per screen (the phone's Back goes one level up: upBack)
 }
 function findSupplier(id){ return state.suppliers.find(s=>s.id===id); }
@@ -5983,7 +6035,19 @@ function renderTimesheet(){
 function rosterFnOn(k){ const d = rosterDateOf(rosterWeek, k); return (state.functions||[]).some(f => f && f.date === d); }
 /* Z8: when the functions arrive with Build Roster open, its gold edges are set in place, never by a redraw
    (Build Roster isn't one of the EDIT_VIEWS, so a redraw would close a shift time being picked) */
-function rosterFnEdges(){ document.querySelectorAll('.rday-tab[data-rday]').forEach(b => b.classList.toggle('has-fn', rosterFnOn(b.dataset.rday))); }
+function rosterFnEdges(){
+  document.querySelectorAll('.rday-tab[data-rday]').forEach(b => b.classList.toggle('has-fn', rosterFnOn(b.dataset.rday)));
+  const slot = document.getElementById('roster-fn-slot');   // Z10: the functions switch, set in place too
+  if(slot) slot.innerHTML = rosterFnRowHTML();
+}
+/* Z10 (his pick A): the switch above Publish, only in a week with a function; off until he taps it */
+function rosterFnRowHTML(){
+  const days = rosterFnDays(rosterWeek);
+  if(!days.length) return '';
+  const on = rosterFnOnFor(rosterWeek);
+  const sub = days.map(x => ROSTER_DAY_FULL[x.k].slice(0, 3) + (x.pax.length ? ' &middot; ' + rosterFnPax(x) : '')).join(', ');
+  return `<button type="button" class="rfn-row${on ? ' on' : ''}" role="switch" aria-checked="${on}" data-rfn-show="1"><span class="rfn-star">&#9733;</span><span class="rfn-t"><b>Show functions on the roster</b><span>${sub}</span></span><i class="rfn-sw"></i></button>`;
+}
 function renderRosterBuild(){
   const roster = rosterFor(rosterWeek);
   const weekWord = rosterWeek === 'next' ? 'next week' : 'this week';
@@ -6050,6 +6114,7 @@ function renderRosterBuild(){
     ${listedHtml}
     ${offHtml}
     ${showAllBtn}
+    <div id="roster-fn-slot">${rosterFnRowHTML()}</div>
     <div style="margin-top:18px;"><button class="btn btn-block" id="roster-publish">Publish ${rosterWeek==='next'?'Next':'This'} Week &rarr;</button></div>
     <div style="margin-top:10px;"><button class="btn btn-ghost btn-block" id="roster-copy">Copy Roster Text</button></div>
     <textarea class="copybox" id="roster-copy-area" style="display:none;" readonly></textarea>
@@ -6847,19 +6912,26 @@ function attachHandlers(){
     saveRoster(); rerenderKeepScroll();
     showToast(n ? 'Copied, '+n+' cover shift'+(n===1?'':'s')+' left out' : "Copied this week's roster");
   });
+  const rfnSlot = document.getElementById('roster-fn-slot');
+  if(rfnSlot) rfnSlot.addEventListener('click', ev=>{   // Z10: the switch, changed in place (no redraw)
+    if(!ev.target.closest('[data-rfn-show]')) return;
+    rosterFnShow = rosterFnOnFor(rosterWeek) ? '' : rosterMonday(rosterWeek);
+    rfnSlot.innerHTML = rosterFnRowHTML();
+  });
   const rpub = document.getElementById('roster-publish');
   if(rpub) rpub.addEventListener('click', ()=>{
-    const text = buildRosterText(rosterWeek);
+    const fnDays = rosterFnOnFor(rosterWeek) ? rosterFnDays(rosterWeek) : null;   // Z10: only when he switched it on
+    const text = buildRosterText(rosterWeek, fnDays);
     if(!text){ showToast('Roster is empty'); return; }
     const which = rosterWeek, dates = rosterPicDates(which);
     /* v3.11.21: a picture or the text (his pick: one button, then pick); either marks the week (v3.11.18: Pluto counts a week he has published) */
     chooseShare({ what: 'the roster', range: picRange(dates[0], dates[4]),
       text: ()=>{ markRosterPublished(which); shareText(text, 'roster-copy-area'); },
-      picture: ()=>{ markRosterPublished(which); sharePicture(drawRosterPicture(which), 'roster', text, 'roster-copy-area'); } });
+      picture: ()=>{ markRosterPublished(which); sharePicture(drawRosterPicture(which, fnDays), 'roster', text, 'roster-copy-area'); } });
   });
   const rcopy = document.getElementById('roster-copy');
   if(rcopy) rcopy.addEventListener('click', ()=>{
-    const text = buildRosterText(rosterWeek);
+    const text = buildRosterText(rosterWeek, rosterFnOnFor(rosterWeek) ? rosterFnDays(rosterWeek) : null);   // Z10
     if(!text){ showToast('Roster is empty'); return; }
     navigator.clipboard.writeText(text).then(()=>showToast('Roster copied')).catch(()=>{
       const area = document.getElementById('roster-copy-area');
@@ -8479,16 +8551,16 @@ if('serviceWorker' in navigator && !ROOM){   // v3.11.4: the Almo tab keeps the 
 }
 </script>
 <!-- v3.11.3: Move my data's rules. A separate file too: if it fails, only Move my data says so. -->
-<script src="move-data.js?v=3.11.78"></script>
+<script src="move-data.js?v=3.11.79"></script>
 <!-- v3.11.28: the function doc reader. A separate file too: if it fails, only "From management's doc" says so. -->
-<script src="function-reader.js?v=3.11.78"></script>
+<script src="function-reader.js?v=3.11.79"></script>
 <!-- v3.11.30: the invoice rules. A separate file too: if it fails, only bringing in an invoice says so. -->
-<script src="invoice-engine.js?v=3.11.78"></script>
+<script src="invoice-engine.js?v=3.11.79"></script>
 <!-- v3.11.31: the supplier readers for a scanned invoice (Aziz's so far). -->
-<script src="invoice-readers.js?v=3.11.78"></script>
+<script src="invoice-readers.js?v=3.11.79"></script>
 <!-- v3.9.0: voice. Separate files, so a fault there can never stop the app itself. -->
-<script src="roster-engine.js?v=3.11.78"></script>
-<script src="voice-brain.js?v=3.11.78"></script>
-<script src="voice.js?v=3.11.78"></script>
+<script src="roster-engine.js?v=3.11.79"></script>
+<script src="voice-brain.js?v=3.11.79"></script>
+<script src="voice.js?v=3.11.79"></script>
 </body>
 </html>
